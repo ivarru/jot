@@ -1,0 +1,31 @@
+{
+  "name": "jot",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vinxi dev",
+    "build": "vinxi build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173 --outDir .output/public",
+    "start": "vinxi start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@milkdown/kit": "^7.13.1",
+    "@solidjs/meta": "^0.29.4",
+    "@solidjs/router": "^0.15.3",
+    "@solidjs/start": "^1.1.0",
+    "solid-js": "^1.9.9",
+    "ulid": "^3.0.1",
+    "vinxi": "^0.5.8"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/user-event": "^14.6.1",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
+  }
+}

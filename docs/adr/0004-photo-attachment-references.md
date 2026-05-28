@@ -1,0 +1,3 @@
+# Reference Image Attachments with markdown image syntax
+
+Image Attachments will appear in Daily Notes as ordinary markdown image syntax with a `jot:image:<id>` target, where the ID is a Jot-generated ULID rather than a Google Photos or other storage-provider identifier. Full attachment details live in separate Attachment Metadata. This preserves visible placement in the plain markdown file without embedding Google Photos metadata or source-image provenance into the note text. The trade-off is that attachment images require Jot to resolve them, but outside editors can still show the attachment intent as normal markdown image markup.

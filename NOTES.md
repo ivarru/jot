@@ -1,0 +1,58 @@
+# Notes
+
+## Revisit Later
+
+- Consider an explicit cleanup workflow for Image Attachments that are no longer referenced by any Daily Note.
+- Try Milkdown first as the FOSS markdown editor candidate; accept a close-enough WYSIWYG-like editor if it preserves markdown as the source of truth. Fall back to CodeMirror 6 if round-trip/source preservation is too weak.
+- Keep polling and auto-save intervals easy to configure; static v1 cannot depend on a webhook receiver for Google Drive push notifications.
+- Require Google authentication for first-time setup; after setup, allow offline Daily Note editing from local state and sync later.
+- Prefer narrow Google OAuth scopes, especially Drive app-created-file access (`drive.file`) instead of broad Drive access, subject to verification during implementation.
+- Prefer markdown libraries that can optionally render useful extensions such as Mermaid diagrams without making those extensions part of the core file format.
+- New Daily Notes start empty in v1; configurable templates can be reconsidered later.
+- Switching the Selected Date must persist the current Daily Note as a Local Draft first; Drive Sync must not block date navigation.
+- Support light and dark modes by following the system theme only; do not provide a manual theme override.
+- Show compact sync status in the editor, distinguishing local draft durability from Drive Sync state, including conflict state.
+- V1 navigation is date-based only; no full file browser or search.
+- Create the Jot Folder and Daily Notes Folder during setup if missing; create a Daily Note file lazily on first edit for its Selected Date.
+- Treat the expected filename in the Daily Notes Folder as the Daily Note identity even if the file was created outside Jot; surface a repair error instead of silently choosing when duplicates exist for a date.
+- Use SolidStart only through its static build path for v1; keep Google API, OAuth, local draft storage, and sync behavior browser-side. Fall back to plain Solid/Vite if static SolidStart becomes friction.
+- Represent Image Attachments in Daily Notes with ordinary markdown image syntax and a `jot:image:<id>` target, with full attachment details resolved through Attachment Metadata.
+- If Attachment Metadata is missing for an Attachment Reference, render a visible broken attachment placeholder and preserve the markdown unchanged.
+- Store Attachment Metadata in an `Image Attachments` child folder of the Jot Folder on Google Drive as one app-owned JSON file per Image Attachment named `<Image Attachment ID>.json`, with a local IndexedDB mirror.
+- Use ULIDs for Image Attachment IDs.
+- Offer Small, Medium, and Original as user-facing Image Attachment resolution choices; store exact resulting dimensions/bytes in Attachment Metadata after upload.
+- Default inserted Image Attachment alt text to empty, while allowing the user to edit the markdown alt text.
+- Support Google Photos as the first Image Attachment source; add local device upload only after the same attachment pipeline exists or if it is trivial to reuse.
+- Ship a text-only v1 vertical slice first; keep Image Attachment syntax/design settled but implement Google Photos attachments after Drive notes, local drafts, sync, conflicts, and editor basics work.
+- Require Google authentication before the first editor session; do not provide an anonymous local-only first-run mode.
+- Support one active Google account at a time; switching accounts requires signing out and logging in again.
+- Signing out clears local data for the active account. If unsynced Local Draft data would be lost, including while offline, require confirmation that explains the loss.
+- V1 should install/load as a PWA with offline app-shell caching after first visit; expired auth should show a reconnect state rather than a broken editor.
+- Host the static v1 app on GitHub Pages.
+- Use hash routing for v1 unless SolidStart static output provides a clean GitHub Pages-compatible fallback without refresh/deep-link 404s.
+- Encode the Selected Date in the URL, such as `#/date/YYYY-MM-DD`; default to today's local date when no date is present.
+- For invalid date URLs, show an invalid-date state with an option to jump to today; do not silently coerce the date or create a file.
+- If browser-local timezone/date changes while the app is open and the open note is no longer today, show that state and offer to jump to the new today; do not switch notes automatically.
+- On Drive Sync failure, keep editing enabled against the Local Draft, show degraded sync status, retry with configurable backoff, and preserve the last successful remote baseline for conflict detection.
+- Represent Sync Conflicts in markdown with Git-style markers: `<<<<<<< Local Draft`, `=======`, and `>>>>>>> Google Drive`.
+- Attempt automatic three-way merge for non-overlapping Daily Note edits only if a small well-tested library or simple reliable line-based merge is available; otherwise preserve both versions with conflict markers.
+- Sync conflict-marked Daily Note content to Drive so conflicts can be resolved on another device; v1 does not need special conflict-resolution UI.
+- Visually highlight Git-style conflict markers if the editor/library makes it cheap, but rely on the plain text markers as the core mechanism.
+- Do not maintain local history beyond the current Local Draft and last successful remote baseline in v1; rely on Google Drive revision history for older versions.
+- Do not expose Google Drive revision history inside Jot in v1; use Drive's own UI for revision recovery.
+- Store configurable polling/autosave intervals in a Drive-backed Jot Settings JSON file in the Jot Folder as the source of truth, mirrored locally; use sensible defaults if missing.
+- Include a minimal settings UI for sync timing: autosave debounce, clean polling interval, dirty polling interval, and retry/backoff bounds.
+- Use simple last-write-wins for Jot Settings sync; Git-style conflict markers apply to Daily Notes, not JSON settings.
+- Do not include theme mode in Jot Settings; the app always follows the system theme.
+- Persist Local Drafts aggressively with a short debounce, and force a local flush on blur, visibility hidden, date switch, and before Drive Sync.
+- Keep Local Draft debounce out of the settings UI, but define it as an easy-to-change source-level constant/config value.
+- Use TypeScript strict mode from the start.
+- Add automated tests early for pure logic: date-to-filename mapping, invalid date parsing, conflict detection/merge behavior, settings validation/defaults, and attachment reference parsing.
+- Add Playwright browser/PWA smoke tests after the first vertical slice, covering mocked auth, app shell/editor load, offline shell loading, date navigation, system theme behavior, local draft persistence across reload, and basic editor typing.
+- Wrap OAuth and Google Drive/Photos API calls behind narrow local interfaces from day one so sync logic and UI can be tested with fake implementations.
+- Implement a fake in-browser storage provider before real Google Drive; it should mimic revision IDs and conflict behavior, not just read/write strings.
+- Keep the fake storage provider development/test-only; do not expose a production local-only/demo mode.
+- Prefer Google Identity Services Authorization Code with PKCE for OAuth in the static app if it works cleanly on GitHub Pages; use the GIS token client as fallback. Avoid the old implicit flow.
+- Do not persist OAuth access tokens in browser storage for v1; keep tokens in memory where possible and rely on GIS reauthorization/reconnect while preserving Local Drafts.
+- If `drive.file` prevents automatic discovery of an existing manually-created Jot Folder, use explicit user selection/opening or Google Picker, or create a new app-owned folder; do not broaden to full Drive scope by default.
+- First milestone: local/fake-storage text-only PWA skeleton with SolidStart static output, strict TypeScript, system theme, date header/date picker/hash route, Milkdown editor, Local Draft persistence, fake storage revisions/conflicts, sync timing settings UI, and pure logic unit tests. No real Google OAuth yet.
