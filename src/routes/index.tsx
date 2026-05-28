@@ -1,10 +1,13 @@
 import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } from "solid-js";
+import { ImageAttachmentFlow, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { GoogleIdentityTokenProvider } from "~/auth/googleIdentity";
-import { ENABLE_FAKE_AUTH, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
+import { ENABLE_FAKE_AUTH, ENABLE_IMAGE_ATTACHMENTS, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
 import { MilkdownEditor } from "~/components/MilkdownEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
+import { appendImageAttachmentReference } from "~/domain/attachmentReferences";
 import { addDays, dayOfWeek, isToday, parseIsoDate, todayIsoDate, type IsoDate } from "~/domain/dates";
+import type { ImageAttachmentResolution } from "~/domain/imageAttachments";
 import { DEFAULT_JOT_SETTINGS, normalizeJotSettings, type JotSettings } from "~/domain/settings";
 import {
   canEditSelectedDate,
@@ -23,6 +26,14 @@ import {
   syncDirtyDailyNoteDrafts
 } from "~/sync/syncDailyNote";
 import { resolveSyncErrorRetry, type SyncErrorState } from "~/sync/syncErrorRetry";
+import {
+  GOOGLE_PHOTOS_APPENDONLY_SCOPE,
+  GOOGLE_PHOTOS_PICKER_SCOPE,
+  GooglePhotosAttachmentProvider,
+  preservePickerUri,
+  type GooglePhotosPickingSession,
+  type PickedGooglePhotosMediaItem
+} from "~/photos/googlePhotosAttachments";
 
 const drafts = new IndexedDbLocalDraftStore();
 
@@ -33,9 +44,12 @@ type StorageRuntime =
     }
   | {
       readonly kind: "google";
-      readonly remote: RemoteStorageProvider;
+      readonly remote: GoogleDriveStorageProvider;
       readonly tokenProvider: AccessTokenProvider;
+      readonly imageAttachments: ImageAttachmentFlow | null;
     };
+
+type ImageAttachmentStatus = "idle" | "starting" | "waiting" | "choosing" | "importing";
 
 export default function Home() {
   const runtime = createStorageRuntime();
@@ -53,6 +67,15 @@ export default function Home() {
   const [lastSyncError, setLastSyncError] = createSignal<SyncErrorState | null>(null);
   const [settings, setSettings] = createSignal<JotSettings>(DEFAULT_JOT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  const [editorResetKey, setEditorResetKey] = createSignal(0);
+  const [imageAttachmentStatus, setImageAttachmentStatus] = createSignal<ImageAttachmentStatus>("idle");
+  const [imageAttachmentError, setImageAttachmentError] = createSignal<string | null>(null);
+  const [imageAttachmentDate, setImageAttachmentDate] = createSignal<IsoDate | null>(null);
+  const [imagePickingSession, setImagePickingSession] = createSignal<GooglePhotosPickingSession | null>(null);
+  const [pickedImage, setPickedImage] = createSignal<PickedGooglePhotosMediaItem | null>(null);
+  const [reusableImageAttachment, setReusableImageAttachment] = createSignal<ReusableImageAttachment | null>(null);
+  const [imageAttachmentAltText, setImageAttachmentAltText] = createSignal("");
+  const [importingImageResolutionName, setImportingImageResolutionName] = createSignal<string | null>(null);
   const [today, setToday] = createSignal(todayIsoDate());
   const [suppressLocalPersist, setSuppressLocalPersist] = createSignal(false);
 
@@ -67,6 +90,11 @@ export default function Home() {
   const shouldOfferNewToday = createMemo(() => {
     const date = selectedDate();
     return date !== null && date !== today();
+  });
+  const imageAttachmentResolutionChoices = createMemo(() => {
+    const picked = pickedImage();
+    if (reusableImageAttachment() !== null || runtime.kind !== "google" || runtime.imageAttachments === null || picked === null) return [];
+    return runtime.imageAttachments.getAvailableResolutions(picked);
   });
 
   createEffect(() => {
@@ -91,11 +119,19 @@ export default function Home() {
       ([isAuthenticated, date]) => {
         if (!isAuthenticated || date === null) return;
 
-        setLoadedDate(null);
-        setLoadError(null);
-        setLastSyncError(null);
-        replaceMarkdownFromStorage("");
-        void loadSelectedDate(date);
+	        setLoadedDate(null);
+	        setLoadError(null);
+	        setLastSyncError(null);
+	        setImageAttachmentStatus("idle");
+	        setImageAttachmentError(null);
+	        setImageAttachmentDate(null);
+	        setImagePickingSession(null);
+	        setPickedImage(null);
+	        setReusableImageAttachment(null);
+	        setImageAttachmentAltText("");
+	        setImportingImageResolutionName(null);
+	        replaceMarkdownFromStorage("");
+	        void loadSelectedDate(date);
       },
       { defer: false }
     )
@@ -253,6 +289,146 @@ export default function Home() {
     });
   };
 
+  const startImagePick = async () => {
+    if (runtime.kind !== "google" || runtime.imageAttachments === null) return;
+    const date = selectedDate();
+    if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+
+    setImageAttachmentStatus("starting");
+    setImageAttachmentError(null);
+    setImagePickingSession(null);
+    setPickedImage(null);
+    setReusableImageAttachment(null);
+    setImageAttachmentAltText("");
+    setImportingImageResolutionName(null);
+    setImageAttachmentDate(date);
+    try {
+      const session = await runtime.imageAttachments.startPicking();
+      setImagePickingSession(session);
+      setImageAttachmentStatus("waiting");
+      if (session.pickerUri !== undefined) {
+        window.open(pickerAutocloseUrl(session.pickerUri), "_blank", "noopener,noreferrer");
+      }
+      void waitForPickedImage(session.id, date);
+    } catch (error: unknown) {
+      setImageAttachmentError(errorMessage(error));
+      setImageAttachmentStatus("idle");
+    }
+  };
+
+  const waitForPickedImage = async (sessionId: string, date: IsoDate) => {
+    if (runtime.kind !== "google" || runtime.imageAttachments === null) return;
+
+    try {
+      for (let attempt = 0; attempt < 90; attempt += 1) {
+        await delay(2000);
+        if (imagePickingSession()?.id !== sessionId || imageAttachmentDate() !== date) return;
+
+        const refreshedSession = preservePickerUri(
+          imagePickingSession(),
+          await runtime.imageAttachments.getPickingSession(sessionId)
+        );
+        setImagePickingSession(refreshedSession);
+        if (!refreshedSession.mediaItemsSet) continue;
+
+        const picked = await runtime.imageAttachments.getFirstPickedImage(sessionId);
+        if (picked === null) {
+          throw new Error("No image was selected in Google Photos.");
+        }
+
+        const reusable = await runtime.imageAttachments.findReusablePickedImage(picked);
+        setPickedImage(picked);
+        setReusableImageAttachment(reusable);
+        setImageAttachmentAltText(defaultImageAltText(picked, reusable));
+        setImageAttachmentStatus("choosing");
+        return;
+      }
+
+      throw new Error("Timed out waiting for a selected Google Photos image.");
+    } catch (error: unknown) {
+      if (imagePickingSession()?.id !== sessionId || imageAttachmentDate() !== date) return;
+      setImageAttachmentError(errorMessage(error));
+      setImageAttachmentStatus("waiting");
+    }
+  };
+
+  const insertPickedImage = async (selectedResolution: ImageAttachmentResolution) => {
+    const picked = pickedImage();
+    const date = imageAttachmentDate();
+    if (
+      runtime.kind !== "google" ||
+      runtime.imageAttachments === null ||
+      picked === null ||
+      date === null ||
+      !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() }) ||
+      selectedDate() !== date
+    ) return;
+
+    setImageAttachmentStatus("importing");
+    setImportingImageResolutionName(selectedResolution.name);
+    setImageAttachmentError(null);
+    try {
+      const inserted = await runtime.imageAttachments.importPickedImage({
+        picked,
+        selectedResolution,
+        altText: imageAttachmentAltText()
+      });
+      const nextMarkdown = appendImageAttachmentReference(markdown(), inserted.markdownReference);
+      setMarkdown(nextMarkdown);
+      setEditorResetKey((key) => key + 1);
+      setImagePickingSession(null);
+      setPickedImage(null);
+      setReusableImageAttachment(null);
+      setImageAttachmentDate(null);
+      setImageAttachmentAltText("");
+      setImportingImageResolutionName(null);
+      setImageAttachmentStatus("idle");
+      await saveAndSyncSnapshot(date, nextMarkdown);
+    } catch (error: unknown) {
+      setImageAttachmentError(errorMessage(error));
+      setImportingImageResolutionName(null);
+      setImageAttachmentStatus("choosing");
+    }
+  };
+
+  const insertReusablePickedImage = async () => {
+    const reusable = reusableImageAttachment();
+    const date = imageAttachmentDate();
+    if (
+      runtime.kind !== "google" ||
+      runtime.imageAttachments === null ||
+      reusable === null ||
+      date === null ||
+      !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() }) ||
+      selectedDate() !== date
+    ) return;
+
+    setImageAttachmentStatus("importing");
+    setImportingImageResolutionName("reuse");
+    setImageAttachmentError(null);
+    try {
+      const inserted = runtime.imageAttachments.insertReusableImage({
+        reusable,
+        altText: imageAttachmentAltText()
+      });
+      const nextMarkdown = appendImageAttachmentReference(markdown(), inserted.markdownReference);
+      setMarkdown(nextMarkdown);
+      setEditorResetKey((key) => key + 1);
+      setImagePickingSession(null);
+      setPickedImage(null);
+      setReusableImageAttachment(null);
+      setImageAttachmentDate(null);
+      setImageAttachmentAltText("");
+      setImportingImageResolutionName(null);
+      setImageAttachmentStatus("idle");
+      await saveAndSyncSnapshot(date, nextMarkdown);
+    } catch (error: unknown) {
+      setImageAttachmentError(errorMessage(error));
+      setImportingImageResolutionName(null);
+      setImageAttachmentStatus("choosing");
+    }
+  };
+
   const signOut = async () => {
     if (syncStatus() === "saved-locally" || syncStatus() === "conflict" || syncStatus() === "error") {
       const confirmed = window.confirm("Signing out will delete unsynced local data on this device.");
@@ -387,6 +563,94 @@ export default function Home() {
           </Show>
 
           <Show
+            when={
+              runtime.kind === "google" &&
+              runtime.imageAttachments !== null &&
+              canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() })
+            }
+          >
+            <section class="image-attachment-panel" aria-live="polite">
+              <div class="image-attachment-controls">
+                <button
+                  type="button"
+                  disabled={
+                    imageAttachmentStatus() === "starting" ||
+                    imageAttachmentStatus() === "waiting" ||
+                    imageAttachmentStatus() === "importing"
+                  }
+                  onClick={() => void startImagePick()}
+                >
+                  {imageAttachmentStatus() === "starting" ? "Opening Google Photos..." : "Insert image"}
+                </button>
+              </div>
+              <Show when={imagePickingSession()}>
+                {(session) => (
+                  <div class="image-attachment-session">
+                    <Show when={session().pickerUri}>
+                      {(pickerUri) => (
+                        <a href={pickerAutocloseUrl(pickerUri())} target="_blank" rel="noreferrer">
+                          Open Google Photos
+                        </a>
+                      )}
+                    </Show>
+                    <Show when={imageAttachmentStatus() === "waiting"}>
+                      <span>Waiting for image selection...</span>
+                    </Show>
+                  </div>
+                )}
+              </Show>
+              <Show when={pickedImage()}>
+                {(picked) => (
+                  <div class="image-attachment-import">
+                    <label>
+                      Alt text
+                      <input
+                        type="text"
+                        value={imageAttachmentAltText()}
+                        onInput={(event) => setImageAttachmentAltText(event.currentTarget.value)}
+                      />
+                    </label>
+                    <Show
+                      when={reusableImageAttachment()}
+                      fallback={
+                        <div class="image-attachment-sizes" aria-label="Image width">
+                          {imageAttachmentResolutionChoices().map((resolution) => (
+                            <button
+                              type="button"
+                              disabled={imageAttachmentStatus() === "importing"}
+                              onClick={() => void insertPickedImage(resolution)}
+                            >
+                              {importingImageResolutionName() === resolution.name
+                                ? "Importing..."
+                                : `${resolution.label}${resolution.name === "original" ? "" : ` (${resolution.maxWidth} px wide)`}`}
+                            </button>
+                          ))}
+                        </div>
+                      }
+                    >
+                      <div class="image-attachment-sizes">
+                        <button
+                          type="button"
+                          disabled={imageAttachmentStatus() === "importing"}
+                          onClick={() => void insertReusablePickedImage()}
+                        >
+                          {importingImageResolutionName() === "reuse" ? "Inserting..." : "Insert existing image"}
+                        </button>
+                      </div>
+                    </Show>
+                    <span class="image-attachment-source">
+                      {picked().mediaFile?.filename ?? "Selected image"}
+                    </span>
+                  </div>
+                )}
+              </Show>
+              <Show when={imageAttachmentError()}>
+                {(message) => <p class="image-attachment-error">{message()}</p>}
+              </Show>
+            </section>
+          </Show>
+
+          <Show
             when={canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() })}
             fallback={
               <Show when={loadError()} fallback={<div class="editor-loading">Loading note...</div>}>
@@ -412,6 +676,7 @@ export default function Home() {
           >
             <MilkdownEditor
               documentKey={selectedDate()!}
+              resetKey={editorResetKey()}
               value={markdown()}
               onChange={(documentKey, value) => {
                 const date = parseIsoDate(documentKey);
@@ -437,11 +702,19 @@ export default function Home() {
 
 function createStorageRuntime(): StorageRuntime {
   if (GOOGLE_CLIENT_ID) {
-    const tokenProvider = new GoogleIdentityTokenProvider(GOOGLE_CLIENT_ID, [GOOGLE_DRIVE_FILE_SCOPE]);
+    const scopes = [GOOGLE_DRIVE_FILE_SCOPE];
+    if (ENABLE_IMAGE_ATTACHMENTS) {
+      scopes.push(GOOGLE_PHOTOS_PICKER_SCOPE, GOOGLE_PHOTOS_APPENDONLY_SCOPE);
+    }
+    const tokenProvider = new GoogleIdentityTokenProvider(GOOGLE_CLIENT_ID, scopes);
+    const remote = new GoogleDriveStorageProvider(tokenProvider);
     return {
       kind: "google",
       tokenProvider,
-      remote: new GoogleDriveStorageProvider(tokenProvider)
+      remote,
+      imageAttachments: ENABLE_IMAGE_ATTACHMENTS
+        ? new ImageAttachmentFlow(new GooglePhotosAttachmentProvider(tokenProvider), remote)
+        : null
     };
   }
 
@@ -495,4 +768,19 @@ function syncStatusLabel(status: SyncStatus): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function pickerAutocloseUrl(pickerUri: string): string {
+  return pickerUri.endsWith("/autoclose") ? pickerUri : `${pickerUri.replace(/\/$/, "")}/autoclose`;
+}
+
+function defaultImageAltText(
+  picked: PickedGooglePhotosMediaItem,
+  reusable: ReusableImageAttachment | null
+): string {
+  return reusable?.metadata.source.filename ?? picked.mediaFile?.filename ?? "";
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

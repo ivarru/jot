@@ -2,6 +2,7 @@ import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
 
 interface MilkdownEditorProps {
   readonly documentKey: string;
+  readonly resetKey?: number;
   readonly value: string;
   readonly onChange: (documentKey: string, markdown: string) => void;
   readonly onBlur: (documentKey: string, markdown: string) => void;
@@ -13,7 +14,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 
   createEffect(
     on(
-      () => props.documentKey,
+      () => [props.documentKey, props.resetKey] as const,
       async () => {
         const documentKey = props.documentKey;
         let currentMarkdown = props.value;

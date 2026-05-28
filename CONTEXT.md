@@ -33,7 +33,7 @@ The original external image from which an **Image Attachment** was copied. It is
 _Avoid_: Source photo, original attachment, linked image
 
 **Jot Image Album**:
-The Google Photos album managed by Jot for **Image Attachments**.
+The Google Photos album managed by Jot for **Image Attachments**. Jot stores the album ID in the **Jot Folder** and adds app-created image copies to the album.
 _Avoid_: Attachments folder, image cache
 
 **Attachment Reference**:
@@ -41,8 +41,12 @@ An ordinary markdown image marker in a **Daily Note** that identifies where an *
 _Avoid_: Embedded metadata, photo manifest entry, copied photo URL
 
 **Attachment Metadata**:
-Jot-owned information about one **Image Attachment**, including its selected copy and any **Source Image** provenance. It is stored separately from the **Daily Note** text.
+Jot-owned information about one **Image Attachment**, including its selected copy and any **Source Image** provenance. It is stored as one JSON file per **Image Attachment** in the **Image Attachments Folder**, separately from the **Daily Note** text.
 _Avoid_: Note metadata, front matter, image markdown
+
+**Image Attachments Folder**:
+The folder inside the **Jot Folder** that contains **Attachment Metadata** JSON files for **Image Attachments**.
+_Avoid_: Photos folder, media folder, album folder
 
 **Active Unit**:
 The markdown unit of a **Daily Note** currently being edited as markdown text, such as a paragraph, heading, list item, or image reference. It is based on markdown structure, not visual wrapping.
@@ -105,6 +109,10 @@ Domain expert: No. Jot keeps an Image Attachment copy at the selected resolution
 Dev: If the image is removed from the Daily Note, should Jot delete the Image Attachment?
 
 Domain expert: No. Deleting the reference from the Daily Note does not delete the Image Attachment.
+
+Dev: Can Jot always detect that a picked Google Photos image is already in the Jot Image Album?
+
+Domain expert: Not with the initial scopes. Future album cleanup and duplicate-avoidance work should inventory app-created media in the Jot Image Album before deciding whether to reuse or remove anything.
 
 Dev: If an Image Attachment was copied from Google Photos, does Jot remember the original?
 

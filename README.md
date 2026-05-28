@@ -30,6 +30,14 @@ VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 The app requests the narrow `drive.file` scope and does not persist OAuth access tokens.
 When it creates the Drive `jot` folder, it also creates a `README.md` in that folder explaining that Jot manages the folder and that daily notes remain plain Markdown files that can be edited manually if necessary.
 
+Image attachments are source-configurable and disabled by default:
+
+```sh
+VITE_ENABLE_IMAGE_ATTACHMENTS=true
+```
+
+When enabled, the Google sign-in also requests Google Photos Picker access and append-only Library access. Jot uses the Picker API to select a source image, copies the chosen resolution into a Jot-created Google Photos album named `jot`, stores attachment metadata as JSON in Drive `jot/Image Attachments`, and inserts a plain markdown `jot:image:<id>` reference.
+
 For GitHub Pages project hosting, build with a base path:
 
 ```sh

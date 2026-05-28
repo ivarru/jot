@@ -40,7 +40,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -57,7 +58,8 @@ button:hover {
   border-color: var(--accent);
 }
 
-input {
+input,
+select {
   min-height: 36px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -220,6 +222,53 @@ input {
   gap: 4px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.image-attachment-panel {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.image-attachment-controls,
+.image-attachment-session,
+.image-attachment-sizes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.image-attachment-import {
+  display: grid;
+  gap: 8px;
+}
+
+.image-attachment-import label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.image-attachment-session a {
+  color: var(--accent);
+}
+
+.image-attachment-session span,
+.image-attachment-source {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.image-attachment-error {
+  margin: 0;
+  color: var(--danger);
 }
 
 .editor-shell {

@@ -1,5 +1,10 @@
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { dateToFilename, type IsoDate } from "~/domain/dates";
+import {
+  imageAttachmentMetadataFilename,
+  type ImageAttachmentMetadata,
+  type JotImageAlbumMetadata
+} from "~/domain/imageAttachments";
 import { type JotSettings, normalizeJotSettings } from "~/domain/settings";
 import type { RemoteDailyNote, RemoteStorageProvider, SaveDailyNoteInput, SaveDailyNoteResult } from "./types";
 
@@ -13,7 +18,9 @@ const MARKDOWN_MIME_TYPE = "text/markdown";
 const JSON_MIME_TYPE = "application/json";
 const JOT_FOLDER_NAME = "jot";
 const DAILY_NOTES_FOLDER_NAME = "Daily Notes";
+const IMAGE_ATTACHMENTS_FOLDER_NAME = "Image Attachments";
 const SETTINGS_FILE_NAME = "settings.json";
+const IMAGE_ALBUM_FILE_NAME = "image-album.json";
 const README_FILE_NAME = "README.md";
 const README_CONTENT = `# Jot
 
@@ -168,6 +175,101 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     return normalized;
   }
 
+  async loadJotImageAlbum(): Promise<JotImageAlbumMetadata | null> {
+    const { jotFolderId } = await this.ensureFolders();
+    const file = await this.findSingleFile({
+      parentId: jotFolderId,
+      name: IMAGE_ALBUM_FILE_NAME,
+      mimeType: JSON_MIME_TYPE,
+      description: "Jot Image Album Metadata"
+    });
+
+    if (file === null) return null;
+    return JSON.parse(await this.downloadText(file.id)) as JotImageAlbumMetadata;
+  }
+
+  async saveJotImageAlbum(metadata: JotImageAlbumMetadata): Promise<void> {
+    const { jotFolderId } = await this.ensureFolders();
+    await this.saveJsonFile({
+      parentId: jotFolderId,
+      name: IMAGE_ALBUM_FILE_NAME,
+      description: "Jot Image Album Metadata",
+      appProperties: {
+        jotType: "image-album"
+      },
+      value: metadata
+    });
+  }
+
+  async loadImageAttachmentMetadata(id: string): Promise<ImageAttachmentMetadata | null> {
+    const imageAttachmentsFolderId = await this.ensureImageAttachmentsFolder();
+    const file = await this.findSingleFile({
+      parentId: imageAttachmentsFolderId,
+      name: imageAttachmentMetadataFilename(id),
+      mimeType: JSON_MIME_TYPE,
+      description: `Image Attachment ${id}`
+    });
+
+    if (file === null) return null;
+    return JSON.parse(await this.downloadText(file.id)) as ImageAttachmentMetadata;
+  }
+
+  async findImageAttachmentMetadataByCopiedMediaItemId(mediaItemId: string): Promise<ImageAttachmentMetadata | null> {
+    return await this.findImageAttachmentMetadataByAppProperty("copyMediaItemId", mediaItemId);
+  }
+
+  async findImageAttachmentMetadataByMediaItemId(mediaItemId: string): Promise<ImageAttachmentMetadata | null> {
+    return (
+      await this.findImageAttachmentMetadataByAppProperty("sourceMediaItemId", mediaItemId) ??
+      await this.findImageAttachmentMetadataByAppProperty("copyMediaItemId", mediaItemId)
+    );
+  }
+
+  async listImageAttachmentMetadata(): Promise<ImageAttachmentMetadata[]> {
+    const imageAttachmentsFolderId = await this.ensureImageAttachmentsFolder();
+    const files = await this.listFilesByQuery({
+      parentId: imageAttachmentsFolderId,
+      mimeType: JSON_MIME_TYPE
+    });
+    const metadata = await Promise.all(
+      files.map(async (file) => JSON.parse(await this.downloadText(file.id)) as ImageAttachmentMetadata)
+    );
+
+    return metadata;
+  }
+
+  async saveImageAttachmentMetadata(metadata: ImageAttachmentMetadata): Promise<void> {
+    const imageAttachmentsFolderId = await this.ensureImageAttachmentsFolder();
+    await this.saveJsonFile({
+      parentId: imageAttachmentsFolderId,
+      name: imageAttachmentMetadataFilename(metadata.id),
+      description: `Image Attachment ${metadata.id}`,
+      appProperties: {
+        jotType: "image-attachment",
+        imageAttachmentId: metadata.id,
+        sourceMediaItemId: metadata.source.mediaItemId,
+        copyMediaItemId: metadata.copy.mediaItemId
+      },
+      value: metadata
+    });
+  }
+
+  private async findImageAttachmentMetadataByAppProperty(
+    key: string,
+    value: string
+  ): Promise<ImageAttachmentMetadata | null> {
+    const imageAttachmentsFolderId = await this.ensureImageAttachmentsFolder();
+    const file = await this.findSingleFileByQuery({
+      parentId: imageAttachmentsFolderId,
+      mimeType: JSON_MIME_TYPE,
+      appProperty: { key, value },
+      description: `Image Attachment metadata with ${key}`
+    });
+
+    if (file === null) return null;
+    return JSON.parse(await this.downloadText(file.id)) as ImageAttachmentMetadata;
+  }
+
   private async ensureFolders(): Promise<JotDriveFolders> {
     this.foldersPromise ??= this.loadOrCreateFolders();
     try {
@@ -176,6 +278,16 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
       this.foldersPromise = null;
       throw error;
     }
+  }
+
+  private async ensureImageAttachmentsFolder(): Promise<string> {
+    const { jotFolderId } = await this.ensureFolders();
+    const folder = await this.findOrCreateFolder(
+      jotFolderId,
+      IMAGE_ATTACHMENTS_FOLDER_NAME,
+      "Image Attachments Folder"
+    );
+    return folder.id;
   }
 
   private async loadOrCreateFolders(): Promise<JotDriveFolders> {
@@ -243,6 +355,37 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     });
   }
 
+  private async saveJsonFile(input: {
+    readonly parentId: string;
+    readonly name: string;
+    readonly description: string;
+    readonly appProperties: Record<string, string>;
+    readonly value: unknown;
+  }): Promise<void> {
+    const existing = await this.findSingleFile({
+      parentId: input.parentId,
+      name: input.name,
+      mimeType: JSON_MIME_TYPE,
+      description: input.description
+    });
+    const content = JSON.stringify(input.value, null, 2);
+
+    if (existing === null) {
+      await this.createMultipartFile({
+        metadata: {
+          name: input.name,
+          mimeType: JSON_MIME_TYPE,
+          parents: [input.parentId],
+          appProperties: input.appProperties
+        },
+        content,
+        contentType: JSON_MIME_TYPE
+      });
+    } else {
+      await this.updateMediaFile(existing.id, content, JSON_MIME_TYPE);
+    }
+  }
+
   private async findSingleFile(input: {
     readonly parentId: string;
     readonly name: string;
@@ -258,17 +401,48 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     return files[0] ?? null;
   }
 
+  private async findSingleFileByQuery(input: {
+    readonly parentId: string;
+    readonly mimeType: string;
+    readonly appProperty: {
+      readonly key: string;
+      readonly value: string;
+    };
+    readonly description: string;
+  }): Promise<DriveFile | null> {
+    const files = await this.listFilesByQuery(input);
+
+    if (files.length > 1) {
+      throw new DuplicateDriveFileError(`Found multiple Google Drive files for ${input.description}.`);
+    }
+
+    return files[0] ?? null;
+  }
+
   private async listFiles(parentId: string, name: string, mimeType: string): Promise<DriveFile[]> {
+    return await this.listFilesByQuery({ parentId, name, mimeType });
+  }
+
+  private async listFilesByQuery(input: {
+    readonly parentId: string;
+    readonly name?: string;
+    readonly mimeType: string;
+    readonly appProperty?: {
+      readonly key: string;
+      readonly value: string;
+    };
+  }): Promise<DriveFile[]> {
     const query = [
-      `${driveQueryStringLiteral(parentId)} in parents`,
-      `name = ${driveQueryStringLiteral(name)}`,
-      `mimeType = ${driveQueryStringLiteral(mimeType)}`,
+      `${driveQueryStringLiteral(input.parentId)} in parents`,
+      input.name === undefined ? null : `name = ${driveQueryStringLiteral(input.name)}`,
+      `mimeType = ${driveQueryStringLiteral(input.mimeType)}`,
+      input.appProperty === undefined ? null : driveAppPropertyQuery(input.appProperty.key, input.appProperty.value),
       "trashed = false"
-    ].join(" and ");
+    ].filter((part) => part !== null).join(" and ");
 
     const params = new URLSearchParams({
       spaces: "drive",
-      pageSize: "10",
+      pageSize: input.name === undefined ? "100" : "10",
       fields: `files(${FILE_FIELDS})`,
       q: query
     });
@@ -377,4 +551,8 @@ function driveRevisionId(file: DriveFile): string {
 
 function driveQueryStringLiteral(value: string): string {
   return `'${value.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`;
+}
+
+function driveAppPropertyQuery(key: string, value: string): string {
+  return `appProperties has { key=${driveQueryStringLiteral(key)} and value=${driveQueryStringLiteral(value)} }`;
 }

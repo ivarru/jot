@@ -1,4 +1,5 @@
 import { DEFAULT_JOT_SETTINGS } from "~/domain/settings";
+import type { ImageAttachmentMetadata } from "~/domain/imageAttachments";
 import { GoogleDriveRequestError, GoogleDriveStorageProvider, createMultipartRelatedBody } from "./googleDriveStorage";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 
@@ -201,6 +202,140 @@ describe("GoogleDriveStorageProvider", () => {
     expect(String(settingsRequest?.init.body)).toContain('"parents":["jot-folder"]');
   });
 
+  it("stores image attachment metadata in a dedicated Drive folder", async () => {
+    const metadata: ImageAttachmentMetadata = {
+      version: 1,
+      id: "01HZY3J2CJX6N7Y25K2K3N8E4A",
+      createdAt: "2030-01-01T00:00:00.000Z",
+      selectedResolution: "medium",
+      source: {
+        kind: "google-photos-picker",
+        mediaItemId: "source-media-id",
+        filename: "source.jpg",
+        mimeType: "image/jpeg",
+        width: 4032,
+        height: 3024
+      },
+      copy: {
+        kind: "google-photos-library",
+        albumId: "album-id",
+        mediaItemId: "copy-media-id",
+        productUrl: "https://photos.google.com/photo/copy",
+        mimeType: "image/jpeg"
+      }
+    };
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [] }),
+      json(file("image-attachments-folder", "Image Attachments", "application/vnd.google-apps.folder", "1")),
+      json({ files: [] }),
+      json(file("attachment-metadata", "01HZY3J2CJX6N7Y25K2K3N8E4A.json", "application/json", "1"))
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+    await provider.saveImageAttachmentMetadata(metadata);
+
+    const createMetadataRequest = fetch.requests.at(-1);
+    expect(createMetadataRequest?.url).toContain("uploadType=multipart");
+    expect(String(createMetadataRequest?.init.body)).toContain('"name":"01HZY3J2CJX6N7Y25K2K3N8E4A.json"');
+	    expect(String(createMetadataRequest?.init.body)).toContain('"parents":["image-attachments-folder"]');
+	    expect(String(createMetadataRequest?.init.body)).toContain('"mediaItemId": "source-media-id"');
+	    expect(String(createMetadataRequest?.init.body)).toContain('"sourceMediaItemId":"source-media-id"');
+	    expect(String(createMetadataRequest?.init.body)).toContain('"copyMediaItemId":"copy-media-id"');
+  });
+
+  it("stores the Jot Image Album id in the Jot Folder", async () => {
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [] }),
+      json(file("image-album", "image-album.json", "application/json", "1"))
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+    await provider.saveJotImageAlbum({
+      version: 1,
+      albumId: "album-id",
+      title: "jot",
+      productUrl: "https://photos.google.com/album/album-id",
+      createdAt: "2030-01-01T00:00:00.000Z"
+    });
+
+    const createAlbumMetadataRequest = fetch.requests.at(-1);
+    expect(createAlbumMetadataRequest?.url).toContain("uploadType=multipart");
+    expect(String(createAlbumMetadataRequest?.init.body)).toContain('"name":"image-album.json"');
+    expect(String(createAlbumMetadataRequest?.init.body)).toContain('"albumId": "album-id"');
+  });
+
+  it("finds image attachment metadata by copied Google Photos media item id", async () => {
+    const metadata: ImageAttachmentMetadata = {
+      version: 1,
+      id: "01HZY3J2CJX6N7Y25K2K3N8E4A",
+      createdAt: "2030-01-01T00:00:00.000Z",
+      selectedResolution: "medium",
+      source: {
+        kind: "google-photos-picker",
+        mediaItemId: "source-media-id"
+      },
+      copy: {
+        kind: "google-photos-library",
+        albumId: "album-id",
+        mediaItemId: "copy-media-id"
+      }
+    };
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("image-attachments-folder", "Image Attachments", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("attachment-metadata", "01HZY3J2CJX6N7Y25K2K3N8E4A.json", "application/json", "1")] }),
+      text(JSON.stringify(metadata))
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+	    await expect(provider.findImageAttachmentMetadataByCopiedMediaItemId("copy-media-id")).resolves.toEqual(metadata);
+	    expect(decodedUrl(fetch.requests.at(-2)?.url)).toContain(
+	      "appProperties has { key='copyMediaItemId' and value='copy-media-id' }"
+	    );
+	    expect(fetch.requests).toHaveLength(6);
+  });
+
+  it("finds image attachment metadata by source Google Photos media item id", async () => {
+    const metadata: ImageAttachmentMetadata = {
+      version: 1,
+      id: "01HZY3J2CJX6N7Y25K2K3N8E4A",
+      createdAt: "2030-01-01T00:00:00.000Z",
+      selectedResolution: "medium",
+      source: {
+        kind: "google-photos-picker",
+        mediaItemId: "source-media-id"
+      },
+      copy: {
+        kind: "google-photos-library",
+        albumId: "album-id",
+        mediaItemId: "copy-media-id"
+      }
+    };
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("image-attachments-folder", "Image Attachments", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("attachment-metadata", "01HZY3J2CJX6N7Y25K2K3N8E4A.json", "application/json", "1")] }),
+      text(JSON.stringify(metadata))
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+	    await expect(provider.findImageAttachmentMetadataByMediaItemId("source-media-id")).resolves.toEqual(metadata);
+	    expect(decodedUrl(fetch.requests.at(-2)?.url)).toContain(
+	      "appProperties has { key='sourceMediaItemId' and value='source-media-id' }"
+	    );
+	    expect(fetch.requests).toHaveLength(6);
+	  });
+
   it("creates valid multipart related request bodies", () => {
     const multipart = createMultipartRelatedBody({ name: "note.md" }, "hello", "text/markdown");
 
@@ -286,4 +421,8 @@ function file(id: string, name: string, mimeType: string, version: string): obje
     version,
     modifiedTime: "2030-01-01T00:00:00.000Z"
   };
+}
+
+function decodedUrl(url: string | undefined): string {
+  return decodeURIComponent(url ?? "").replaceAll("+", " ");
 }
