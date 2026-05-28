@@ -5,6 +5,8 @@ import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdo
 interface MilkdownEditorProps {
   readonly documentKey: string;
   readonly resetKey?: number;
+  readonly focusAtEnd?: boolean;
+  readonly onFocusApplied?: () => void;
   readonly imageAttachmentDisplays?: ImageAttachmentDisplayMap;
   readonly value: string;
   readonly onChange: (documentKey: string, markdown: string) => void;
@@ -29,6 +31,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
       () => [props.documentKey, props.resetKey] as const,
       async () => {
         const documentKey = props.documentKey;
+        const focusAtEnd = props.focusAtEnd === true;
         let currentMarkdown = props.value;
         setError(null);
         root.replaceChildren();
@@ -92,7 +95,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           });
 
         if (editor !== null) {
-          focusEditable(root);
+          focusEditable(root, focusAtEnd ? "end" : "default", props.onFocusApplied);
         }
 
         const blurListener = () => props.onBlur(documentKey, currentMarkdown);
@@ -114,7 +117,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         <textarea
           class="fallback-editor"
           value={props.value}
-          ref={(element) => requestAnimationFrame(() => element.focus())}
+          ref={(element) => focusTextArea(element, props.focusAtEnd === true ? "end" : "default", props.onFocusApplied)}
           onInput={(event) => props.onChange(props.documentKey, event.currentTarget.value)}
           onBlur={(event) => props.onBlur(props.documentKey, event.currentTarget.value)}
           aria-label="Markdown editor fallback"
@@ -124,9 +127,35 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
   );
 }
 
-function focusEditable(root: HTMLElement): void {
+type FocusPlacement = "default" | "end";
+
+function focusEditable(root: HTMLElement, placement: FocusPlacement, onFocusApplied?: () => void): void {
   requestAnimationFrame(() => {
     const editable = root.querySelector<HTMLElement>("[contenteditable='true']");
-    editable?.focus();
+    if (!editable) return;
+    editable.focus();
+    if (placement === "end") placeSelectionAtEnd(editable);
+    onFocusApplied?.();
   });
+}
+
+function focusTextArea(element: HTMLTextAreaElement, placement: FocusPlacement, onFocusApplied?: () => void): void {
+  requestAnimationFrame(() => {
+    element.focus();
+    if (placement === "end") {
+      element.setSelectionRange(element.value.length, element.value.length);
+    }
+    onFocusApplied?.();
+  });
+}
+
+function placeSelectionAtEnd(element: HTMLElement): void {
+  const selection = window.getSelection();
+  if (selection === null) return;
+
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
