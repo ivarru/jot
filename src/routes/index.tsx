@@ -1001,11 +1001,7 @@ function pickerAutocloseUrl(pickerUri: string): string {
 
 function openPickerPlaceholderWindow(): Window | null {
   try {
-    const pickerWindow = window.open("", "_blank");
-    if (pickerWindow !== null) {
-      pickerWindow.opener = null;
-    }
-    return pickerWindow;
+    return window.open("", "jot-google-photos-picker");
   } catch {
     return null;
   }
