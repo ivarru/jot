@@ -11,6 +11,13 @@ npm run typecheck
 npm run build
 ```
 
+For a GitHub Pages production artifact:
+
+```sh
+BASE_PATH=/jot/ VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com npm run build:pages
+npm run smoke:pages
+```
+
 For a static preview with fake storage enabled:
 
 ```sh
@@ -28,7 +35,7 @@ For a local Google Drive integration test, create an OAuth client for a web appl
 VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 ```
 
-The app requests the narrow `drive.file` scope and does not persist OAuth access tokens.
+The app requests the narrow `drive.file` scope and keeps OAuth access tokens only in tab-scoped `sessionStorage` until expiry, so a same-tab OAuth or Google Photos picker return can continue without another prompt.
 When it creates the Drive `jot` folder, it also creates a `README.md` in that folder explaining that Jot manages the folder and that daily notes remain plain Markdown files that can be edited manually if necessary.
 
 The Google sign-in also requests Google Photos Picker access, append-only Library access, and read access to app-created Google Photos media items. Jot uses the Picker API to select a source image, copies the chosen resolution into a Jot-created Google Photos album named `jot`, stores attachment metadata as JSON in Drive `jot/Image Attachments`, and inserts a plain markdown `jot:image:<id>` reference. The editor resolves those references back to Google Photos image previews at runtime.
@@ -36,5 +43,7 @@ The Google sign-in also requests Google Photos Picker access, append-only Librar
 For GitHub Pages project hosting, build with a base path:
 
 ```sh
-BASE_PATH=/jot/ npm run build
+BASE_PATH=/jot/ npm run build:pages
 ```
+
+See [docs/deployment.md](docs/deployment.md) for GitHub Pages deployment setup, Google OAuth configuration, required APIs, and release checks.
