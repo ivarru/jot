@@ -17,6 +17,7 @@ For a static preview with fake storage enabled:
 VITE_ENABLE_FAKE_AUTH=true npm run build
 npm run preview
 npm run smoke:preview
+npm run smoke:fake-image
 ```
 
 The explicit `VITE_ENABLE_FAKE_AUTH=true` build uses fake storage even if `VITE_GOOGLE_CLIENT_ID` is also present in your environment. The normal production build does not expose fake storage.

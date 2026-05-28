@@ -9,3 +9,5 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
     void navigator.serviceWorker.register(`${base}sw.js`);
   });
 }
+
+export default {};
