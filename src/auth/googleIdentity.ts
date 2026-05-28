@@ -51,6 +51,10 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
     this.scopes = scopes.join(" ");
   }
 
+  async initialize(): Promise<void> {
+    await this.getTokenClient();
+  }
+
   async getAccessToken(request: AccessTokenRequest = {}): Promise<string> {
     const cachedToken = this.getUsableCachedToken();
     if (cachedToken !== null && request.prompt !== "consent" && request.prompt !== "select_account") {

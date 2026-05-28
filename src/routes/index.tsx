@@ -50,7 +50,7 @@ type StorageRuntime =
   | {
       readonly kind: "google";
       readonly remote: GoogleDriveStorageProvider;
-      readonly tokenProvider: AccessTokenProvider;
+      readonly tokenProvider: GoogleIdentityTokenProvider;
       readonly imageAttachments: ImageAttachmentFlow | null;
     };
 
@@ -64,6 +64,7 @@ export default function Home() {
   );
   const [authError, setAuthError] = createSignal<string | null>(null);
   const [signingIn, setSigningIn] = createSignal(false);
+  const [preparingAuth, setPreparingAuth] = createSignal(runtime.kind === "google");
   const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(dateFromHash());
   const [invalidDate, setInvalidDate] = createSignal<string | null>(invalidDateFromHash());
   const [markdown, setMarkdown] = createSignal("");
@@ -105,6 +106,19 @@ export default function Home() {
     return runtime.imageAttachments.getAvailableResolutions(picked);
   });
   const imageAttachmentFlowActive = createMemo(() => imageAttachmentStatus() !== "idle");
+
+  createEffect(() => {
+    if (runtime.kind !== "google") {
+      setPreparingAuth(false);
+      return;
+    }
+
+    setPreparingAuth(true);
+    void runtime.tokenProvider.initialize()
+      .then(() => setAuthError(null))
+      .catch((error: unknown) => setAuthError(errorMessage(error)))
+      .finally(() => setPreparingAuth(false));
+  });
 
   createEffect(() => {
     if (!authenticated()) return;
@@ -564,7 +578,7 @@ export default function Home() {
             >
               <button
                 type="button"
-                disabled={signingIn()}
+                disabled={signingIn() || preparingAuth()}
                 onClick={() => {
                   setSigningIn(true);
                   setAuthError(null);
@@ -579,7 +593,13 @@ export default function Home() {
                     .finally(() => setSigningIn(false));
                 }}
               >
-                {signingIn() ? "Signing in..." : runtime.kind === "google" ? "Sign in with Google" : "Use development storage"}
+                {preparingAuth()
+                  ? "Preparing sign-in..."
+                  : signingIn()
+                    ? "Signing in..."
+                    : runtime.kind === "google"
+                      ? "Sign in with Google"
+                      : "Use development storage"}
               </button>
               <Show when={authError()}>
                 {(message) => <p class="auth-error">{message()}</p>}

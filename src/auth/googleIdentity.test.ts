@@ -37,6 +37,27 @@ describe("GoogleIdentityTokenProvider", () => {
     expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(2);
   });
 
+  it("initializes the token client without requesting a token", async () => {
+    const tokenClient = {
+      callback: (_response: unknown) => undefined,
+      requestAccessToken: vi.fn()
+    };
+    window.google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: vi.fn(() => tokenClient),
+          revoke: vi.fn((_token: string, done: () => void) => done())
+        }
+      }
+    };
+    const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
+
+    await provider.initialize();
+
+    expect(window.google.accounts.oauth2.initTokenClient).toHaveBeenCalledTimes(1);
+    expect(tokenClient.requestAccessToken).not.toHaveBeenCalled();
+  });
+
   it("rejects when Google reports a popup error", async () => {
     const tokenClient = {
       callback: (_response: unknown) => undefined,
