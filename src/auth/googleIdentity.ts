@@ -2,6 +2,7 @@ import type { AccessTokenProvider, AccessTokenRequest } from "./accessTokenProvi
 
 const GOOGLE_IDENTITY_SCRIPT_URL = "https://accounts.google.com/gsi/client";
 const GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const ACCESS_TOKEN_STORAGE_PREFIX = "jot.googleAccessToken.";
 const REDIRECT_STATE_STORAGE_PREFIX = "jot.googleOAuthRedirect.";
 const REDIRECT_STATE_TTL_MS = 10 * 60 * 1000;
 const TOKEN_REQUEST_TIMEOUT_MS = 30000;
@@ -22,6 +23,11 @@ export type GoogleRedirectAccessTokenResult =
 interface RedirectState {
   readonly createdAtMs: number;
   readonly hash: string;
+}
+
+interface StoredAccessToken {
+  readonly accessToken: string;
+  readonly expiresAtMs: number;
 }
 
 interface GoogleTokenClient {
@@ -62,6 +68,7 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
     private readonly documentRef: Document = document
   ) {
     this.scopes = scopes.join(" ");
+    this.restoreStoredAccessToken();
   }
 
   async initialize(): Promise<void> {
@@ -92,8 +99,7 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
     }
 
     const expiresIn = Number(params.get("expires_in") ?? "3600");
-    this.accessToken = accessToken;
-    this.accessTokenExpiresAtMs = Date.now() + (Number.isFinite(expiresIn) ? Math.max(expiresIn - 60, 0) : 3540) * 1000;
+    this.storeAccessToken(accessToken, Number.isFinite(expiresIn) ? expiresIn : 3600);
     return { type: "authenticated" };
   }
 
@@ -152,8 +158,7 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
         }
 
         const accessToken = response.access_token;
-        this.accessToken = accessToken;
-        this.accessTokenExpiresAtMs = Date.now() + ((response.expires_in ?? 3600) - 60) * 1000;
+        this.storeAccessToken(accessToken, response.expires_in ?? 3600);
         finish(() => resolve(accessToken));
       };
       client.error_callback = (error) => {
@@ -165,17 +170,59 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
   }
 
   async revoke(): Promise<void> {
-    if (this.accessToken === null || !window.google) return;
+    const token = this.getUsableCachedToken();
+    this.clearStoredAccessToken();
+    if (token === null || !window.google) return;
 
     await new Promise<void>((resolve) => {
-      window.google?.accounts.oauth2.revoke(this.accessToken!, resolve);
+      window.google?.accounts.oauth2.revoke(token, resolve);
     });
-    this.accessToken = null;
-    this.accessTokenExpiresAtMs = 0;
   }
 
   private getUsableCachedToken(): string | null {
+    if (this.accessToken === null || Date.now() >= this.accessTokenExpiresAtMs) {
+      this.restoreStoredAccessToken();
+    }
     return this.accessToken !== null && Date.now() < this.accessTokenExpiresAtMs ? this.accessToken : null;
+  }
+
+  private storeAccessToken(accessToken: string, expiresInSeconds: number): void {
+    this.accessToken = accessToken;
+    this.accessTokenExpiresAtMs = Date.now() + Math.max(expiresInSeconds - 60, 0) * 1000;
+    getSessionStorage()?.setItem(
+      accessTokenStorageKey(this.clientId),
+      JSON.stringify({
+        accessToken: this.accessToken,
+        expiresAtMs: this.accessTokenExpiresAtMs
+      } satisfies StoredAccessToken)
+    );
+  }
+
+  private restoreStoredAccessToken(): void {
+    const stored = getSessionStorage()?.getItem(accessTokenStorageKey(this.clientId));
+    if (stored === undefined || stored === null) return;
+
+    try {
+      const parsed = JSON.parse(stored) as Partial<StoredAccessToken>;
+      if (
+        typeof parsed.accessToken !== "string" ||
+        typeof parsed.expiresAtMs !== "number" ||
+        Date.now() >= parsed.expiresAtMs
+      ) {
+        this.clearStoredAccessToken();
+        return;
+      }
+      this.accessToken = parsed.accessToken;
+      this.accessTokenExpiresAtMs = parsed.expiresAtMs;
+    } catch {
+      this.clearStoredAccessToken();
+    }
+  }
+
+  private clearStoredAccessToken(): void {
+    this.accessToken = null;
+    this.accessTokenExpiresAtMs = 0;
+    getSessionStorage()?.removeItem(accessTokenStorageKey(this.clientId));
   }
 
   private consumeRedirectState(state: string): RedirectState | null {
@@ -268,6 +315,18 @@ function oauthFragmentParams(hash: string): URLSearchParams | null {
 
 function redirectStateStorageKey(state: string): string {
   return `${REDIRECT_STATE_STORAGE_PREFIX}${state}`;
+}
+
+function accessTokenStorageKey(clientId: string): string {
+  return `${ACCESS_TOKEN_STORAGE_PREFIX}${clientId}`;
+}
+
+function getSessionStorage(): Storage | null {
+  try {
+    return globalThis.sessionStorage ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function createRedirectNonce(): string {

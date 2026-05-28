@@ -39,6 +39,8 @@ import {
 import { FakePhotosAttachmentProvider } from "~/photos/fakePhotosAttachments";
 
 const drafts = new IndexedDbLocalDraftStore();
+const ACTIVE_IMAGE_PICKER_STORAGE_KEY = "jot.googlePhotosActivePicker";
+const ACTIVE_IMAGE_PICKER_TTL_MS = 10 * 60 * 1000;
 
 type StorageRuntime =
   | {
@@ -55,6 +57,12 @@ type StorageRuntime =
     };
 
 type ImageAttachmentStatus = "idle" | "starting" | "waiting" | "choosing" | "importing";
+
+interface StoredActiveImagePicker {
+  readonly date: IsoDate;
+  readonly session: GooglePhotosPickingSession;
+  readonly createdAtMs: number;
+}
 
 export default function Home() {
   const runtime = createStorageRuntime();
@@ -281,6 +289,35 @@ export default function Home() {
     )
   );
 
+  createEffect(
+    on(
+      () => [authenticated(), selectedDate(), loadedDate()] as const,
+      ([isAuthenticated, date, loaded]) => {
+        if (
+          !isAuthenticated ||
+          runtime.kind !== "google" ||
+          runtime.imageAttachments === null ||
+          date === null ||
+          loaded !== date ||
+          untrack(imagePickingSession) !== null ||
+          untrack(imageAttachmentStatus) !== "idle"
+        ) {
+          return;
+        }
+
+        const stored = loadStoredActiveImagePicker();
+        if (stored === null || stored.date !== date) return;
+
+        setImageAttachmentDate(stored.date);
+        setImagePickingSession(stored.session);
+        setImageAttachmentStatus("waiting");
+        setImageAttachmentError(null);
+        void waitForPickedImage(stored.session.id, stored.date);
+      },
+      { defer: false }
+    )
+  );
+
   const navigateToDate = async (date: IsoDate) => {
     void saveCurrentEditorSnapshot();
     window.location.hash = `/date/${date}`;
@@ -384,6 +421,7 @@ export default function Home() {
     setImageAttachmentStatus("starting");
     setImageAttachmentError(null);
     setImagePickingSession(null);
+    clearStoredActiveImagePicker();
     setPickedImage(null);
     setReusableImageAttachment(null);
     setImageAttachmentAltText("");
@@ -398,10 +436,12 @@ export default function Home() {
 
     try {
       const session = await runtime.imageAttachments.startPicking();
+      storeActiveImagePicker({ date, session, createdAtMs: Date.now() });
       setImagePickingSession(session);
       setImageAttachmentStatus("waiting");
       void waitForPickedImage(session.id, date);
     } catch (error: unknown) {
+      clearStoredActiveImagePicker();
       setImageAttachmentError(errorMessage(error));
       setImageAttachmentStatus("idle");
     }
@@ -419,6 +459,7 @@ export default function Home() {
           imagePickingSession(),
           await runtime.imageAttachments.getPickingSession(sessionId)
         );
+        storeActiveImagePicker({ date, session: refreshedSession, createdAtMs: Date.now() });
         setImagePickingSession(refreshedSession);
         if (!refreshedSession.mediaItemsSet) continue;
 
@@ -467,6 +508,7 @@ export default function Home() {
       setMarkdown(nextMarkdown);
       setEditorResetKey((key) => key + 1);
       setImagePickingSession(null);
+      clearStoredActiveImagePicker();
       setPickedImage(null);
       setReusableImageAttachment(null);
       setImageAttachmentDate(null);
@@ -504,6 +546,7 @@ export default function Home() {
       setMarkdown(nextMarkdown);
       setEditorResetKey((key) => key + 1);
       setImagePickingSession(null);
+      clearStoredActiveImagePicker();
       setPickedImage(null);
       setReusableImageAttachment(null);
       setImageAttachmentDate(null);
@@ -525,6 +568,7 @@ export default function Home() {
     setImageAttachmentError(null);
     setImageAttachmentDate(null);
     setImagePickingSession(null);
+    clearStoredActiveImagePicker();
     setPickedImage(null);
     setReusableImageAttachment(null);
     setImageAttachmentAltText("");
@@ -561,6 +605,7 @@ export default function Home() {
     if (runtime.kind === "google") {
       await runtime.tokenProvider.revoke?.();
     }
+    clearStoredActiveImagePicker();
     globalThis.localStorage?.removeItem("jot.fakeAuth");
     setAuthenticated(false);
     setMarkdown("");
@@ -938,6 +983,60 @@ function errorMessage(error: unknown): string {
 
 function pickerAutocloseUrl(pickerUri: string): string {
   return pickerUri.endsWith("/autoclose") ? pickerUri : `${pickerUri.replace(/\/$/, "")}/autoclose`;
+}
+
+function storeActiveImagePicker(activePicker: StoredActiveImagePicker): void {
+  getSessionStorage()?.setItem(ACTIVE_IMAGE_PICKER_STORAGE_KEY, JSON.stringify(activePicker));
+}
+
+function loadStoredActiveImagePicker(): StoredActiveImagePicker | null {
+  const value = getSessionStorage()?.getItem(ACTIVE_IMAGE_PICKER_STORAGE_KEY);
+  if (value === undefined || value === null) return null;
+
+  try {
+    const parsed = JSON.parse(value) as Partial<StoredActiveImagePicker>;
+    const date = typeof parsed.date === "string" ? parseIsoDate(parsed.date) : null;
+    if (
+      date === null ||
+      typeof parsed.createdAtMs !== "number" ||
+      Date.now() - parsed.createdAtMs > ACTIVE_IMAGE_PICKER_TTL_MS ||
+      !isPickingSession(parsed.session)
+    ) {
+      clearStoredActiveImagePicker();
+      return null;
+    }
+
+    return {
+      date,
+      session: parsed.session,
+      createdAtMs: parsed.createdAtMs
+    };
+  } catch {
+    clearStoredActiveImagePicker();
+    return null;
+  }
+}
+
+function clearStoredActiveImagePicker(): void {
+  getSessionStorage()?.removeItem(ACTIVE_IMAGE_PICKER_STORAGE_KEY);
+}
+
+function isPickingSession(value: unknown): value is GooglePhotosPickingSession {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    typeof value.id === "string" &&
+    (!("pickerUri" in value) || value.pickerUri === undefined || typeof value.pickerUri === "string")
+  );
+}
+
+function getSessionStorage(): Storage | null {
+  try {
+    return globalThis.sessionStorage ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function defaultImageAltText(

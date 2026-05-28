@@ -139,4 +139,48 @@ describe("GoogleIdentityTokenProvider", () => {
     expect(window.location.hash).toBe("#/date/2026-05-28");
     await expect(provider.getAccessToken()).resolves.toBe("redirect-token");
   });
+
+  it("restores a redirected access token after same-tab navigation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
+    window.sessionStorage.setItem(
+      "jot.googleOAuthRedirect.test-state",
+      JSON.stringify({ createdAtMs: 0, hash: "#/date/2026-05-28" })
+    );
+    window.history.replaceState(
+      null,
+      "",
+      "/#state=test-state&access_token=redirect-token&expires_in=120"
+    );
+
+    expect(provider.consumeRedirectAccessToken()).toEqual({ type: "authenticated" });
+    const nextProvider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
+
+    await expect(nextProvider.getAccessToken()).resolves.toBe("redirect-token");
+  });
+
+  it("clears the stored access token on revoke", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const revoke = vi.fn((_token: string, done: () => void) => done());
+    window.google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: vi.fn(),
+          revoke
+        }
+      }
+    };
+    window.sessionStorage.setItem(
+      "jot.googleAccessToken.client-id",
+      JSON.stringify({ accessToken: "stored-token", expiresAtMs: 120000 })
+    );
+    const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
+
+    await provider.revoke();
+
+    expect(revoke).toHaveBeenCalledWith("stored-token", expect.any(Function));
+    expect(window.sessionStorage.getItem("jot.googleAccessToken.client-id")).toBeNull();
+  });
 });
