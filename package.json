@@ -6,6 +6,7 @@
     "dev": "vinxi dev",
     "build": "vinxi build",
     "preview": "vite preview --host 127.0.0.1 --port 4173 --outDir .output/public",
+    "smoke:preview": "node scripts/smoke-preview.mjs",
     "start": "vinxi start",
     "test": "vitest run",
     "test:watch": "vitest",

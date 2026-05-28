@@ -18,6 +18,7 @@ describe("GoogleDriveStorageProvider", () => {
     const originalFetch = globalThis.fetch;
     const responses = [
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [] })
     ];
@@ -46,6 +47,8 @@ describe("GoogleDriveStorageProvider", () => {
     const fetch = createDriveFetch([
       json({ files: [] }),
       json(file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")),
+      json({ files: [] }),
+      json(file("readme-file", "README.md", "text/markdown", "1")),
       json({ files: [] }),
       json(file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")),
       json({ files: [] }),
@@ -77,11 +80,15 @@ describe("GoogleDriveStorageProvider", () => {
     expect(String(createNoteRequest?.init.body)).toContain('"name":"2030-02-01.md"');
     expect(String(createNoteRequest?.init.body)).toContain('"parents":["daily-folder"]');
     expect(String(createNoteRequest?.init.body)).toContain("# First");
+    const createReadmeRequest = fetch.requests.find((request) => String(request.init.body).includes('"name":"README.md"'));
+    expect(createReadmeRequest?.url).toContain("uploadType=multipart");
+    expect(String(createReadmeRequest?.init.body)).toContain("This folder is managed by the Jot progressive web app.");
   });
 
   it("loads an existing Daily Note by metadata and media content", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("note-file", "2030-02-01.md", "text/markdown", "7")] }),
       text("# Existing")
@@ -100,6 +107,7 @@ describe("GoogleDriveStorageProvider", () => {
   it("returns a conflict instead of overwriting when Drive version changed", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("note-file", "2030-02-01.md", "text/markdown", "8")] }),
       text("# Remote")
@@ -121,12 +129,13 @@ describe("GoogleDriveStorageProvider", () => {
         updatedAt: "2030-01-01T00:00:00.000Z"
       }
     });
-    expect(fetch.requests).toHaveLength(4);
+    expect(fetch.requests).toHaveLength(5);
   });
 
   it("returns a conflict when a local-only note finds an existing Drive file", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("note-file", "2030-02-01.md", "text/markdown", "8")] }),
       text("# Remote")
@@ -154,6 +163,7 @@ describe("GoogleDriveStorageProvider", () => {
   it("updates an existing Daily Note when the expected revision matches", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("note-file", "2030-02-01.md", "text/markdown", "7")] }),
       json(file("note-file", "2030-02-01.md", "text/markdown", "8"))
@@ -177,6 +187,7 @@ describe("GoogleDriveStorageProvider", () => {
   it("loads and saves settings as JSON in the Jot Folder", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [] }),
       json(file("settings-file", "settings.json", "application/json", "1"))
@@ -207,6 +218,8 @@ describe("GoogleDriveStorageProvider", () => {
       json({ files: [] }),
       json(file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")),
       json({ files: [] }),
+      json(file("readme-file", "README.md", "text/markdown", "1")),
+      json({ files: [] }),
       json(file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")),
       json({ files: [] })
     ]);
@@ -214,7 +227,7 @@ describe("GoogleDriveStorageProvider", () => {
 
     await expect(provider.loadDailyNote("2030-02-01")).rejects.toThrow("HTTP 503");
     await expect(provider.loadDailyNote("2030-02-01")).resolves.toBeNull();
-    expect(fetch.requests).toHaveLength(6);
+    expect(fetch.requests).toHaveLength(8);
   });
 
   it("includes Google Drive error response bodies in request failures", async () => {

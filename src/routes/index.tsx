@@ -22,6 +22,7 @@ import {
   saveAndSyncDailyNoteSnapshot,
   syncDirtyDailyNoteDrafts
 } from "~/sync/syncDailyNote";
+import { resolveSyncErrorRetry, type SyncErrorState } from "~/sync/syncErrorRetry";
 
 const drafts = new IndexedDbLocalDraftStore();
 
@@ -49,6 +50,7 @@ export default function Home() {
   const [loadedDate, setLoadedDate] = createSignal<IsoDate | null>(null);
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [syncStatus, setSyncStatus] = createSignal<SyncStatus>("local-only");
+  const [lastSyncError, setLastSyncError] = createSignal<SyncErrorState | null>(null);
   const [settings, setSettings] = createSignal<JotSettings>(DEFAULT_JOT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [today, setToday] = createSignal(todayIsoDate());
@@ -71,11 +73,14 @@ export default function Home() {
     if (!authenticated()) return;
 
     void loadSettingsOrDefault(runtime.remote).then(setSettings).catch((error: unknown) => {
-      setLoadError(errorMessage(error));
+      const message = errorMessage(error);
+      setLoadError(message);
+      setLastSyncError({ message, retry: "save-settings" });
       setSyncStatus("error");
     });
 
-    void syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate)).catch(() => {
+    void syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate)).catch((error: unknown) => {
+      setLastSyncError({ message: errorMessage(error), retry: "sync-dirty-drafts" });
       setSyncStatus("error");
     });
   });
@@ -88,6 +93,7 @@ export default function Home() {
 
         setLoadedDate(null);
         setLoadError(null);
+        setLastSyncError(null);
         replaceMarkdownFromStorage("");
         void loadSelectedDate(date);
       },
@@ -102,7 +108,10 @@ export default function Home() {
       if (date === null) return;
 
       const timeout = window.setTimeout(() => {
-        void persistLocalDraft(date, value, drafts).then(setSyncStatus);
+        void persistLocalDraft(date, value, drafts).then(setSyncStatus).catch((error: unknown) => {
+          setLastSyncError({ message: errorMessage(error), retry: "save-current-note", date });
+          setSyncStatus("error");
+        });
       }, LOCAL_DRAFT_DEBOUNCE_MS);
 
       onCleanup(() => window.clearTimeout(timeout));
@@ -143,28 +152,23 @@ export default function Home() {
   createEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState !== "hidden") return;
-      const date = selectedDate();
-      if (date !== null) {
-        const value = markdown();
-        void saveAndSyncSnapshot(date, value);
-      }
+      void saveCurrentEditorSnapshot();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     onCleanup(() => document.removeEventListener("visibilitychange", onVisibilityChange));
   });
 
   const navigateToDate = async (date: IsoDate) => {
-    const current = selectedDate();
-    if (current !== null) {
-      void saveAndSyncSnapshot(current, markdown());
-    }
+    void saveCurrentEditorSnapshot();
     window.location.hash = `/date/${date}`;
   };
 
   const loadSelectedDate = async (date: IsoDate) => {
     const session = await loadDailyNoteSession(date, drafts, runtime.remote).catch((error: unknown) => {
       if (shouldApplyLoadedNote(date, selectedDate())) {
-        setLoadError(errorMessage(error));
+        const message = errorMessage(error);
+        setLoadError(message);
+        setLastSyncError({ message, retry: "load-selected-note", date });
         setSyncStatus("error");
       }
       return null;
@@ -173,6 +177,7 @@ export default function Home() {
     replaceMarkdownFromStorage(session.markdown);
     setLoadedDate(date);
     setSyncStatus(session.status);
+    if (session.status !== "conflict") setLastSyncError(null);
   };
 
   const flushAndSync = async (date: IsoDate, value: string) => {
@@ -181,7 +186,12 @@ export default function Home() {
 
   const saveAndSyncSnapshot = async (date: IsoDate, value: string) => {
     if (shouldApplySyncResult(date, selectedDate())) setSyncStatus("syncing");
-    const session = await saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch(() => null);
+    const session = await saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch((error: unknown) => {
+      if (shouldApplySyncResult(date, selectedDate())) {
+        setLastSyncError({ message: errorMessage(error), retry: "save-current-note", date });
+      }
+      return null;
+    });
     if (session === null) {
       if (shouldApplySyncResult(date, selectedDate())) setSyncStatus("error");
       return;
@@ -189,6 +199,7 @@ export default function Home() {
     if (shouldApplySyncResult(date, selectedDate())) {
       replaceMarkdownFromStorage(session.markdown);
       setSyncStatus(session.status);
+      if (session.status !== "conflict") setLastSyncError(null);
     }
   };
 
@@ -198,10 +209,48 @@ export default function Home() {
     queueMicrotask(() => setSuppressLocalPersist(false));
   };
 
+  const saveCurrentEditorSnapshot = async () => {
+    const date = selectedDate();
+    if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+    await saveAndSyncSnapshot(date, markdown());
+  };
+
+  const retryLastSyncError = () => {
+    const error = lastSyncError();
+    if (error === null) return;
+    const action = resolveSyncErrorRetry(error, { selectedDate: selectedDate(), loadedDate: loadedDate() });
+
+    setLastSyncError(null);
+    if (action === null) return;
+
+    switch (action.type) {
+      case "load-selected-note": {
+        setLoadError(null);
+        void loadSelectedDate(action.date);
+        return;
+      }
+      case "save-current-note":
+        void saveAndSyncSnapshot(action.date, markdown());
+        return;
+      case "save-settings":
+        updateSettings(settings());
+        return;
+      case "sync-dirty-drafts":
+        void syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate)).catch((syncError: unknown) => {
+          setLastSyncError({ message: errorMessage(syncError), retry: "sync-dirty-drafts" });
+          setSyncStatus("error");
+        });
+        return;
+    }
+  };
+
   const updateSettings = (next: JotSettings) => {
     const normalized = normalizeJotSettings(next);
     setSettings(normalized);
-    void runtime.remote.saveSettings(normalized);
+    void runtime.remote.saveSettings(normalized).then(() => setLastSyncError(null)).catch((error: unknown) => {
+      setLastSyncError({ message: errorMessage(error), retry: "save-settings" });
+      setSyncStatus("error");
+    });
   };
 
   const signOut = async () => {
@@ -313,6 +362,22 @@ export default function Home() {
               The open note is not today in the current browser timezone.
               <button type="button" onClick={() => void navigateToDate(today())}>
                 Jump to {today()}
+              </button>
+            </aside>
+          </Show>
+
+          <Show when={syncStatus() === "conflict"}>
+            <aside class="sync-alert sync-alert-conflict" aria-live="polite">
+              Conflict markers were inserted. Resolve them in the note and save again.
+            </aside>
+          </Show>
+
+          <Show when={syncStatus() === "error" && lastSyncError() !== null}>
+            <aside class="sync-alert sync-alert-error" aria-live="polite">
+              <strong>Last sync error</strong>
+              <pre>{lastSyncError()!.message}</pre>
+              <button type="button" onClick={retryLastSyncError}>
+                Retry
               </button>
             </aside>
           </Show>

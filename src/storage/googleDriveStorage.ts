@@ -14,6 +14,13 @@ const JSON_MIME_TYPE = "application/json";
 const JOT_FOLDER_NAME = "jot";
 const DAILY_NOTES_FOLDER_NAME = "Daily Notes";
 const SETTINGS_FILE_NAME = "settings.json";
+const README_FILE_NAME = "README.md";
+const README_CONTENT = `# Jot
+
+This folder is managed by the Jot progressive web app.
+
+Daily notes are stored as plain Markdown files in the Daily Notes folder. They can be edited manually if necessary, but Jot expects at most one note file per local date.
+`;
 
 type FetchLike = typeof fetch;
 
@@ -173,6 +180,7 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
 
   private async loadOrCreateFolders(): Promise<JotDriveFolders> {
     const jotFolder = await this.findOrCreateFolder("root", JOT_FOLDER_NAME, "Jot Folder");
+    await this.ensureReadmeFile(jotFolder.id);
     const dailyNotesFolder = await this.findOrCreateFolder(
       jotFolder.id,
       DAILY_NOTES_FOLDER_NAME,
@@ -183,6 +191,30 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
       jotFolderId: jotFolder.id,
       dailyNotesFolderId: dailyNotesFolder.id
     };
+  }
+
+  private async ensureReadmeFile(jotFolderId: string): Promise<void> {
+    const existing = await this.findSingleFile({
+      parentId: jotFolderId,
+      name: README_FILE_NAME,
+      mimeType: MARKDOWN_MIME_TYPE,
+      description: "Jot README"
+    });
+
+    if (existing !== null) return;
+
+    await this.createMultipartFile({
+      metadata: {
+        name: README_FILE_NAME,
+        mimeType: MARKDOWN_MIME_TYPE,
+        parents: [jotFolderId],
+        appProperties: {
+          jotType: "readme"
+        }
+      },
+      content: README_CONTENT,
+      contentType: MARKDOWN_MIME_TYPE
+    });
   }
 
   private async findOrCreateFolder(parentId: string, name: string, description: string): Promise<DriveFile> {

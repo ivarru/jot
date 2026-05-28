@@ -16,6 +16,7 @@ For a static preview with the fake storage sign-in enabled:
 ```sh
 VITE_ENABLE_FAKE_AUTH=true npm run build
 npm run preview
+npm run smoke:preview
 ```
 
 The normal production build does not expose fake storage.
@@ -27,6 +28,7 @@ VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 ```
 
 The app requests the narrow `drive.file` scope and does not persist OAuth access tokens.
+When it creates the Drive `jot` folder, it also creates a `README.md` in that folder explaining that Jot manages the folder and that daily notes remain plain Markdown files that can be edited manually if necessary.
 
 For GitHub Pages project hosting, build with a base path:
 

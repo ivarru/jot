@@ -172,6 +172,37 @@ input {
   background: var(--panel);
 }
 
+.sync-alert {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.sync-alert-error {
+  border-color: color-mix(in srgb, var(--danger), transparent 45%);
+}
+
+.sync-alert-conflict {
+  border-color: var(--accent);
+}
+
+.sync-alert pre {
+  margin: 0;
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--danger);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.sync-alert button {
+  justify-self: start;
+}
+
 .settings-panel {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
