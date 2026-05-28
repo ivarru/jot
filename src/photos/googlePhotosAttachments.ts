@@ -6,6 +6,7 @@ import {
 
 export const GOOGLE_PHOTOS_PICKER_SCOPE = "https://www.googleapis.com/auth/photospicker.mediaitems.readonly";
 export const GOOGLE_PHOTOS_APPENDONLY_SCOPE = "https://www.googleapis.com/auth/photoslibrary.appendonly";
+export const GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata";
 
 const PHOTOS_PICKER_API_BASE = "https://photospicker.googleapis.com/v1";
 const PHOTOS_LIBRARY_API_BASE = "https://photoslibrary.googleapis.com/v1";
@@ -48,21 +49,24 @@ export interface GooglePhotosAlbum {
   readonly productUrl?: string;
 }
 
+export interface GooglePhotosMediaItem {
+  readonly id: string;
+  readonly productUrl?: string;
+  readonly baseUrl?: string;
+  readonly mimeType?: string;
+  readonly mediaMetadata?: {
+    readonly width?: string;
+    readonly height?: string;
+  };
+}
+
 interface BatchCreateMediaItemsResponse {
   readonly newMediaItemResults?: readonly {
     readonly status?: {
       readonly code?: number;
       readonly message?: string;
     };
-    readonly mediaItem?: {
-      readonly id: string;
-      readonly productUrl?: string;
-      readonly mimeType?: string;
-      readonly mediaMetadata?: {
-        readonly width?: string;
-        readonly height?: string;
-      };
-    };
+    readonly mediaItem?: GooglePhotosMediaItem;
   }[];
 }
 
@@ -185,6 +189,12 @@ export class GooglePhotosAttachmentProvider {
     }
 
     return result.mediaItem;
+  }
+
+  async getMediaItem(mediaItemId: string): Promise<GooglePhotosMediaItem> {
+    return await this.requestJson<GooglePhotosMediaItem>(
+      `${PHOTOS_LIBRARY_API_BASE}/mediaItems/${encodeURIComponent(mediaItemId)}`
+    );
   }
 
   private async uploadBytes(bytes: Blob, mimeType: string): Promise<string> {

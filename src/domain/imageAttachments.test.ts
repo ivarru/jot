@@ -24,6 +24,12 @@ describe("image attachments", () => {
     );
   });
 
+  it("leaves local fake image preview URLs untouched", () => {
+    expect(googlePhotosImageContentUrl("data:image/png;base64,test", resolveImageAttachmentResolution("medium"))).toBe(
+      "data:image/png;base64,test"
+    );
+  });
+
   it("only offers smaller width choices plus the actual full-size width", () => {
     expect(availableImageAttachmentResolutions({ width: 1800, height: 1200 }).map((resolution) => resolution.label)).toEqual([
       "Small",

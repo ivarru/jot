@@ -37,6 +37,7 @@ describe("ImageAttachmentFlow", () => {
       })),
       uploadImageToAlbum: vi.fn(async () => ({
         id: "copy-media-id",
+        baseUrl: "https://lh3.googleusercontent.com/p/copy",
         productUrl: "https://photos.google.com/photo/copy",
         mimeType: "image/jpeg",
         mediaMetadata: {
@@ -190,6 +191,67 @@ describe("ImageAttachmentFlow", () => {
     );
     expect(photos.downloadPickedImage).not.toHaveBeenCalled();
     expect(photos.uploadImageToAlbum).not.toHaveBeenCalled();
+  });
+
+  it("resolves attachment displays through the copied Google Photos media item", async () => {
+    const photos = {
+      getMediaItem: vi.fn(async () => ({
+        id: "copy-media-id",
+        baseUrl: "https://lh3.googleusercontent.com/p/copy"
+      }))
+    } as unknown as GooglePhotosAttachmentProvider;
+    const drive = {
+      loadImageAttachmentMetadata: vi.fn(async () =>
+        imageAttachmentMetadata({
+          id: "01HZY3J2CJX6N7Y25K2K3N8E4A",
+          copyMediaItemId: "copy-media-id"
+        })
+      )
+    } as unknown as GoogleDriveStorageProvider;
+
+    await expect(new ImageAttachmentFlow(photos, drive).resolveImageAttachmentDisplay("01HZY3J2CJX6N7Y25K2K3N8E4A")).resolves.toEqual(
+      expect.objectContaining({
+        id: "01HZY3J2CJX6N7Y25K2K3N8E4A",
+        status: "ready",
+        url: "https://lh3.googleusercontent.com/p/copy=w2048",
+        expiresAtMs: expect.any(Number)
+      })
+    );
+    expect(photos.getMediaItem).toHaveBeenCalledWith("copy-media-id");
+  });
+
+  it("reports missing display metadata without falling through to Google Photos", async () => {
+    const photos = {
+      getMediaItem: vi.fn()
+    } as unknown as GooglePhotosAttachmentProvider;
+    const drive = {
+      loadImageAttachmentMetadata: vi.fn(async () => null)
+    } as unknown as GoogleDriveStorageProvider;
+
+    await expect(new ImageAttachmentFlow(photos, drive).resolveImageAttachmentDisplay("01HZY3J2CJX6N7Y25K2K3N8E4A")).resolves.toEqual({
+      id: "01HZY3J2CJX6N7Y25K2K3N8E4A",
+      status: "missing",
+      message: "Image metadata was not found in Drive."
+    });
+    expect(photos.getMediaItem).not.toHaveBeenCalled();
+  });
+
+  it("reports metadata load failures as display errors", async () => {
+    const photos = {
+      getMediaItem: vi.fn()
+    } as unknown as GooglePhotosAttachmentProvider;
+    const drive = {
+      loadImageAttachmentMetadata: vi.fn(async () => {
+        throw new Error("Drive is unavailable");
+      })
+    } as unknown as GoogleDriveStorageProvider;
+
+    await expect(new ImageAttachmentFlow(photos, drive).resolveImageAttachmentDisplay("01HZY3J2CJX6N7Y25K2K3N8E4A")).resolves.toEqual({
+      id: "01HZY3J2CJX6N7Y25K2K3N8E4A",
+      status: "error",
+      message: "Drive is unavailable"
+    });
+    expect(photos.getMediaItem).not.toHaveBeenCalled();
   });
 });
 

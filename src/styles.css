@@ -271,6 +271,10 @@ select {
   color: var(--danger);
 }
 
+.hidden-file-input {
+  display: none;
+}
+
 .editor-shell {
   min-height: 65vh;
   margin-top: 12px;
@@ -332,6 +336,33 @@ select {
 
 .milkdown-root :is(p, li) {
   line-height: 1.6;
+}
+
+.jot-image-view {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
+}
+
+.milkdown-root img {
+  display: inline-block;
+  max-width: min(100%, 720px);
+  max-height: 70vh;
+  height: auto;
+  vertical-align: top;
+  border-radius: 6px;
+}
+
+.jot-image-placeholder {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--border), transparent 10%);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .fallback-editor {

@@ -2,10 +2,11 @@ import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } 
 import { ImageAttachmentFlow, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { GoogleIdentityTokenProvider } from "~/auth/googleIdentity";
-import { ENABLE_FAKE_AUTH, ENABLE_IMAGE_ATTACHMENTS, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
+import { ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
 import { MilkdownEditor } from "~/components/MilkdownEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
-import { appendImageAttachmentReference } from "~/domain/attachmentReferences";
+import { appendImageAttachmentReference, findImageAttachmentReferences } from "~/domain/attachmentReferences";
+import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
 import { addDays, dayOfWeek, isToday, parseIsoDate, todayIsoDate, type IsoDate } from "~/domain/dates";
 import type { ImageAttachmentResolution } from "~/domain/imageAttachments";
 import { DEFAULT_JOT_SETTINGS, normalizeJotSettings, type JotSettings } from "~/domain/settings";
@@ -28,19 +29,23 @@ import {
 import { resolveSyncErrorRetry, type SyncErrorState } from "~/sync/syncErrorRetry";
 import {
   GOOGLE_PHOTOS_APPENDONLY_SCOPE,
+  GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE,
   GOOGLE_PHOTOS_PICKER_SCOPE,
   GooglePhotosAttachmentProvider,
   preservePickerUri,
   type GooglePhotosPickingSession,
   type PickedGooglePhotosMediaItem
 } from "~/photos/googlePhotosAttachments";
+import { FakePhotosAttachmentProvider } from "~/photos/fakePhotosAttachments";
 
 const drafts = new IndexedDbLocalDraftStore();
 
 type StorageRuntime =
   | {
       readonly kind: "fake";
-      readonly remote: RemoteStorageProvider;
+      readonly remote: FakeRemoteStorageProvider;
+      readonly imageAttachments: ImageAttachmentFlow | null;
+      readonly fakePhotos: FakePhotosAttachmentProvider;
     }
   | {
       readonly kind: "google";
@@ -53,6 +58,7 @@ type ImageAttachmentStatus = "idle" | "starting" | "waiting" | "choosing" | "imp
 
 export default function Home() {
   const runtime = createStorageRuntime();
+  let fakeImageInput: HTMLInputElement | undefined;
   const [authenticated, setAuthenticated] = createSignal(
     runtime.kind === "fake" && ENABLE_FAKE_AUTH && globalThis.localStorage?.getItem("jot.fakeAuth") === "true"
   );
@@ -76,6 +82,8 @@ export default function Home() {
   const [reusableImageAttachment, setReusableImageAttachment] = createSignal<ReusableImageAttachment | null>(null);
   const [imageAttachmentAltText, setImageAttachmentAltText] = createSignal("");
   const [importingImageResolutionName, setImportingImageResolutionName] = createSignal<string | null>(null);
+  const [imageAttachmentDisplays, setImageAttachmentDisplays] = createSignal<Readonly<Record<string, ImageAttachmentDisplay>>>({});
+  const [imageAttachmentRefreshTick, setImageAttachmentRefreshTick] = createSignal(0);
   const [today, setToday] = createSignal(todayIsoDate());
   const [suppressLocalPersist, setSuppressLocalPersist] = createSignal(false);
 
@@ -93,9 +101,10 @@ export default function Home() {
   });
   const imageAttachmentResolutionChoices = createMemo(() => {
     const picked = pickedImage();
-    if (reusableImageAttachment() !== null || runtime.kind !== "google" || runtime.imageAttachments === null || picked === null) return [];
+    if (reusableImageAttachment() !== null || runtime.imageAttachments === null || picked === null) return [];
     return runtime.imageAttachments.getAvailableResolutions(picked);
   });
+  const imageAttachmentFlowActive = createMemo(() => imageAttachmentStatus() !== "idle");
 
   createEffect(() => {
     if (!authenticated()) return;
@@ -130,6 +139,7 @@ export default function Home() {
 	        setReusableImageAttachment(null);
 	        setImageAttachmentAltText("");
 	        setImportingImageResolutionName(null);
+	        setImageAttachmentDisplays({});
 	        replaceMarkdownFromStorage("");
 	        void loadSelectedDate(date);
       },
@@ -193,6 +203,63 @@ export default function Home() {
     document.addEventListener("visibilitychange", onVisibilityChange);
     onCleanup(() => document.removeEventListener("visibilitychange", onVisibilityChange));
   });
+
+  createEffect(
+    on(
+      () => [authenticated(), selectedDate(), loadedDate(), markdown(), imageAttachmentRefreshTick()] as const,
+      ([isAuthenticated, date, loaded, value]) => {
+        if (
+          !isAuthenticated ||
+          date === null ||
+          loaded !== date ||
+          runtime.imageAttachments === null
+        ) {
+          setImageAttachmentDisplays({});
+          return;
+        }
+
+        const ids = Array.from(new Set(findImageAttachmentReferences(value).map((reference) => reference.id)));
+        const current = untrack(imageAttachmentDisplays);
+        const next = Object.fromEntries(
+          ids.map((id) => [id, current[id] ?? ({ id, status: "loading" } satisfies ImageAttachmentDisplay)])
+        );
+        setImageAttachmentDisplays(next);
+
+        const now = Date.now();
+        const unresolvedIds = ids.filter((id) => shouldResolveImageAttachmentDisplay(current[id], now));
+        const nextRefreshAtMs = nextImageAttachmentRefreshAt(Object.values(next), now);
+        let refreshTimeout: number | undefined;
+        if (nextRefreshAtMs !== undefined) {
+          refreshTimeout = window.setTimeout(
+            () => setImageAttachmentRefreshTick((tick) => tick + 1),
+            Math.max(nextRefreshAtMs - now, 0)
+          );
+        }
+        if (unresolvedIds.length === 0) {
+          onCleanup(() => {
+            if (refreshTimeout !== undefined) window.clearTimeout(refreshTimeout);
+          });
+          return;
+        }
+
+        let cancelled = false;
+        void Promise.all(unresolvedIds.map((id) => runtime.imageAttachments!.resolveImageAttachmentDisplay(id))).then(
+          (resolved) => {
+            if (cancelled || selectedDate() !== date || loadedDate() !== date) return;
+            setImageAttachmentDisplays((displays) => ({
+              ...displays,
+              ...Object.fromEntries(resolved.map((display) => [display.id, display]))
+            }));
+          }
+        );
+
+        onCleanup(() => {
+          cancelled = true;
+          if (refreshTimeout !== undefined) window.clearTimeout(refreshTimeout);
+        });
+      }
+    )
+  );
 
   const navigateToDate = async (date: IsoDate) => {
     void saveCurrentEditorSnapshot();
@@ -290,7 +357,7 @@ export default function Home() {
   };
 
   const startImagePick = async () => {
-    if (runtime.kind !== "google" || runtime.imageAttachments === null) return;
+    if (runtime.imageAttachments === null) return;
     const date = selectedDate();
     if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
 
@@ -302,6 +369,13 @@ export default function Home() {
     setImageAttachmentAltText("");
     setImportingImageResolutionName(null);
     setImageAttachmentDate(date);
+
+    if (runtime.kind === "fake") {
+      fakeImageInput?.click();
+      setImageAttachmentStatus("idle");
+      return;
+    }
+
     try {
       const session = await runtime.imageAttachments.startPicking();
       setImagePickingSession(session);
@@ -356,7 +430,6 @@ export default function Home() {
     const picked = pickedImage();
     const date = imageAttachmentDate();
     if (
-      runtime.kind !== "google" ||
       runtime.imageAttachments === null ||
       picked === null ||
       date === null ||
@@ -395,7 +468,6 @@ export default function Home() {
     const reusable = reusableImageAttachment();
     const date = imageAttachmentDate();
     if (
-      runtime.kind !== "google" ||
       runtime.imageAttachments === null ||
       reusable === null ||
       date === null ||
@@ -426,6 +498,39 @@ export default function Home() {
       setImageAttachmentError(errorMessage(error));
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("choosing");
+    }
+  };
+
+  const cancelImageAttachmentSelection = () => {
+    if (imageAttachmentStatus() === "importing") return;
+
+    setImageAttachmentStatus("idle");
+    setImageAttachmentError(null);
+    setImageAttachmentDate(null);
+    setImagePickingSession(null);
+    setPickedImage(null);
+    setReusableImageAttachment(null);
+    setImageAttachmentAltText("");
+    setImportingImageResolutionName(null);
+  };
+
+  const handleFakeImageFile = async (file: File | undefined) => {
+    if (runtime.kind !== "fake" || runtime.imageAttachments === null || file === undefined) return;
+    const date = imageAttachmentDate();
+    if (date === null || selectedDate() !== date || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+
+    setImageAttachmentStatus("starting");
+    setImageAttachmentError(null);
+    try {
+      const picked = await runtime.fakePhotos.pickImageFile(file);
+      const reusable = await runtime.imageAttachments.findReusablePickedImage(picked);
+      setPickedImage(picked);
+      setReusableImageAttachment(reusable);
+      setImageAttachmentAltText(defaultImageAltText(picked, reusable));
+      setImageAttachmentStatus("choosing");
+    } catch (error: unknown) {
+      setImageAttachmentError(errorMessage(error));
+      setImageAttachmentStatus("idle");
     }
   };
 
@@ -564,23 +669,41 @@ export default function Home() {
 
           <Show
             when={
-              runtime.kind === "google" &&
               runtime.imageAttachments !== null &&
               canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() })
             }
           >
             <section class="image-attachment-panel" aria-live="polite">
+              <Show when={runtime.kind === "fake"}>
+                <input
+                  ref={fakeImageInput}
+                  class="hidden-file-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    event.currentTarget.value = "";
+                    void handleFakeImageFile(file);
+                  }}
+                />
+              </Show>
               <div class="image-attachment-controls">
                 <button
                   type="button"
                   disabled={
-                    imageAttachmentStatus() === "starting" ||
-                    imageAttachmentStatus() === "waiting" ||
-                    imageAttachmentStatus() === "importing"
+                    imageAttachmentFlowActive()
                   }
                   onClick={() => void startImagePick()}
                 >
-                  {imageAttachmentStatus() === "starting" ? "Opening Google Photos..." : "Insert image"}
+                  {imageAttachmentStatus() === "starting"
+                    ? runtime.kind === "fake" ? "Loading image..." : "Opening Google Photos..."
+                    : imageAttachmentStatus() === "waiting"
+                      ? "Waiting for image..."
+                      : imageAttachmentStatus() === "choosing"
+                        ? "Image selected"
+                        : imageAttachmentStatus() === "importing"
+                          ? "Importing image..."
+                          : "Insert image"}
                 </button>
               </div>
               <Show when={imagePickingSession()}>
@@ -638,6 +761,13 @@ export default function Home() {
                         </button>
                       </div>
                     </Show>
+                    <button
+                      type="button"
+                      disabled={imageAttachmentStatus() === "importing"}
+                      onClick={cancelImageAttachmentSelection}
+                    >
+                      Cancel
+                    </button>
                     <span class="image-attachment-source">
                       {picked().mediaFile?.filename ?? "Selected image"}
                     </span>
@@ -677,6 +807,7 @@ export default function Home() {
             <MilkdownEditor
               documentKey={selectedDate()!}
               resetKey={editorResetKey()}
+              imageAttachmentDisplays={imageAttachmentDisplays()}
               value={markdown()}
               onChange={(documentKey, value) => {
                 const date = parseIsoDate(documentKey);
@@ -701,26 +832,30 @@ export default function Home() {
 }
 
 function createStorageRuntime(): StorageRuntime {
-  if (GOOGLE_CLIENT_ID) {
-    const scopes = [GOOGLE_DRIVE_FILE_SCOPE];
-    if (ENABLE_IMAGE_ATTACHMENTS) {
-      scopes.push(GOOGLE_PHOTOS_PICKER_SCOPE, GOOGLE_PHOTOS_APPENDONLY_SCOPE);
-    }
+  if (GOOGLE_CLIENT_ID && !FORCE_FAKE_STORAGE) {
+    const scopes = [
+      GOOGLE_DRIVE_FILE_SCOPE,
+      GOOGLE_PHOTOS_PICKER_SCOPE,
+      GOOGLE_PHOTOS_APPENDONLY_SCOPE,
+      GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE
+    ];
     const tokenProvider = new GoogleIdentityTokenProvider(GOOGLE_CLIENT_ID, scopes);
     const remote = new GoogleDriveStorageProvider(tokenProvider);
     return {
       kind: "google",
       tokenProvider,
       remote,
-      imageAttachments: ENABLE_IMAGE_ATTACHMENTS
-        ? new ImageAttachmentFlow(new GooglePhotosAttachmentProvider(tokenProvider), remote)
-        : null
+      imageAttachments: new ImageAttachmentFlow(new GooglePhotosAttachmentProvider(tokenProvider), remote)
     };
   }
 
+  const remote = new FakeRemoteStorageProvider();
+  const fakePhotos = new FakePhotosAttachmentProvider();
   return {
     kind: "fake",
-    remote: new FakeRemoteStorageProvider()
+    remote,
+    imageAttachments: new ImageAttachmentFlow(fakePhotos, remote),
+    fakePhotos
   };
 }
 
@@ -779,6 +914,19 @@ function defaultImageAltText(
   reusable: ReusableImageAttachment | null
 ): string {
   return reusable?.metadata.source.filename ?? picked.mediaFile?.filename ?? "";
+}
+
+function shouldResolveImageAttachmentDisplay(display: ImageAttachmentDisplay | undefined, nowMs: number): boolean {
+  return display === undefined || (display.status === "ready" && display.expiresAtMs !== undefined && display.expiresAtMs <= nowMs);
+}
+
+function nextImageAttachmentRefreshAt(displays: readonly ImageAttachmentDisplay[], nowMs: number): number | undefined {
+  const refreshTimes = displays.flatMap((display) =>
+    display.status === "ready" && display.expiresAtMs !== undefined && display.expiresAtMs > nowMs
+      ? [display.expiresAtMs]
+      : []
+  );
+  return refreshTimes.length === 0 ? undefined : Math.min(...refreshTimes);
 }
 
 function delay(ms: number): Promise<void> {

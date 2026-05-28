@@ -1,8 +1,11 @@
 import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
+import type { ImageAttachmentDisplayMap } from "./milkdownImages";
+import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
 
 interface MilkdownEditorProps {
   readonly documentKey: string;
   readonly resetKey?: number;
+  readonly imageAttachmentDisplays?: ImageAttachmentDisplayMap;
   readonly value: string;
   readonly onChange: (documentKey: string, markdown: string) => void;
   readonly onBlur: (documentKey: string, markdown: string) => void;
@@ -11,6 +14,15 @@ interface MilkdownEditorProps {
 export function MilkdownEditor(props: MilkdownEditorProps) {
   let root!: HTMLDivElement;
   const [error, setError] = createSignal<string | null>(null);
+  let imageAttachmentDisplays: ImageAttachmentDisplayMap = {};
+  const imageAttachmentDisplayListeners = new Set<() => void>();
+
+  createEffect(() => {
+    imageAttachmentDisplays = props.imageAttachmentDisplays ?? {};
+    for (const listener of imageAttachmentDisplayListeners) {
+      listener();
+    }
+  });
 
   createEffect(
     on(
@@ -21,14 +33,41 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         setError(null);
         root.replaceChildren();
 
-        const [{ Editor, rootCtx, defaultValueCtx }, { commonmark }, { gfm }, { history }, { listener, listenerCtx }] =
+        const [
+          { Editor, rootCtx, defaultValueCtx },
+          { commonmark, imageSchema },
+          { gfm },
+          { history },
+          { listener, listenerCtx },
+          { $view }
+        ] =
           await Promise.all([
             import("@milkdown/kit/core"),
             import("@milkdown/kit/preset/commonmark"),
             import("@milkdown/kit/preset/gfm"),
             import("@milkdown/kit/plugin/history"),
-            import("@milkdown/kit/plugin/listener")
+            import("@milkdown/kit/plugin/listener"),
+            import("@milkdown/kit/utils")
           ]);
+        const jotImageView = $view(imageSchema.node, () => (node) => {
+          let attrs = node.attrs;
+          const dom = createMilkdownImageViewDom(attrs, imageAttachmentDisplays);
+          const refresh = () => updateMilkdownImageViewDom(dom, attrs, imageAttachmentDisplays);
+          imageAttachmentDisplayListeners.add(refresh);
+
+          return {
+            dom,
+            update: (nextNode) => {
+              attrs = nextNode.attrs;
+              refresh();
+              return true;
+            },
+            destroy: () => {
+              imageAttachmentDisplayListeners.delete(refresh);
+            },
+            ignoreMutation: () => true
+          };
+        });
 
         const editor = await Editor.make()
           .config((ctx) => {
@@ -42,6 +81,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             });
           })
           .use(commonmark)
+          .use(jotImageView)
           .use(gfm)
           .use(history)
           .use(listener)

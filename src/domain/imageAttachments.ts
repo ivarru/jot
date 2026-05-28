@@ -96,5 +96,6 @@ export function availableImageAttachmentResolutions(input: {
 }
 
 export function googlePhotosImageContentUrl(baseUrl: string, resolution: ImageAttachmentResolution): string {
+  if (baseUrl.startsWith("data:") || baseUrl.startsWith("blob:")) return baseUrl;
   return `${baseUrl}=w${resolution.maxWidth}`;
 }

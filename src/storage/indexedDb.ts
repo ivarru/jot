@@ -1,5 +1,5 @@
 const DB_NAME = "jot";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export async function withStore<T>(
   storeName: string,
@@ -44,6 +44,18 @@ function openDatabase(): Promise<IDBDatabase> {
 
       if (!database.objectStoreNames.contains("settings")) {
         database.createObjectStore("settings", { keyPath: "id" });
+      }
+
+      if (!database.objectStoreNames.contains("fakeImageAlbum")) {
+        database.createObjectStore("fakeImageAlbum", { keyPath: "id" });
+      }
+
+      if (!database.objectStoreNames.contains("fakeImageAttachmentMetadata")) {
+        database.createObjectStore("fakeImageAttachmentMetadata", { keyPath: "id" });
+      }
+
+      if (!database.objectStoreNames.contains("fakePhotoMediaItems")) {
+        database.createObjectStore("fakePhotoMediaItems", { keyPath: "id" });
       }
     };
 

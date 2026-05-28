@@ -1,23 +1,49 @@
 import { createImageAttachmentReference } from "~/domain/attachmentReferences";
+import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
 import {
   IMAGE_ATTACHMENT_METADATA_VERSION,
   availableImageAttachmentResolutions,
   createImageAttachmentId,
   imageAttachmentIdFromFilename,
   imageAttachmentMetadataFilename,
+  googlePhotosImageContentUrl,
   type ImageAttachmentMetadata,
   type ImageAttachmentResolution,
   type ImageAttachmentResolutionName,
   type JotImageAlbumMetadata
 } from "~/domain/imageAttachments";
-import type { GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
 import {
-  GooglePhotosAttachmentProvider,
+  type GooglePhotosAlbum,
   type GooglePhotosPickingSession,
+  type GooglePhotosMediaItem,
   type PickedGooglePhotosMediaItem
 } from "~/photos/googlePhotosAttachments";
 
 const JOT_IMAGE_ALBUM_TITLE = "jot";
+const GOOGLE_PHOTOS_DISPLAY_URL_REFRESH_MS = 55 * 60 * 1000;
+
+export interface ImageAttachmentPhotosProvider {
+  createPickingSession(): Promise<GooglePhotosPickingSession>;
+  getPickingSession(sessionId: string): Promise<GooglePhotosPickingSession>;
+  listPickedMediaItems(sessionId: string): Promise<PickedGooglePhotosMediaItem[]>;
+  downloadPickedImage(item: PickedGooglePhotosMediaItem, resolution: ImageAttachmentResolution): Promise<Blob>;
+  createAlbum(title: string): Promise<GooglePhotosAlbum>;
+  uploadImageToAlbum(input: {
+    readonly albumId: string;
+    readonly filename: string;
+    readonly mimeType: string;
+    readonly bytes: Blob;
+  }): Promise<GooglePhotosMediaItem | undefined>;
+  getMediaItem(mediaItemId: string): Promise<GooglePhotosMediaItem>;
+}
+
+export interface ImageAttachmentMetadataStore {
+  loadJotImageAlbum(): Promise<JotImageAlbumMetadata | null>;
+  saveJotImageAlbum(metadata: JotImageAlbumMetadata): Promise<void>;
+  loadImageAttachmentMetadata(id: string): Promise<ImageAttachmentMetadata | null>;
+  findImageAttachmentMetadataByMediaItemId(mediaItemId: string): Promise<ImageAttachmentMetadata | null>;
+  saveImageAttachmentMetadata(metadata: ImageAttachmentMetadata): Promise<void>;
+}
 
 export interface InsertedImageAttachment {
   readonly metadata: ImageAttachmentMetadata;
@@ -30,8 +56,8 @@ export interface ReusableImageAttachment {
 
 export class ImageAttachmentFlow {
   constructor(
-    private readonly photos: GooglePhotosAttachmentProvider,
-    private readonly drive: GoogleDriveStorageProvider
+    private readonly photos: ImageAttachmentPhotosProvider,
+    private readonly drive: ImageAttachmentMetadataStore
   ) {}
 
   async startPicking(): Promise<GooglePhotosPickingSession> {
@@ -103,6 +129,58 @@ export class ImageAttachmentFlow {
       metadata: input.reusable.metadata,
       markdownReference: createImageAttachmentReference(input.reusable.metadata.id, input.altText)
     };
+  }
+
+  async resolveImageAttachmentDisplay(id: string): Promise<ImageAttachmentDisplay> {
+    const metadata = await this.drive.loadImageAttachmentMetadata(id).catch((error: unknown) => {
+      return {
+        error
+      };
+    });
+    if (isMetadataLoadError(metadata)) {
+      return {
+        id,
+        status: "error",
+        message: errorMessage(metadata.error)
+      };
+    }
+    if (metadata === null) {
+      return {
+        id,
+        status: "missing",
+        message: "Image metadata was not found in Drive."
+      };
+    }
+
+    try {
+      const mediaItem = await this.photos.getMediaItem(metadata.copy.mediaItemId);
+      const baseUrl = mediaItem.baseUrl;
+      if (baseUrl === undefined) {
+        return {
+          id,
+          status: "error",
+          message: "Google Photos did not return an image URL."
+        };
+      }
+
+      return {
+        id,
+        status: "ready",
+        url: googlePhotosImageContentUrl(baseUrl, {
+          name: "medium",
+          label: "Medium",
+          maxWidth: 2048,
+          maxHeight: 2048
+        }),
+        ...defined("expiresAtMs", displayUrlExpiresAtMs(baseUrl))
+      };
+    } catch (error: unknown) {
+      return {
+        id,
+        status: "error",
+        message: errorMessage(error)
+      };
+    }
   }
 
   private async findReusableAttachment(picked: PickedGooglePhotosMediaItem): Promise<ImageAttachmentMetadata | null> {
@@ -214,6 +292,19 @@ function numberFromString(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function isMetadataLoadError(value: ImageAttachmentMetadata | { readonly error: unknown } | null): value is { readonly error: unknown } {
+  return typeof value === "object" && value !== null && "error" in value;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function displayUrlExpiresAtMs(baseUrl: string): number | undefined {
+  if (baseUrl.startsWith("data:") || baseUrl.startsWith("blob:")) return undefined;
+  return Date.now() + GOOGLE_PHOTOS_DISPLAY_URL_REFRESH_MS;
 }
 
 function defined<K extends string, V>(key: K, value: V | undefined): { [P in K]: V } | Record<string, never> {

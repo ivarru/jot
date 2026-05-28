@@ -1,6 +1,7 @@
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import {
   GOOGLE_PHOTOS_APPENDONLY_SCOPE,
+  GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE,
   GOOGLE_PHOTOS_PICKER_SCOPE,
   GooglePhotosAttachmentProvider,
   preservePickerUri
@@ -21,6 +22,9 @@ describe("GooglePhotosAttachmentProvider", () => {
   it("uses the current Picker and append-only Library scopes", () => {
     expect(GOOGLE_PHOTOS_PICKER_SCOPE).toBe("https://www.googleapis.com/auth/photospicker.mediaitems.readonly");
     expect(GOOGLE_PHOTOS_APPENDONLY_SCOPE).toBe("https://www.googleapis.com/auth/photoslibrary.appendonly");
+    expect(GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE).toBe(
+      "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata"
+    );
   });
 
   it("creates single-item picker sessions", async () => {
@@ -91,6 +95,7 @@ describe("GooglePhotosAttachmentProvider", () => {
             status: {},
             mediaItem: {
               id: "copy-id",
+              baseUrl: "https://lh3.googleusercontent.com/p/copy",
               productUrl: "https://photos.google.com/photo/copy",
               mimeType: "image/jpeg"
             }
@@ -109,11 +114,29 @@ describe("GooglePhotosAttachmentProvider", () => {
       })
     ).resolves.toMatchObject({
       id: "copy-id",
+      baseUrl: "https://lh3.googleusercontent.com/p/copy",
       productUrl: "https://photos.google.com/photo/copy"
     });
     expect(fetch.requests[0]?.url).toBe("https://photoslibrary.googleapis.com/v1/uploads");
     expect(fetch.requests[1]?.url).toBe("https://photoslibrary.googleapis.com/v1/mediaItems:batchCreate");
     expect(String(fetch.requests[1]?.init.body)).toContain('"albumId":"album-id"');
+  });
+
+  it("fetches app-created media items by ID", async () => {
+    const fetch = createPhotosFetch([
+      json({
+        id: "copy-id",
+        baseUrl: "https://lh3.googleusercontent.com/p/copy",
+        mimeType: "image/jpeg"
+      })
+    ]);
+    const provider = new GooglePhotosAttachmentProvider(new StaticTokenProvider(), fetch.fetch);
+
+    await expect(provider.getMediaItem("copy-id")).resolves.toMatchObject({
+      id: "copy-id",
+      baseUrl: "https://lh3.googleusercontent.com/p/copy"
+    });
+    expect(fetch.requests[0]?.url).toBe("https://photoslibrary.googleapis.com/v1/mediaItems/copy-id");
   });
 });
 
