@@ -1012,7 +1012,8 @@ function navigatePickerWindow(pickerWindow: Window | null, pickerUri: string | u
   if (pickerWindow === null || pickerUri === undefined || pickerWindow.closed) return;
 
   try {
-    pickerWindow.location.href = pickerAutocloseUrl(pickerUri);
+    pickerWindow.location.replace(pickerAutocloseUrl(pickerUri));
+    pickerWindow.opener = null;
   } catch {
     // The explicit Open Google Photos link remains available when popup navigation fails.
   }
