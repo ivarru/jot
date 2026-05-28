@@ -641,6 +641,7 @@ export default function Home() {
                 onClick={() => {
                   setSigningIn(true);
                   setRedirectAuthErrorActive(false);
+                  clearStoredActiveImagePicker();
                   setAuthError(null);
                   void signIn(runtime)
                     .then(() => {
