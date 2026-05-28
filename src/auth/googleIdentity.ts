@@ -1,6 +1,9 @@
 import type { AccessTokenProvider, AccessTokenRequest } from "./accessTokenProvider";
 
 const GOOGLE_IDENTITY_SCRIPT_URL = "https://accounts.google.com/gsi/client";
+const GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const REDIRECT_STATE_STORAGE_PREFIX = "jot.googleOAuthRedirect.";
+const REDIRECT_STATE_TTL_MS = 10 * 60 * 1000;
 const TOKEN_REQUEST_TIMEOUT_MS = 30000;
 
 interface GoogleTokenResponse {
@@ -9,6 +12,16 @@ interface GoogleTokenResponse {
   readonly error?: string;
   readonly error_description?: string;
   readonly scope?: string;
+}
+
+export type GoogleRedirectAccessTokenResult =
+  | { readonly type: "none" }
+  | { readonly type: "authenticated" }
+  | { readonly type: "error"; readonly message: string };
+
+interface RedirectState {
+  readonly createdAtMs: number;
+  readonly hash: string;
 }
 
 interface GoogleTokenClient {
@@ -53,6 +66,61 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
 
   async initialize(): Promise<void> {
     await this.getTokenClient();
+  }
+
+  consumeRedirectAccessToken(): GoogleRedirectAccessTokenResult {
+    const params = oauthFragmentParams(window.location.hash);
+    if (params === null) return { type: "none" };
+
+    const state = params.get("state") ?? "";
+    const storedState = this.consumeRedirectState(state);
+    this.restoreHash(storedState?.hash ?? "");
+
+    const oauthError = params.get("error");
+    if (oauthError) {
+      const description = params.get("error_description");
+      return { type: "error", message: description ?? oauthError };
+    }
+
+    if (storedState === null) {
+      return { type: "error", message: "Google sign-in returned with an invalid state." };
+    }
+
+    const accessToken = params.get("access_token");
+    if (!accessToken) {
+      return { type: "error", message: "Google did not return an access token." };
+    }
+
+    const expiresIn = Number(params.get("expires_in") ?? "3600");
+    this.accessToken = accessToken;
+    this.accessTokenExpiresAtMs = Date.now() + (Number.isFinite(expiresIn) ? Math.max(expiresIn - 60, 0) : 3540) * 1000;
+    return { type: "authenticated" };
+  }
+
+  redirectForAccessToken(
+    request: AccessTokenRequest = {},
+    navigate: (url: string) => void = (url) => window.location.assign(url)
+  ): void {
+    const state = createRedirectNonce();
+    const currentHash = window.location.hash.startsWith("#/date/") ? window.location.hash : "";
+    const redirectUri = `${window.location.origin}${window.location.pathname}`;
+    window.sessionStorage.setItem(
+      redirectStateStorageKey(state),
+      JSON.stringify({ createdAtMs: Date.now(), hash: currentHash } satisfies RedirectState)
+    );
+
+    const url = new URL(GOOGLE_OAUTH_AUTHORIZE_URL);
+    url.searchParams.set("client_id", this.clientId);
+    url.searchParams.set("redirect_uri", redirectUri);
+    url.searchParams.set("response_type", "token");
+    url.searchParams.set("scope", this.scopes);
+    url.searchParams.set("include_granted_scopes", "true");
+    url.searchParams.set("state", state);
+    if (request.prompt !== undefined) {
+      url.searchParams.set("prompt", request.prompt);
+    }
+
+    navigate(url.toString());
   }
 
   async getAccessToken(request: AccessTokenRequest = {}): Promise<string> {
@@ -110,6 +178,34 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
     return this.accessToken !== null && Date.now() < this.accessTokenExpiresAtMs ? this.accessToken : null;
   }
 
+  private consumeRedirectState(state: string): RedirectState | null {
+    if (!state) return null;
+    const key = redirectStateStorageKey(state);
+    const value = window.sessionStorage.getItem(key);
+    window.sessionStorage.removeItem(key);
+    if (value === null) return null;
+
+    try {
+      const parsed = JSON.parse(value) as Partial<RedirectState>;
+      if (
+        typeof parsed.createdAtMs !== "number" ||
+        typeof parsed.hash !== "string" ||
+        Date.now() - parsed.createdAtMs > REDIRECT_STATE_TTL_MS
+      ) {
+        return null;
+      }
+      return { createdAtMs: parsed.createdAtMs, hash: parsed.hash };
+    } catch {
+      return null;
+    }
+  }
+
+  private restoreHash(hash: string): void {
+    const nextHash = hash || "#/";
+    const nextUrl = `${window.location.origin}${window.location.pathname}${window.location.search}${nextHash}`;
+    window.history.replaceState(null, "", nextUrl);
+  }
+
   private async getTokenClient(): Promise<GoogleTokenClient> {
     if (this.tokenClient !== null) return this.tokenClient;
 
@@ -149,12 +245,40 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
   }
 }
 
+export function isGooglePopupFailedToOpen(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message === "popup_failed_to_open" || error.message === "Failed to open popup window";
+}
+
 function googleErrorMessage(error: unknown): string {
   if (typeof error === "string") return error;
   if (typeof error !== "object" || error === null) return "Google sign-in failed.";
   if ("message" in error && typeof error.message === "string") return error.message;
   if ("type" in error && typeof error.type === "string") return error.type;
   return "Google sign-in failed.";
+}
+
+function oauthFragmentParams(hash: string): URLSearchParams | null {
+  if (!hash.startsWith("#")) return null;
+  const fragment = hash.slice(1);
+  if (fragment.startsWith("/")) return null;
+  const params = new URLSearchParams(fragment);
+  return params.has("access_token") || params.has("error") ? params : null;
+}
+
+function redirectStateStorageKey(state: string): string {
+  return `${REDIRECT_STATE_STORAGE_PREFIX}${state}`;
+}
+
+function createRedirectNonce(): string {
+  const cryptoApi = window.crypto;
+  if (cryptoApi?.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    cryptoApi.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
 }
 
 function waitForScript(script: HTMLScriptElement): Promise<void> {

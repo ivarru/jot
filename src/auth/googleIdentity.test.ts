@@ -4,6 +4,8 @@ describe("GoogleIdentityTokenProvider", () => {
   afterEach(() => {
     vi.useRealTimers();
     delete window.google;
+    window.sessionStorage.clear();
+    window.history.replaceState(null, "", "/");
     document.head.replaceChildren();
   });
 
@@ -77,5 +79,64 @@ describe("GoogleIdentityTokenProvider", () => {
     const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
 
     await expect(provider.getAccessToken()).rejects.toThrow("popup_failed_to_open");
+  });
+
+  it("redirects for an access token with the current date route in state", () => {
+    window.history.replaceState(null, "", "/#/date/2026-05-28");
+    const provider = new GoogleIdentityTokenProvider("client-id", ["scope-a", "scope-b"]);
+    const navigate = vi.fn();
+
+    provider.redirectForAccessToken({ prompt: "consent" }, navigate);
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    const url = new URL(navigate.mock.calls[0]?.[0] ?? "");
+    expect(url.origin + url.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
+    expect(url.searchParams.get("client_id")).toBe("client-id");
+    expect(url.searchParams.get("redirect_uri")).toBe("http://localhost:3000/");
+    expect(url.searchParams.get("response_type")).toBe("token");
+    expect(url.searchParams.get("scope")).toBe("scope-a scope-b");
+    expect(url.searchParams.get("prompt")).toBe("consent");
+
+    const state = url.searchParams.get("state");
+    expect(state).toBeTruthy();
+    expect(window.sessionStorage.getItem(`jot.googleOAuthRedirect.${state}`)).toContain("#/date/2026-05-28");
+  });
+
+  it("consumes a redirected access token and restores the original date route", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
+    window.sessionStorage.setItem(
+      "jot.googleOAuthRedirect.test-state",
+      JSON.stringify({ createdAtMs: 0, hash: "#/date/2026-05-28" })
+    );
+    window.history.replaceState(
+      null,
+      "",
+      "/#access_token=redirect-token&expires_in=120&state=test-state"
+    );
+
+    expect(provider.consumeRedirectAccessToken()).toEqual({ type: "authenticated" });
+    expect(window.location.hash).toBe("#/date/2026-05-28");
+    await expect(provider.getAccessToken()).resolves.toBe("redirect-token");
+  });
+
+  it("consumes a redirected access token when Google returns state before the token", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
+    window.sessionStorage.setItem(
+      "jot.googleOAuthRedirect.test-state",
+      JSON.stringify({ createdAtMs: 0, hash: "#/date/2026-05-28" })
+    );
+    window.history.replaceState(
+      null,
+      "",
+      "/#state=test-state&access_token=redirect-token&expires_in=120"
+    );
+
+    expect(provider.consumeRedirectAccessToken()).toEqual({ type: "authenticated" });
+    expect(window.location.hash).toBe("#/date/2026-05-28");
+    await expect(provider.getAccessToken()).resolves.toBe("redirect-token");
   });
 });

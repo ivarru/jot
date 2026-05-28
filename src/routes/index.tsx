@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } from "solid-js";
 import { ImageAttachmentFlow, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
-import { GoogleIdentityTokenProvider } from "~/auth/googleIdentity";
+import { GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
 import { ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
 import { MilkdownEditor } from "~/components/MilkdownEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
@@ -58,11 +58,17 @@ type ImageAttachmentStatus = "idle" | "starting" | "waiting" | "choosing" | "imp
 
 export default function Home() {
   const runtime = createStorageRuntime();
+  const redirectAuthResult = runtime.kind === "google"
+    ? runtime.tokenProvider.consumeRedirectAccessToken()
+    : { type: "none" as const };
   let fakeImageInput: HTMLInputElement | undefined;
   const [authenticated, setAuthenticated] = createSignal(
+    redirectAuthResult.type === "authenticated" ||
     runtime.kind === "fake" && ENABLE_FAKE_AUTH && globalThis.localStorage?.getItem("jot.fakeAuth") === "true"
   );
-  const [authError, setAuthError] = createSignal<string | null>(null);
+  const [authError, setAuthError] = createSignal<string | null>(
+    redirectAuthResult.type === "error" ? redirectAuthResult.message : null
+  );
   const [signingIn, setSigningIn] = createSignal(false);
   const [preparingAuth, setPreparingAuth] = createSignal(runtime.kind === "google");
   const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(dateFromHash());
@@ -394,9 +400,6 @@ export default function Home() {
       const session = await runtime.imageAttachments.startPicking();
       setImagePickingSession(session);
       setImageAttachmentStatus("waiting");
-      if (session.pickerUri !== undefined) {
-        window.open(pickerAutocloseUrl(session.pickerUri), "_blank", "noopener,noreferrer");
-      }
       void waitForPickedImage(session.id, date);
     } catch (error: unknown) {
       setImageAttachmentError(errorMessage(error));
@@ -881,7 +884,15 @@ function createStorageRuntime(): StorageRuntime {
 
 async function signIn(runtime: StorageRuntime): Promise<void> {
   if (runtime.kind === "google") {
-    await runtime.tokenProvider.getAccessToken({ prompt: "consent" });
+    try {
+      await runtime.tokenProvider.getAccessToken({ prompt: "consent" });
+    } catch (error: unknown) {
+      if (isGooglePopupFailedToOpen(error)) {
+        runtime.tokenProvider.redirectForAccessToken({ prompt: "consent" });
+        await new Promise<never>(() => undefined);
+      }
+      throw error;
+    }
   }
 }
 
