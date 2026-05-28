@@ -43,10 +43,14 @@ export async function persistLocalDraft(
   drafts: LocalDraftStore
 ): Promise<SyncStatus> {
   const existing = await drafts.load(date);
-  await drafts.save(
-    createDraft(date, markdown, existing?.baselineMarkdown ?? "", existing?.baselineRevisionId ?? null, true)
-  );
-  return "saved-locally";
+  const baselineMarkdown = existing?.baselineMarkdown ?? "";
+  const baselineRevisionId = existing?.baselineRevisionId ?? null;
+  const dirty = markdown !== baselineMarkdown;
+
+  await drafts.save(createDraft(date, markdown, baselineMarkdown, baselineRevisionId, dirty));
+
+  if (dirty) return "saved-locally";
+  return baselineRevisionId === null ? "local-only" : "synced";
 }
 
 export async function syncDailyNote(
@@ -87,4 +91,30 @@ export async function syncDailyNote(
     markdown: merged.merged,
     status: merged.conflicted ? "conflict" : "saved-locally"
   };
+}
+
+export async function saveAndSyncDailyNoteSnapshot(
+  date: IsoDate,
+  markdown: string,
+  drafts: LocalDraftStore,
+  remote: RemoteStorageProvider
+): Promise<DailyNoteSession> {
+  await persistLocalDraft(date, markdown, drafts);
+  return await syncDailyNote(date, drafts, remote);
+}
+
+export async function syncDirtyDailyNoteDrafts(
+  drafts: LocalDraftStore,
+  remote: RemoteStorageProvider,
+  skipDate: IsoDate | null = null
+): Promise<DailyNoteSession[]> {
+  const dirtyDrafts = await drafts.listDirty();
+  const sessions: DailyNoteSession[] = [];
+
+  for (const draft of dirtyDrafts) {
+    if (draft.date === skipDate) continue;
+    sessions.push(await syncDailyNote(draft.date, drafts, remote));
+  }
+
+  return sessions;
 }

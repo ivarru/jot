@@ -44,6 +44,7 @@ export interface LocalDraft {
 
 export interface LocalDraftStore {
   load(date: IsoDate): Promise<LocalDraft | null>;
+  listDirty(): Promise<LocalDraft[]>;
   save(draft: LocalDraft): Promise<void>;
   remove(date: IsoDate): Promise<void>;
   clearAll(): Promise<void>;

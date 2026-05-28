@@ -50,6 +50,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             return null;
           });
 
+        if (editor !== null) {
+          focusEditable(root);
+        }
+
         const blurListener = () => props.onBlur(documentKey, currentMarkdown);
         root.addEventListener("focusout", blurListener);
 
@@ -69,6 +73,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         <textarea
           class="fallback-editor"
           value={props.value}
+          ref={(element) => requestAnimationFrame(() => element.focus())}
           onInput={(event) => props.onChange(props.documentKey, event.currentTarget.value)}
           onBlur={(event) => props.onBlur(props.documentKey, event.currentTarget.value)}
           aria-label="Markdown editor fallback"
@@ -76,4 +81,11 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
       </Show>
     </div>
   );
+}
+
+function focusEditable(root: HTMLElement): void {
+  requestAnimationFrame(() => {
+    const editable = root.querySelector<HTMLElement>("[contenteditable='true']");
+    editable?.focus();
+  });
 }

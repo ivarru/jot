@@ -1,4 +1,4 @@
-const CACHE_NAME = "jot-shell-v1";
+const CACHE_NAME = "jot-shell-v5";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -18,14 +18,32 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin) return;
 
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
+    fetch(event.request).then((response) => {
+      if (response.ok) {
         const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        return response;
-      })
-      .catch(() => caches.match(event.request).then((cached) => cached ?? caches.match("./")))
+        event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => undefined));
+      }
+      return response;
+    }).catch(async (error) => {
+      const cached = await caches.match(event.request);
+      if (cached) return cached;
+
+      if (event.request.mode === "navigate") {
+        const shell = await caches.match("./");
+        if (shell) return shell;
+      }
+
+      return new Response("Network unavailable and no cached response exists.", {
+        status: 504,
+        statusText: "Gateway Timeout",
+        headers: {
+          "Content-Type": "text/plain; charset=UTF-8"
+        }
+      });
+    })
   );
 });

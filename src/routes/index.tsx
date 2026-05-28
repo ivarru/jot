@@ -1,5 +1,7 @@
-import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "solid-js";
-import { ENABLE_FAKE_AUTH, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
+import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } from "solid-js";
+import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
+import { GoogleIdentityTokenProvider } from "~/auth/googleIdentity";
+import { ENABLE_FAKE_AUTH, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
 import { MilkdownEditor } from "~/components/MilkdownEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
 import { addDays, dayOfWeek, isToday, parseIsoDate, todayIsoDate, type IsoDate } from "~/domain/dates";
@@ -11,21 +13,41 @@ import {
   shouldApplySyncResult
 } from "~/editor/dateBoundEditor";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
-import { createDraft, IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
-import type { SyncStatus } from "~/storage/types";
-import { loadDailyNoteSession, persistLocalDraft, syncDailyNote } from "~/sync/syncDailyNote";
+import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
+import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
+import type { RemoteStorageProvider, SyncStatus } from "~/storage/types";
+import {
+  loadDailyNoteSession,
+  persistLocalDraft,
+  saveAndSyncDailyNoteSnapshot,
+  syncDirtyDailyNoteDrafts
+} from "~/sync/syncDailyNote";
 
 const drafts = new IndexedDbLocalDraftStore();
-const remote = new FakeRemoteStorageProvider();
+
+type StorageRuntime =
+  | {
+      readonly kind: "fake";
+      readonly remote: RemoteStorageProvider;
+    }
+  | {
+      readonly kind: "google";
+      readonly remote: RemoteStorageProvider;
+      readonly tokenProvider: AccessTokenProvider;
+    };
 
 export default function Home() {
+  const runtime = createStorageRuntime();
   const [authenticated, setAuthenticated] = createSignal(
-    ENABLE_FAKE_AUTH && globalThis.localStorage?.getItem("jot.fakeAuth") === "true"
+    runtime.kind === "fake" && ENABLE_FAKE_AUTH && globalThis.localStorage?.getItem("jot.fakeAuth") === "true"
   );
+  const [authError, setAuthError] = createSignal<string | null>(null);
+  const [signingIn, setSigningIn] = createSignal(false);
   const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(dateFromHash());
   const [invalidDate, setInvalidDate] = createSignal<string | null>(invalidDateFromHash());
   const [markdown, setMarkdown] = createSignal("");
   const [loadedDate, setLoadedDate] = createSignal<IsoDate | null>(null);
+  const [loadError, setLoadError] = createSignal<string | null>(null);
   const [syncStatus, setSyncStatus] = createSignal<SyncStatus>("local-only");
   const [settings, setSettings] = createSignal<JotSettings>(DEFAULT_JOT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
@@ -48,7 +70,14 @@ export default function Home() {
   createEffect(() => {
     if (!authenticated()) return;
 
-    void loadSettingsOrDefault(remote).then(setSettings);
+    void loadSettingsOrDefault(runtime.remote).then(setSettings).catch((error: unknown) => {
+      setLoadError(errorMessage(error));
+      setSyncStatus("error");
+    });
+
+    void syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate)).catch(() => {
+      setSyncStatus("error");
+    });
   });
 
   createEffect(
@@ -58,13 +87,9 @@ export default function Home() {
         if (!isAuthenticated || date === null) return;
 
         setLoadedDate(null);
+        setLoadError(null);
         replaceMarkdownFromStorage("");
-        void loadDailyNoteSession(date, drafts, remote).then((session) => {
-          if (!shouldApplyLoadedNote(date, selectedDate())) return;
-          replaceMarkdownFromStorage(session.markdown);
-          setLoadedDate(date);
-          setSyncStatus(session.status);
-        });
+        void loadSelectedDate(date);
       },
       { defer: false }
     )
@@ -121,7 +146,7 @@ export default function Home() {
       const date = selectedDate();
       if (date !== null) {
         const value = markdown();
-        void persistLocalDraft(date, value, drafts);
+        void saveAndSyncSnapshot(date, value);
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -131,15 +156,32 @@ export default function Home() {
   const navigateToDate = async (date: IsoDate) => {
     const current = selectedDate();
     if (current !== null) {
-      await persistLocalDraft(current, markdown(), drafts);
+      void saveAndSyncSnapshot(current, markdown());
     }
     window.location.hash = `/date/${date}`;
   };
 
+  const loadSelectedDate = async (date: IsoDate) => {
+    const session = await loadDailyNoteSession(date, drafts, runtime.remote).catch((error: unknown) => {
+      if (shouldApplyLoadedNote(date, selectedDate())) {
+        setLoadError(errorMessage(error));
+        setSyncStatus("error");
+      }
+      return null;
+    });
+    if (session === null || !shouldApplyLoadedNote(date, selectedDate())) return;
+    replaceMarkdownFromStorage(session.markdown);
+    setLoadedDate(date);
+    setSyncStatus(session.status);
+  };
+
   const flushAndSync = async (date: IsoDate, value: string) => {
-    setSyncStatus("syncing");
-    await persistLocalDraft(date, value, drafts);
-    const session = await syncDailyNote(date, drafts, remote).catch(() => null);
+    await saveAndSyncSnapshot(date, value);
+  };
+
+  const saveAndSyncSnapshot = async (date: IsoDate, value: string) => {
+    if (shouldApplySyncResult(date, selectedDate())) setSyncStatus("syncing");
+    const session = await saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch(() => null);
     if (session === null) {
       if (shouldApplySyncResult(date, selectedDate())) setSyncStatus("error");
       return;
@@ -159,7 +201,7 @@ export default function Home() {
   const updateSettings = (next: JotSettings) => {
     const normalized = normalizeJotSettings(next);
     setSettings(normalized);
-    void remote.saveSettings(normalized);
+    void runtime.remote.saveSettings(normalized);
   };
 
   const signOut = async () => {
@@ -169,6 +211,9 @@ export default function Home() {
     }
 
     await drafts.clearAll();
+    if (runtime.kind === "google") {
+      await runtime.tokenProvider.revoke?.();
+    }
     globalThis.localStorage?.removeItem("jot.fakeAuth");
     setAuthenticated(false);
     setMarkdown("");
@@ -184,18 +229,31 @@ export default function Home() {
             <h1>Jot</h1>
             <p>Google authentication is required before the first editor session.</p>
             <Show
-              when={ENABLE_FAKE_AUTH}
-              fallback={<p class="muted">Google OAuth will be wired after the fake-storage milestone.</p>}
+              when={runtime.kind === "google" || ENABLE_FAKE_AUTH}
+              fallback={<p class="muted">Set VITE_GOOGLE_CLIENT_ID or enable VITE_ENABLE_FAKE_AUTH for local testing.</p>}
             >
               <button
                 type="button"
+                disabled={signingIn()}
                 onClick={() => {
-                  globalThis.localStorage?.setItem("jot.fakeAuth", "true");
-                  setAuthenticated(true);
+                  setSigningIn(true);
+                  setAuthError(null);
+                  void signIn(runtime)
+                    .then(() => {
+                      if (runtime.kind === "fake") {
+                        globalThis.localStorage?.setItem("jot.fakeAuth", "true");
+                      }
+                      setAuthenticated(true);
+                    })
+                    .catch((error: unknown) => setAuthError(errorMessage(error)))
+                    .finally(() => setSigningIn(false));
                 }}
               >
-                Use development storage
+                {signingIn() ? "Signing in..." : runtime.kind === "google" ? "Sign in with Google" : "Use development storage"}
               </button>
+              <Show when={authError()}>
+                {(message) => <p class="auth-error">{message()}</p>}
+              </Show>
             </Show>
           </section>
         }
@@ -265,7 +323,27 @@ export default function Home() {
 
           <Show
             when={canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() })}
-            fallback={<div class="editor-loading">Loading note...</div>}
+            fallback={
+              <Show when={loadError()} fallback={<div class="editor-loading">Loading note...</div>}>
+                {(message) => (
+                  <section class="editor-error" aria-live="polite">
+                    <h2>Could not load note</h2>
+                    <pre>{message()}</pre>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const date = selectedDate();
+                        if (date === null) return;
+                        setLoadError(null);
+                        void loadSelectedDate(date);
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </section>
+                )}
+              </Show>
+            }
           >
             <MilkdownEditor
               documentKey={selectedDate()!}
@@ -276,17 +354,13 @@ export default function Home() {
                 if (editorChangeTarget(date, { selectedDate: selectedDate(), loadedDate: loadedDate() }) === "current-editor") {
                   setMarkdown(value);
                 } else {
-                  void persistLocalDraft(date, value, drafts);
+                  void saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch(() => undefined);
                 }
               }}
               onBlur={(documentKey, value) => {
-              const date = parseIsoDate(documentKey);
-              if (date === null) return;
-              void persistLocalDraft(date, value, drafts).then((status) => {
-                if (editorChangeTarget(date, { selectedDate: selectedDate(), loadedDate: loadedDate() }) === "current-editor") {
-                  setSyncStatus(status);
-                }
-              });
+                const date = parseIsoDate(documentKey);
+                if (date === null) return;
+                void saveAndSyncSnapshot(date, value);
               }}
             />
           </Show>
@@ -294,6 +368,28 @@ export default function Home() {
       </Show>
     </main>
   );
+}
+
+function createStorageRuntime(): StorageRuntime {
+  if (GOOGLE_CLIENT_ID) {
+    const tokenProvider = new GoogleIdentityTokenProvider(GOOGLE_CLIENT_ID, [GOOGLE_DRIVE_FILE_SCOPE]);
+    return {
+      kind: "google",
+      tokenProvider,
+      remote: new GoogleDriveStorageProvider(tokenProvider)
+    };
+  }
+
+  return {
+    kind: "fake",
+    remote: new FakeRemoteStorageProvider()
+  };
+}
+
+async function signIn(runtime: StorageRuntime): Promise<void> {
+  if (runtime.kind === "google") {
+    await runtime.tokenProvider.getAccessToken({ prompt: "consent" });
+  }
 }
 
 function dateFromHash(): IsoDate | null {
@@ -330,4 +426,8 @@ function syncStatusLabel(status: SyncStatus): string {
     case "error":
       return "Sync error";
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

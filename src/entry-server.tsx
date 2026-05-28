@@ -14,6 +14,7 @@ const Document: Component<DocumentProps> = (props) => (
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <link rel="manifest" href={`${import.meta.env.BASE_URL}manifest.webmanifest`} />
+      <link rel="icon" href={`${import.meta.env.BASE_URL}icons/icon.svg`} type="image/svg+xml" />
       {props.assets}
     </head>
     <body>

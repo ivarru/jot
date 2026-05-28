@@ -16,6 +16,8 @@ npm run typecheck
 npm run build
 ```
 
+Google Drive provider changes must include mocked `fetch` tests for request URLs, methods, auth headers, metadata bodies, media bodies, conflict behavior, and settings behavior. Do not require a live Google account for routine regression coverage.
+
 For browser checks of the fake-storage milestone:
 
 ```sh

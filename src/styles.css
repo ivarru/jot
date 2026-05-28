@@ -92,6 +92,12 @@ input {
   color: var(--muted);
 }
 
+.auth-error {
+  max-width: 42rem;
+  margin: 0;
+  color: var(--danger);
+}
+
 .topbar {
   display: flex;
   align-items: flex-start;
@@ -203,6 +209,32 @@ input {
   border-radius: 8px;
   background: var(--panel);
   color: var(--muted);
+}
+
+.editor-error {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 40vh;
+  margin-top: 12px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--danger), transparent 45%);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.editor-error h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.editor-error pre {
+  margin: 0;
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--danger);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .milkdown-root {

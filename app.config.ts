@@ -12,6 +12,9 @@ export default defineConfig({
     preset: "static"
   },
   vite: {
-    base: process.env.BASE_PATH ?? "/"
+    base: process.env.BASE_PATH ?? "/",
+    build: {
+      modulePreload: false
+    }
   }
 });
