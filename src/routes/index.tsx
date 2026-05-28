@@ -77,6 +77,7 @@ export default function Home() {
   const [authError, setAuthError] = createSignal<string | null>(
     redirectAuthResult.type === "error" ? redirectAuthResult.message : null
   );
+  const [redirectAuthErrorActive, setRedirectAuthErrorActive] = createSignal(redirectAuthResult.type === "error");
   const [signingIn, setSigningIn] = createSignal(false);
   const [preparingAuth, setPreparingAuth] = createSignal(runtime.kind === "google");
   const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(dateFromHash());
@@ -130,8 +131,12 @@ export default function Home() {
 
     setPreparingAuth(true);
     void runtime.tokenProvider.initialize()
-      .then(() => setAuthError(null))
-      .catch((error: unknown) => setAuthError(errorMessage(error)))
+      .then(() => {
+        if (!redirectAuthErrorActive()) setAuthError(null);
+      })
+      .catch((error: unknown) => {
+        if (!redirectAuthErrorActive()) setAuthError(errorMessage(error));
+      })
       .finally(() => setPreparingAuth(false));
   });
 
@@ -435,11 +440,14 @@ export default function Home() {
       return;
     }
 
+    const pickerWindow = openPickerPlaceholderWindow();
+
     try {
       const session = await runtime.imageAttachments.startPicking();
       storeActiveImagePicker({ date, session, createdAtMs: Date.now() });
       setImagePickingSession(session);
       setImageAttachmentStatus("waiting");
+      navigatePickerWindow(pickerWindow, session.pickerUri);
       void waitForPickedImage(session.id, date);
     } catch (error: unknown) {
       clearStoredActiveImagePicker();
@@ -632,6 +640,7 @@ export default function Home() {
                 disabled={signingIn() || preparingAuth()}
                 onClick={() => {
                   setSigningIn(true);
+                  setRedirectAuthErrorActive(false);
                   setAuthError(null);
                   void signIn(runtime)
                     .then(() => {
@@ -988,6 +997,28 @@ function errorMessage(error: unknown): string {
 
 function pickerAutocloseUrl(pickerUri: string): string {
   return pickerUri.endsWith("/autoclose") ? pickerUri : `${pickerUri.replace(/\/$/, "")}/autoclose`;
+}
+
+function openPickerPlaceholderWindow(): Window | null {
+  try {
+    const pickerWindow = window.open("", "_blank");
+    if (pickerWindow !== null) {
+      pickerWindow.opener = null;
+    }
+    return pickerWindow;
+  } catch {
+    return null;
+  }
+}
+
+function navigatePickerWindow(pickerWindow: Window | null, pickerUri: string | undefined): void {
+  if (pickerWindow === null || pickerUri === undefined || pickerWindow.closed) return;
+
+  try {
+    pickerWindow.location.href = pickerAutocloseUrl(pickerUri);
+  } catch {
+    // The explicit Open Google Photos link remains available when popup navigation fails.
+  }
 }
 
 function storeActiveImagePicker(activePicker: StoredActiveImagePicker): void {
