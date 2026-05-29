@@ -1,5 +1,7 @@
+import { JSDOM } from "jsdom";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const outputDir = path.resolve(process.env.PAGES_OUTPUT_DIR ?? ".output/public");
 const basePath = normalizeBasePath(process.env.BASE_PATH ?? "/jot/");
@@ -43,13 +45,16 @@ for (const assetPath of assetPaths) {
   await assertFile(stripBasePath(assetPath));
 }
 
-for (const assetPath of [...assetPaths].filter((assetPath) => assetPath.endsWith(".js"))) {
+const javascriptAssets = [...assetPaths].filter((assetPath) => assetPath.endsWith(".js"));
+for (const assetPath of javascriptAssets) {
   const javascript = await readText(stripBasePath(assetPath));
   const importPaths = matchAll(javascript, /import\("\.\/([^"]+\.js)"\)/g);
   for (const importPath of importPaths) {
     await assertFile(path.posix.join(path.posix.dirname(stripBasePath(assetPath)), importPath));
   }
 }
+
+await assertAppRendersAtBasePath(html);
 
 console.log(`Pages smoke passed for ${outputDir} with base ${basePath}`);
 
@@ -82,6 +87,84 @@ function normalizeBasePath(value) {
 
 function matchAll(value, pattern) {
   return [...value.matchAll(pattern)].map((match) => match[1]).filter(Boolean);
+}
+
+async function assertAppRendersAtBasePath(html) {
+  const manifestMatch = html.match(/window\.manifest = (\{.*?\})<\/script>/s);
+  assert(manifestMatch, "index.html does not include the client manifest.");
+
+  const moduleScriptPath = matchAll(html, /<script type="module" src="([^"]+)"/g)[0];
+  assert(moduleScriptPath?.startsWith(basePath), "index.html does not include a Pages-based module script.");
+
+  const manifest = JSON.parse(manifestMatch[1]);
+  rewriteManifestOutputsToFileUrls(manifest);
+
+  const dom = new JSDOM(html, {
+    pretendToBeVisual: true,
+    url: `http://127.0.0.1${basePath}`
+  });
+  dom.window.manifest = manifest;
+
+  const globals = [
+    "window",
+    "document",
+    "location",
+    "history",
+    "localStorage",
+    "sessionStorage",
+    "HTMLElement",
+    "HTMLInputElement",
+    "HTMLTextAreaElement",
+    "HTMLButtonElement",
+    "Node",
+    "CustomEvent",
+    "Event",
+    "InputEvent",
+    "MouseEvent",
+    "KeyboardEvent"
+  ];
+
+  for (const name of globals) {
+    Object.defineProperty(globalThis, name, { value: dom.window[name], configurable: true });
+  }
+  Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
+  globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
+  globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window);
+
+  try {
+    await import(pathToFileURL(path.join(outputDir, stripBasePath(moduleScriptPath))).href);
+
+    const appText = await waitForAppText(dom, (text) =>
+      text.includes("Google authentication is required") ||
+      text.includes("Error | Uncaught Client Exception")
+    );
+    assert(appText.includes("Google authentication is required"), `App did not render at ${basePath}.`);
+    assert(!appText.includes("Error | Uncaught Client Exception"), "App rendered the client exception fallback.");
+  } finally {
+    dom.window.close();
+  }
+}
+
+function rewriteManifestOutputsToFileUrls(manifest) {
+  for (const entry of Object.values(manifest)) {
+    if (!entry || typeof entry !== "object" || typeof entry.output !== "string") continue;
+    assert(entry.output.startsWith(basePath), `Manifest output ${entry.output} is not under ${basePath}.`);
+    entry.output = pathToFileURL(path.join(outputDir, stripBasePath(entry.output))).href;
+  }
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForAppText(dom, predicate, timeoutMs = 5000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const appText = dom.window.document.getElementById("app")?.textContent ?? "";
+    if (predicate(appText)) return appText;
+    await delay(50);
+  }
+  return dom.window.document.getElementById("app")?.textContent ?? "";
 }
 
 function assert(condition, message) {

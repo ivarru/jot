@@ -6,6 +6,7 @@ import "./styles.css";
 export default function App() {
   return (
     <Router
+      base={routerBasePath()}
       root={(props) => (
         <MetaProvider>
           <Title>Jot</Title>
@@ -17,4 +18,10 @@ export default function App() {
       <FileRoutes />
     </Router>
   );
+}
+
+function routerBasePath(): string {
+  const baseUrl = import.meta.env.BASE_URL;
+  if (baseUrl === "/") return "";
+  return baseUrl.replace(/\/$/, "");
 }
