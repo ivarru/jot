@@ -509,6 +509,11 @@ select {
   line-height: 1.6;
 }
 
+.milkdown-root :is(ul, ol)[data-spread="false"] li p {
+  margin-block-start: 0;
+  margin-block-end: 0;
+}
+
 .jot-image-view {
   display: inline-block;
   max-width: 100%;
