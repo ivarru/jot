@@ -244,6 +244,68 @@ select {
   flex-wrap: wrap;
 }
 
+.image-insert-menu {
+  position: relative;
+}
+
+.icon-button {
+  display: inline-grid;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  place-items: center;
+}
+
+.icon-menu-button {
+  grid-template-columns: 20px 8px;
+  column-gap: 3px;
+  width: 48px;
+  min-width: 48px;
+}
+
+.dropdown-caret {
+  width: 0;
+  height: 0;
+  border-top: 5px solid currentColor;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+}
+
+.image-insert-menu-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  min-width: 190px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.image-insert-menu-popover button {
+  justify-content: flex-start;
+  width: 100%;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  text-align: left;
+}
+
+.image-insert-menu-popover button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent), transparent 88%);
+}
+
+.image-insert-menu-hint {
+  padding: 8px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .image-attachment-import {
   display: grid;
   gap: 8px;
@@ -282,6 +344,44 @@ select {
 .image-attachment-error {
   margin: 0;
   color: var(--danger);
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--background), transparent 28%);
+}
+
+.image-attachment-modal {
+  display: grid;
+  width: min(100%, 560px);
+  max-height: min(100%, 680px);
+  gap: 14px;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.image-attachment-modal-header {
+  display: grid;
+  gap: 4px;
+}
+
+.image-attachment-modal h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .hidden-file-input {

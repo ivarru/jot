@@ -78,11 +78,11 @@ describe("GooglePhotosAttachmentProvider", () => {
           mimeType: "image/jpeg"
         }
       },
-      { name: "medium", label: "Medium", maxWidth: 2048, maxHeight: 2048 }
+      { name: "medium", label: "Medium", maxWidth: 1200, maxHeight: 1200 }
     );
 
     expect(blob).toBeInstanceOf(Blob);
-    expect(fetch.requests[0]?.url).toBe("https://lh3.googleusercontent.com/p/test=w2048");
+    expect(fetch.requests[0]?.url).toBe("https://lh3.googleusercontent.com/p/test=w1200");
     expect(new Headers(fetch.requests[0]?.init.headers).get("Authorization")).toBe("Bearer photos-token");
   });
 

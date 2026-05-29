@@ -51,4 +51,14 @@ describe("date-bound editor guards", () => {
       })
     ).toBe(true);
   });
+
+  it("does not apply async image attachment mutations after date navigation", () => {
+    const attachmentDate = "2030-02-01";
+    expect(
+      shouldApplyEditorAsyncResult(attachmentDate, {
+        selectedDate: "2030-02-02",
+        loadedDate: "2030-02-02"
+      })
+    ).toBe(false);
+  });
 });

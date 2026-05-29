@@ -41,8 +41,8 @@ describe("ImageAttachmentFlow", () => {
         productUrl: "https://photos.google.com/photo/copy",
         mimeType: "image/jpeg",
         mediaMetadata: {
-          width: "2048",
-          height: "1536"
+          width: "1200",
+          height: "900"
         }
       }))
     } as unknown as GooglePhotosAttachmentProvider;
@@ -278,7 +278,7 @@ describe("ImageAttachmentFlow", () => {
       expect.objectContaining({
         id: "01HZY3J2CJX6N7Y25K2K3N8E4A",
         status: "ready",
-        url: "https://lh3.googleusercontent.com/p/copy=w2048",
+        url: "https://lh3.googleusercontent.com/p/copy=w1200",
         expiresAtMs: expect.any(Number)
       })
     );

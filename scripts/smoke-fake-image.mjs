@@ -92,8 +92,9 @@ try {
     await waitForExpression(cdp, "document.readyState === 'complete'");
 
     await clickButton(cdp, "Use development storage");
-    await waitForExpression(cdp, "document.querySelector('.image-attachment-panel button')?.textContent?.includes('Insert image')");
+    await waitForExpression(cdp, "document.querySelector('.image-attachment-panel button[aria-label=\"Insert image\"]') !== null");
     await clickButton(cdp, "Insert image");
+    await clickButton(cdp, "Upload from device");
     await setFileInput(cdp, ".image-attachment-panel input[type='file']", imagePath);
     await waitForExpression(cdp, "document.querySelector('.image-attachment-import input[type=\"text\"]') !== null");
     await setAltText(cdp, "Smoke image");
@@ -164,7 +165,10 @@ async function waitForPageWsUrl(browserWsUrl) {
 
 async function clickButton(cdp, text) {
   const clicked = await evaluate(cdp, `(() => {
-    const button = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent?.includes(${JSON.stringify(text)}));
+    const button = [...document.querySelectorAll('button')].find((candidate) =>
+      candidate.textContent?.includes(${JSON.stringify(text)}) ||
+      candidate.getAttribute('aria-label')?.includes(${JSON.stringify(text)})
+    );
     if (!button) return false;
     button.click();
     return true;

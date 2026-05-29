@@ -7,6 +7,7 @@ import {
   imageAttachmentIdFromFilename,
   imageAttachmentMetadataFilename,
   googlePhotosImageContentUrl,
+  resolveImageAttachmentResolution,
   type ImageAttachmentMetadata,
   type ImageAttachmentResolution,
   type ImageAttachmentResolutionName,
@@ -244,12 +245,7 @@ export class ImageAttachmentFlow {
       return {
         id,
         status: "ready",
-        url: googlePhotosImageContentUrl(baseUrl, {
-          name: "medium",
-          label: "Medium",
-          maxWidth: 2048,
-          maxHeight: 2048
-        }),
+        url: googlePhotosImageContentUrl(baseUrl, resolveImageAttachmentResolution("medium")),
         ...defined("expiresAtMs", displayUrlExpiresAtMs(baseUrl))
       };
     } catch (error: unknown) {

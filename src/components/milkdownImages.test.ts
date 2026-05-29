@@ -21,13 +21,13 @@ describe("milkdown image rendering", () => {
         "01HZY3J2CJX6N7Y25K2K3N8E4A": {
           id: "01HZY3J2CJX6N7Y25K2K3N8E4A",
           status: "ready",
-          url: "https://lh3.googleusercontent.com/p/copy=w2048"
+          url: "https://lh3.googleusercontent.com/p/copy=w1200"
         }
       }
     );
 
     expect(dom).toBeInstanceOf(HTMLImageElement);
-    expect((dom as HTMLImageElement).src).toBe("https://lh3.googleusercontent.com/p/copy=w2048");
+    expect((dom as HTMLImageElement).src).toBe("https://lh3.googleusercontent.com/p/copy=w1200");
     expect((dom as HTMLImageElement).alt).toBe("Trail");
     expect(dom.dataset.jotImageId).toBe("01HZY3J2CJX6N7Y25K2K3N8E4A");
   });
@@ -62,14 +62,14 @@ describe("milkdown image rendering", () => {
         "01HZY3J2CJX6N7Y25K2K3N8E4A": {
           id: "01HZY3J2CJX6N7Y25K2K3N8E4A",
           status: "ready",
-          url: "https://lh3.googleusercontent.com/p/copy=w2048"
+          url: "https://lh3.googleusercontent.com/p/copy=w1200"
         }
       }
     );
 
     const image = wrapper.querySelector("img");
     expect(image).not.toBeNull();
-    expect(image?.src).toBe("https://lh3.googleusercontent.com/p/copy=w2048");
+    expect(image?.src).toBe("https://lh3.googleusercontent.com/p/copy=w1200");
     expect(wrapper).toBeInstanceOf(HTMLSpanElement);
   });
 });

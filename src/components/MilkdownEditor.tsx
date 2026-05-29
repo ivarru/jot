@@ -1,4 +1,5 @@
 import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
+import { firstClipboardImageFile } from "./clipboardImages";
 import type { ImageAttachmentDisplayMap } from "./milkdownImages";
 import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
 
@@ -11,6 +12,7 @@ interface MilkdownEditorProps {
   readonly value: string;
   readonly onChange: (documentKey: string, markdown: string) => void;
   readonly onBlur: (documentKey: string, markdown: string) => void;
+  readonly onPasteImage?: (documentKey: string, file: File) => void;
 }
 
 export function MilkdownEditor(props: MilkdownEditorProps) {
@@ -99,10 +101,21 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         }
 
         const blurListener = () => props.onBlur(documentKey, currentMarkdown);
+        const pasteListener = (event: ClipboardEvent) => {
+          if (props.onPasteImage === undefined) return;
+          const file = firstClipboardImageFile(event.clipboardData?.items);
+          if (file === null) return;
+
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          props.onPasteImage(documentKey, file);
+        };
         root.addEventListener("focusout", blurListener);
+        root.addEventListener("paste", pasteListener, { capture: true });
 
         onCleanup(() => {
           root.removeEventListener("focusout", blurListener);
+          root.removeEventListener("paste", pasteListener, { capture: true });
           void editor?.destroy();
         });
       },

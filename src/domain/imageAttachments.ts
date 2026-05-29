@@ -13,9 +13,9 @@ export interface ImageAttachmentResolution {
 }
 
 export const IMAGE_ATTACHMENT_RESOLUTIONS: readonly ImageAttachmentResolution[] = [
-  { name: "small", label: "Small", maxWidth: 1024, maxHeight: 1024 },
-  { name: "medium", label: "Medium", maxWidth: 2048, maxHeight: 2048 },
-  { name: "large", label: "Large", maxWidth: 4096, maxHeight: 4096 },
+  { name: "small", label: "Small", maxWidth: 600, maxHeight: 600 },
+  { name: "medium", label: "Medium", maxWidth: 1200, maxHeight: 1200 },
+  { name: "large", label: "Large", maxWidth: 2400, maxHeight: 2400 },
   { name: "original", label: "Original", maxWidth: 16383, maxHeight: 16383 }
 ];
 

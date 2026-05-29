@@ -20,7 +20,7 @@ describe("image attachments", () => {
 
   it("creates Google Photos content URLs for the selected resolution", () => {
     expect(googlePhotosImageContentUrl("https://lh3.googleusercontent.com/p/test", resolveImageAttachmentResolution("medium"))).toBe(
-      "https://lh3.googleusercontent.com/p/test=w2048"
+      "https://lh3.googleusercontent.com/p/test=w1200"
     );
   });
 
@@ -33,12 +33,14 @@ describe("image attachments", () => {
   it("only offers smaller width choices plus the actual full-size width", () => {
     expect(availableImageAttachmentResolutions({ width: 1800, height: 1200 }).map((resolution) => resolution.label)).toEqual([
       "Small",
+      "Medium",
       "Full size (1800 px wide)"
     ]);
   });
 
   it("does not offer size choices that are not smaller than the original width", () => {
     expect(availableImageAttachmentResolutions({ width: 900, height: 600 }).map((resolution) => resolution.name)).toEqual([
+      "small",
       "original"
     ]);
   });

@@ -75,6 +75,7 @@ export default function Home() {
     : { type: "none" as const };
   let uploadImageInput: HTMLInputElement | undefined;
   let cameraVideo: HTMLVideoElement | undefined;
+  let imageAltTextInput: HTMLInputElement | undefined;
   const [authenticated, setAuthenticated] = createSignal(
     redirectAuthResult.type === "authenticated" ||
     runtime.kind === "fake" && ENABLE_FAKE_AUTH && globalThis.localStorage?.getItem("jot.fakeAuth") === "true"
@@ -95,6 +96,7 @@ export default function Home() {
   const [settings, setSettings] = createSignal<JotSettings>(DEFAULT_JOT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [editorMode, setEditorMode] = createSignal<EditorMode>("wysiwyg");
+  const [insertImageMenuOpen, setInsertImageMenuOpen] = createSignal(false);
   const [editorResetKey, setEditorResetKey] = createSignal(0);
   const [focusEditorAtEnd, setFocusEditorAtEnd] = createSignal(false);
   const [imageAttachmentStatus, setImageAttachmentStatus] = createSignal<ImageAttachmentStatus>("idle");
@@ -268,6 +270,11 @@ export default function Home() {
     if (stream !== null) {
       void cameraVideo.play().catch((error: unknown) => setImageAttachmentError(errorMessage(error)));
     }
+  });
+
+  createEffect(() => {
+    if ((pickedImage() === null && localImageSource() === null) || imageAttachmentStatus() !== "choosing") return;
+    window.requestAnimationFrame(() => imageAltTextInput?.focus());
   });
 
   onCleanup(() => clearCameraStream());
@@ -481,6 +488,7 @@ export default function Home() {
     if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
 
     setImageAttachmentStatus("starting");
+    setInsertImageMenuOpen(false);
     setImageAttachmentError(null);
     setImagePickingSession(null);
     clearStoredActiveImagePicker();
@@ -643,6 +651,7 @@ export default function Home() {
     if (imageAttachmentStatus() === "importing") return;
 
     setImageAttachmentStatus("idle");
+    setInsertImageMenuOpen(false);
     setImageAttachmentError(null);
     setImageAttachmentDate(null);
     setImagePickingSession(null);
@@ -661,6 +670,7 @@ export default function Home() {
     if (date === null || selectedDate() !== date || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
 
     setImageAttachmentStatus("idle");
+    setInsertImageMenuOpen(false);
     setImageAttachmentError(null);
     try {
       const source = await runtime.imageAttachments.prepareLocalImageSource({
@@ -669,6 +679,7 @@ export default function Home() {
         filename: file.name || "image",
         lastModified: file.lastModified
       });
+      if (!shouldApplyEditorAsyncResult(date, { selectedDate: selectedDate(), loadedDate: loadedDate() })) return;
       setPickedImage(null);
       setLocalImageSource(source);
       setReusableImageAttachment(null);
@@ -686,6 +697,7 @@ export default function Home() {
     if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
 
     setImageAttachmentStatus("idle");
+    setInsertImageMenuOpen(false);
     setImageAttachmentError(null);
     setImageAttachmentDate(date);
     setImagePickingSession(null);
@@ -705,6 +717,7 @@ export default function Home() {
     if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
 
     setImageAttachmentStatus("starting");
+    setInsertImageMenuOpen(false);
     setImageAttachmentError(null);
     setImageAttachmentDate(date);
     setImagePickingSession(null);
@@ -752,6 +765,7 @@ export default function Home() {
         filename: `camera-${date}-${Date.now()}.jpg`,
         lastModified: Date.now()
       });
+      if (!shouldApplyEditorAsyncResult(date, { selectedDate: selectedDate(), loadedDate: loadedDate() })) return;
       setPickedImage(null);
       setLocalImageSource(source);
       setReusableImageAttachment(null);
@@ -763,12 +777,21 @@ export default function Home() {
     }
   };
 
-  const pasteImageFromClipboard = async () => {
+  const handleEditorImagePaste = (documentKey: string, file: File) => {
+    const date = parseIsoDate(documentKey);
+    if (date === null || imageAttachmentStatus() === "importing") return;
+    void preparePastedImageForDate(file, date);
+  };
+
+  const preparePastedImageForDate = async (file: File, date: IsoDate) => {
     if (runtime.imageAttachments === null) return;
-    const date = selectedDate();
-    if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+    if (date === null || selectedDate() !== date || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) {
+      setImageAttachmentStatus("idle");
+      return;
+    }
 
     setImageAttachmentStatus("starting");
+    setInsertImageMenuOpen(false);
     setImageAttachmentError(null);
     setImageAttachmentDate(date);
     setImagePickingSession(null);
@@ -781,16 +804,16 @@ export default function Home() {
     setImportingImageResolutionName(null);
 
     try {
-      const clipboardItems = await navigator.clipboard?.read?.();
-      const blob = await firstClipboardImage(clipboardItems ?? []);
-      if (blob === null) {
-        throw new Error("The clipboard does not contain an image.");
-      }
       const source = await runtime.imageAttachments.prepareLocalImageSource({
         kind: "clipboard",
-        bytes: blob,
-        filename: `clipboard-image${extensionForMimeType(blob.type)}`
+        bytes: file,
+        filename: file.name || `clipboard-image${extensionForMimeType(file.type)}`,
+        lastModified: file.lastModified
       });
+      if (
+        imageAttachmentDate() !== date ||
+        !shouldApplyEditorAsyncResult(date, { selectedDate: selectedDate(), loadedDate: loadedDate() })
+      ) return;
       setLocalImageSource(source);
       setImageAttachmentAltText(defaultLocalImageAltText(source));
       setImageAttachmentStatus("choosing");
@@ -961,39 +984,41 @@ export default function Home() {
                 }}
               />
               <div class="image-attachment-controls">
-                <Show when={runtime.kind === "google"}>
+                <div class="image-insert-menu">
                   <button
                     type="button"
+                    class="icon-button icon-menu-button"
+                    aria-label="Insert image"
+                    aria-haspopup="menu"
+                    aria-expanded={insertImageMenuOpen()}
                     disabled={imageAttachmentFlowActive()}
-                    onClick={() => void startGooglePhotosImagePick()}
+                    onClick={() => setInsertImageMenuOpen((open) => !open)}
                   >
-                    Google Photos
+                    <InsertImageIcon />
+                    <span class="dropdown-caret" aria-hidden="true" />
                   </button>
-                </Show>
-                <button
-                  type="button"
-                  disabled={imageAttachmentFlowActive()}
-                  onClick={startLocalImageFilePick}
-                >
-                  Device
-                </button>
-                <button
-                  type="button"
-                  disabled={imageAttachmentFlowActive()}
-                  onClick={() => void startCameraCapture()}
-                >
-                  Camera
-                </button>
-                <button
-                  type="button"
-                  disabled={imageAttachmentFlowActive()}
-                  onClick={() => void pasteImageFromClipboard()}
-                >
-                  Paste
-                </button>
+                  <Show when={insertImageMenuOpen()}>
+                    <div class="image-insert-menu-popover" role="menu" aria-label="Insert image source">
+                      <Show when={runtime.kind === "google"}>
+                        <button type="button" role="menuitem" onClick={() => void startGooglePhotosImagePick()}>
+                          Google Photos
+                        </button>
+                      </Show>
+                      <button type="button" role="menuitem" onClick={startLocalImageFilePick}>
+                        Upload from device
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => void startCameraCapture()}>
+                        Use camera
+                      </button>
+                      <div class="image-insert-menu-hint" role="presentation">.. or just paste</div>
+                    </div>
+                  </Show>
+                </div>
                 <Show when={imageAttachmentStatus() !== "idle"}>
                   <span class="image-attachment-source">
-                    {cameraStream() !== null ? "Camera ready" : imageAttachmentStatusLabel(imageAttachmentStatus())}
+                    {cameraStream() !== null
+                      ? "Camera ready"
+                      : imageAttachmentStatusLabel(imageAttachmentStatus())}
                   </span>
                 </Show>
               </div>
@@ -1030,56 +1055,77 @@ export default function Home() {
                 when={pickedImage() !== null || localImageSource() !== null}
                 fallback={null}
               >
-                  <div class="image-attachment-import">
-                    <label>
-                      Alt text
-                      <input
-                        type="text"
-                        value={imageAttachmentAltText()}
-                        onInput={(event) => setImageAttachmentAltText(event.currentTarget.value)}
-                      />
-                    </label>
-                    <Show
-                      when={reusableImageAttachment()}
-                      fallback={
-                        <div class="image-attachment-sizes" aria-label="Image width">
-                          {imageAttachmentResolutionChoices().map((resolution) => (
-                            <button
-                              type="button"
-                              disabled={imageAttachmentStatus() === "importing"}
-                              onClick={() => void insertSelectedImage(resolution)}
-                            >
-                              {importingImageResolutionName() === resolution.name
-                                ? "Importing..."
-                                : `${resolution.label}${resolution.name === "original" ? "" : ` (${resolution.maxWidth} px wide)`}`}
-                            </button>
-                          ))}
+                <div class="modal-backdrop" role="presentation">
+                  <div
+                    class="image-attachment-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="image-attachment-modal-title"
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") cancelImageAttachmentSelection();
+                    }}
+                  >
+                    <div class="image-attachment-modal-header">
+                      <h2 id="image-attachment-modal-title">Insert image</h2>
+                      <span class="image-attachment-source">
+                        {selectedImageSourceLabel(pickedImage(), localImageSource())}
+                      </span>
+                    </div>
+                    <div class="image-attachment-import">
+                      <label>
+                        Alt text
+                        <input
+                          ref={imageAltTextInput}
+                          type="text"
+                          value={imageAttachmentAltText()}
+                          onInput={(event) => setImageAttachmentAltText(event.currentTarget.value)}
+                        />
+                      </label>
+                      <Show when={imageAttachmentError()}>
+                        {(message) => <p class="image-attachment-error">{message()}</p>}
+                      </Show>
+                      <Show
+                        when={reusableImageAttachment()}
+                        fallback={
+                          <div class="image-attachment-sizes" aria-label="Image width">
+                            {imageAttachmentResolutionChoices().map((resolution) => (
+                              <button
+                                type="button"
+                                disabled={imageAttachmentStatus() === "importing"}
+                                onClick={() => void insertSelectedImage(resolution)}
+                              >
+                                {importingImageResolutionName() === resolution.name
+                                  ? "Importing..."
+                                  : `${resolution.label}${resolution.name === "original" ? "" : ` (${resolution.maxWidth} px wide)`}`}
+                              </button>
+                            ))}
+                          </div>
+                        }
+                      >
+                        <div class="image-attachment-sizes">
+                          <button
+                            type="button"
+                            disabled={imageAttachmentStatus() === "importing"}
+                            onClick={() => void insertReusablePickedImage()}
+                          >
+                            {importingImageResolutionName() === "reuse" ? "Inserting..." : "Insert existing image"}
+                          </button>
                         </div>
-                      }
-                    >
-                      <div class="image-attachment-sizes">
-                        <button
-                          type="button"
-                          disabled={imageAttachmentStatus() === "importing"}
-                          onClick={() => void insertReusablePickedImage()}
-                        >
-                          {importingImageResolutionName() === "reuse" ? "Inserting..." : "Insert existing image"}
-                        </button>
-                      </div>
-                    </Show>
-                    <button
-                      type="button"
-                      disabled={imageAttachmentStatus() === "importing"}
-                      onClick={cancelImageAttachmentSelection}
-                    >
-                      Cancel
-                    </button>
-                    <span class="image-attachment-source">
-                      {selectedImageSourceLabel(pickedImage(), localImageSource())}
-                    </span>
+                      </Show>
+                    </div>
+                    <div class="modal-actions">
+                      <button
+                        type="button"
+                        disabled={imageAttachmentStatus() === "importing"}
+                        onClick={cancelImageAttachmentSelection}
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
+                </div>
               </Show>
-              <Show when={imageAttachmentError()}>
+              <Show when={pickedImage() === null && localImageSource() === null && imageAttachmentError()}>
                 {(message) => <p class="image-attachment-error">{message()}</p>}
               </Show>
             </section>
@@ -1153,6 +1199,7 @@ export default function Home() {
                   value={markdown()}
                   onChange={handleEditorChange}
                   onBlur={handleEditorBlur}
+                  onPasteImage={handleEditorImagePaste}
                 />
               </Show>
             </section>
@@ -1333,6 +1380,28 @@ function defaultLocalImageAltText(source: LocalImageAttachmentSource): string {
   return source.filename ?? "";
 }
 
+function InsertImageIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <circle cx="8.5" cy="10" r="1.5" />
+      <path d="m21 15-4.5-4.5L9 18" />
+      <path d="M16 5v6" />
+      <path d="M13 8h6" />
+    </svg>
+  );
+}
+
 function selectedImageSourceLabel(
   picked: PickedGooglePhotosMediaItem | null,
   local: LocalImageAttachmentSource | null
@@ -1365,16 +1434,6 @@ function imageAttachmentStatusLabel(status: ImageAttachmentStatus): string {
     case "importing":
       return "Importing image...";
   }
-}
-
-async function firstClipboardImage(items: readonly ClipboardItem[]): Promise<Blob | null> {
-  for (const item of items) {
-    const imageType = item.types.find((type) => type.startsWith("image/"));
-    if (imageType !== undefined) {
-      return await item.getType(imageType);
-    }
-  }
-  return null;
 }
 
 function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
