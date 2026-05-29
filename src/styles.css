@@ -102,43 +102,42 @@ select {
 
 .topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .date-block {
-  display: grid;
-  gap: 8px;
+  min-width: 0;
 }
 
 .date-row,
-.top-actions,
-.date-meta {
+.top-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.date-row button {
+.date-row > button:not(.today-jump-button) {
   width: 36px;
   padding: 0;
   font-size: 22px;
 }
 
-.date-meta {
+.iso-date-input {
+  width: 124px;
+  font-variant-numeric: tabular-nums;
+}
+
+.weekday-label {
   color: var(--muted);
+  font-size: 13px;
+  line-height: 1.2;
 }
 
-.date-meta strong {
-  color: var(--text);
-  font-size: 24px;
-}
-
-.today-pill,
-.not-today-pill,
+.today-jump-button,
 .sync-status {
   display: inline-flex;
   align-items: center;
@@ -146,32 +145,25 @@ select {
   padding: 0 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
-.today-pill,
+.today-jump-button.is-today,
 .sync-synced {
   background: var(--accent);
   color: var(--accent-contrast);
   border-color: transparent;
 }
 
+.today-jump-button.is-today {
+  cursor: default;
+}
+
 .sync-conflict,
 .sync-error {
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger), transparent 45%);
-}
-
-.today-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 10px 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
 }
 
 .sync-alert {
@@ -227,7 +219,7 @@ select {
 .image-attachment-panel {
   display: grid;
   gap: 8px;
-  margin: 12px 0;
+  margin: 0 0 8px;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -250,26 +242,34 @@ select {
 
 .icon-button {
   display: inline-grid;
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
   padding: 0;
   place-items: center;
 }
 
 .icon-menu-button {
-  grid-template-columns: 20px 8px;
-  column-gap: 3px;
-  width: 48px;
-  min-width: 48px;
+  grid-template-columns: 18px 7px;
+  column-gap: 2px;
+  width: 44px;
+  min-width: 44px;
+  place-content: center;
+}
+
+.icon-button svg {
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 
 .dropdown-caret {
   width: 0;
   height: 0;
-  border-top: 5px solid currentColor;
-  border-right: 4px solid transparent;
-  border-left: 4px solid transparent;
+  border-top: 4px solid currentColor;
+  border-right: 3px solid transparent;
+  border-left: 3px solid transparent;
 }
 
 .image-insert-menu-popover {
@@ -353,7 +353,7 @@ select {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: color-mix(in srgb, var(--background), transparent 28%);
+  background: color-mix(in srgb, var(--bg), transparent 28%);
 }
 
 .image-attachment-modal {
@@ -393,27 +393,36 @@ select {
 }
 
 .editor-toolbar {
+  position: sticky;
+  z-index: 15;
+  top: 0;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 8px;
+  padding: 6px 0;
+  background: var(--bg);
 }
 
 .editor-mode-toggle {
   display: inline-flex;
   gap: 2px;
-  padding: 3px;
+  padding: 2px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--panel);
 }
 
 .editor-mode-toggle button {
-  min-height: 34px;
-  padding: 6px 12px;
+  min-height: 30px;
+  padding: 4px 9px;
   border: 0;
   box-shadow: none;
   background: transparent;
   color: var(--muted);
+  font-size: 13px;
 }
 
 .editor-mode-toggle button.active {
@@ -536,13 +545,8 @@ select {
     justify-content: flex-start;
   }
 
-  .date-meta strong {
-    font-size: 20px;
-  }
-
-  .today-banner {
-    align-items: flex-start;
-    flex-direction: column;
+  .date-row {
+    gap: 6px;
   }
 
   .milkdown-root,

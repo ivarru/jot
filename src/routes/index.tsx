@@ -122,10 +122,6 @@ export default function Home() {
     const date = selectedDate();
     return date !== null && isToday(date);
   });
-  const shouldOfferNewToday = createMemo(() => {
-    const date = selectedDate();
-    return date !== null && date !== today();
-  });
   const imageAttachmentResolutionChoices = createMemo(() => {
     const local = localImageSource();
     if (local !== null && runtime.imageAttachments !== null) {
@@ -905,24 +901,40 @@ export default function Home() {
                   ‹
                 </button>
                 <input
-                  type="date"
-                  value={selectedDate()!}
+                  class="iso-date-input"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}"
+                  value={selectedDate() ?? ""}
                   onChange={(event) => {
                     const date = parseIsoDate(event.currentTarget.value);
-                    if (date) void navigateToDate(date);
+                    if (date !== null) {
+                      void navigateToDate(date);
+                    } else {
+                      event.currentTarget.value = selectedDate() ?? "";
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    const date = parseIsoDate(event.currentTarget.value);
+                    if (date !== null) void navigateToDate(date);
                   }}
                   aria-label="Selected date"
                 />
                 <button type="button" aria-label="Next day" onClick={() => void navigateToDate(addDays(selectedDate()!, 1))}>
                   ›
                 </button>
-              </div>
-              <div class="date-meta">
-                <strong>{selectedDate()}</strong>
-                <span>{weekday()}</span>
-                <span class={selectedIsToday() ? "today-pill" : "not-today-pill"}>
+                <span class="weekday-label">{weekday()}</span>
+                <button
+                  type="button"
+                  class={`today-jump-button ${selectedIsToday() ? "is-today" : ""}`}
+                  onClick={() => {
+                    if (!selectedIsToday()) void navigateToDate(today());
+                  }}
+                  aria-label={selectedIsToday() ? "Selected date is today" : `Jump to today, ${today()}`}
+                >
                   {selectedIsToday() ? "Today" : "Not today"}
-                </span>
+                </button>
               </div>
             </div>
             <div class="top-actions">
@@ -935,15 +947,6 @@ export default function Home() {
               </button>
             </div>
           </header>
-
-          <Show when={shouldOfferNewToday()}>
-            <aside class="today-banner">
-              The open note is not today in the current browser timezone.
-              <button type="button" onClick={() => void navigateToDate(today())}>
-                Jump to {today()}
-              </button>
-            </aside>
-          </Show>
 
           <Show when={syncStatus() === "conflict"}>
             <aside class="sync-alert sync-alert-conflict" aria-live="polite">
@@ -966,93 +969,145 @@ export default function Home() {
           </Show>
 
           <Show
-            when={
-              runtime.imageAttachments !== null &&
-              canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() })
-            }
-          >
-            <section class="image-attachment-panel" aria-live="polite">
-              <input
-                ref={uploadImageInput}
-                class="hidden-file-input"
-                type="file"
-                accept="image/*"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  event.currentTarget.value = "";
-                  void handleLocalImageFile(file, "device-upload");
-                }}
-              />
-              <div class="image-attachment-controls">
-                <div class="image-insert-menu">
-                  <button
-                    type="button"
-                    class="icon-button icon-menu-button"
-                    aria-label="Insert image"
-                    aria-haspopup="menu"
-                    aria-expanded={insertImageMenuOpen()}
-                    disabled={imageAttachmentFlowActive()}
-                    onClick={() => setInsertImageMenuOpen((open) => !open)}
-                  >
-                    <InsertImageIcon />
-                    <span class="dropdown-caret" aria-hidden="true" />
-                  </button>
-                  <Show when={insertImageMenuOpen()}>
-                    <div class="image-insert-menu-popover" role="menu" aria-label="Insert image source">
-                      <Show when={runtime.kind === "google"}>
-                        <button type="button" role="menuitem" onClick={() => void startGooglePhotosImagePick()}>
-                          Google Photos
-                        </button>
-                      </Show>
-                      <button type="button" role="menuitem" onClick={startLocalImageFilePick}>
-                        Upload from device
-                      </button>
-                      <button type="button" role="menuitem" onClick={() => void startCameraCapture()}>
-                        Use camera
-                      </button>
-                      <div class="image-insert-menu-hint" role="presentation">.. or just paste</div>
-                    </div>
-                  </Show>
-                </div>
-                <Show when={imageAttachmentStatus() !== "idle"}>
-                  <span class="image-attachment-source">
-                    {cameraStream() !== null
-                      ? "Camera ready"
-                      : imageAttachmentStatusLabel(imageAttachmentStatus())}
-                  </span>
-                </Show>
-              </div>
-              <Show when={cameraStream() !== null}>
-                <div class="camera-capture-panel">
-                  <video ref={cameraVideo} playsinline muted />
-                  <div class="image-attachment-controls">
-                    <button type="button" onClick={() => void captureCameraImage()}>
-                      Capture
+            when={canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() })}
+            fallback={
+              <Show when={loadError()} fallback={<div class="editor-loading">Loading note...</div>}>
+                {(message) => (
+                  <section class="editor-error" aria-live="polite">
+                    <h2>Could not load note</h2>
+                    <pre>{message()}</pre>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const date = selectedDate();
+                        if (date === null) return;
+                        setLoadError(null);
+                        void loadSelectedDate(date);
+                      }}
+                    >
+                      Retry
                     </button>
-                    <button type="button" onClick={cancelImageAttachmentSelection}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </Show>
-              <Show when={imagePickingSession()}>
-                {(session) => (
-                  <div class="image-attachment-session">
-                    <Show when={session().pickerUri}>
-                      {(pickerUri) => (
-                        <a href={pickerAutocloseUrl(pickerUri())} target="_blank" rel="noreferrer">
-                          Open Google Photos
-                        </a>
-                      )}
-                    </Show>
-                    <Show when={imageAttachmentStatus() === "waiting"}>
-                      <span>Waiting for image selection...</span>
-                    </Show>
-                  </div>
+                  </section>
                 )}
               </Show>
+            }
+          >
+            <section class="editor-region" aria-label="Daily note editor">
+              <div class="editor-toolbar">
+                <Show when={runtime.imageAttachments !== null}>
+                  <input
+                    ref={uploadImageInput}
+                    class="hidden-file-input"
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      event.currentTarget.value = "";
+                      void handleLocalImageFile(file, "device-upload");
+                    }}
+                  />
+                  <div class="image-attachment-controls">
+                    <div class="image-insert-menu">
+                      <button
+                        type="button"
+                        class="icon-button icon-menu-button"
+                        aria-label="Insert image"
+                        aria-haspopup="menu"
+                        aria-expanded={insertImageMenuOpen()}
+                        disabled={imageAttachmentFlowActive()}
+                        onClick={() => setInsertImageMenuOpen((open) => !open)}
+                      >
+                        <InsertImageIcon />
+                        <span class="dropdown-caret" aria-hidden="true" />
+                      </button>
+                      <Show when={insertImageMenuOpen()}>
+                        <div class="image-insert-menu-popover" role="menu" aria-label="Insert image source">
+                          <Show when={runtime.kind === "google"}>
+                            <button type="button" role="menuitem" onClick={() => void startGooglePhotosImagePick()}>
+                              Google Photos
+                            </button>
+                          </Show>
+                          <button type="button" role="menuitem" onClick={startLocalImageFilePick}>
+                            Upload from device
+                          </button>
+                          <button type="button" role="menuitem" onClick={() => void startCameraCapture()}>
+                            Use camera
+                          </button>
+                          <div class="image-insert-menu-hint" role="presentation">.. or just paste</div>
+                        </div>
+                      </Show>
+                    </div>
+                    <Show when={imageAttachmentStatus() !== "idle"}>
+                      <span class="image-attachment-source">
+                        {cameraStream() !== null
+                          ? "Camera ready"
+                          : imageAttachmentStatusLabel(imageAttachmentStatus())}
+                      </span>
+                    </Show>
+                  </div>
+                </Show>
+                <div class="editor-mode-toggle" role="group" aria-label="Editor mode">
+                  <button
+                    type="button"
+                    class={editorMode() === "wysiwyg" ? "active" : ""}
+                    aria-pressed={editorMode() === "wysiwyg"}
+                    onClick={() => updateEditorMode("wysiwyg")}
+                  >
+                    WYSIWYG
+                  </button>
+                  <button
+                    type="button"
+                    class={editorMode() === "text" ? "active" : ""}
+                    aria-pressed={editorMode() === "text"}
+                    onClick={() => updateEditorMode("text")}
+                  >
+                    Text
+                  </button>
+                </div>
+              </div>
               <Show
-                when={pickedImage() !== null || localImageSource() !== null}
+                when={
+                  runtime.imageAttachments !== null &&
+                  (cameraStream() !== null || imagePickingSession() !== null || imageAttachmentError() !== null)
+                }
+              >
+                <section class="image-attachment-panel" aria-live="polite">
+                  <Show when={cameraStream() !== null}>
+                    <div class="camera-capture-panel">
+                      <video ref={cameraVideo} playsinline muted />
+                      <div class="image-attachment-controls">
+                        <button type="button" onClick={() => void captureCameraImage()}>
+                          Capture
+                        </button>
+                        <button type="button" onClick={cancelImageAttachmentSelection}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </Show>
+                  <Show when={imagePickingSession()}>
+                    {(session) => (
+                      <div class="image-attachment-session">
+                        <Show when={session().pickerUri}>
+                          {(pickerUri) => (
+                            <a href={pickerAutocloseUrl(pickerUri())} target="_blank" rel="noreferrer">
+                              Open Google Photos
+                            </a>
+                          )}
+                        </Show>
+                        <Show when={imageAttachmentStatus() === "waiting"}>
+                          <span>Waiting for image selection...</span>
+                        </Show>
+                      </div>
+                    )}
+                  </Show>
+                  <Show when={pickedImage() === null && localImageSource() === null && imageAttachmentError()}>
+                    {(message) => <p class="image-attachment-error">{message()}</p>}
+                  </Show>
+                </section>
+              </Show>
+              <Show
+                when={runtime.imageAttachments !== null && (pickedImage() !== null || localImageSource() !== null)}
                 fallback={null}
               >
                 <div class="modal-backdrop" role="presentation">
@@ -1125,57 +1180,6 @@ export default function Home() {
                   </div>
                 </div>
               </Show>
-              <Show when={pickedImage() === null && localImageSource() === null && imageAttachmentError()}>
-                {(message) => <p class="image-attachment-error">{message()}</p>}
-              </Show>
-            </section>
-          </Show>
-
-          <Show
-            when={canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() })}
-            fallback={
-              <Show when={loadError()} fallback={<div class="editor-loading">Loading note...</div>}>
-                {(message) => (
-                  <section class="editor-error" aria-live="polite">
-                    <h2>Could not load note</h2>
-                    <pre>{message()}</pre>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const date = selectedDate();
-                        if (date === null) return;
-                        setLoadError(null);
-                        void loadSelectedDate(date);
-                      }}
-                    >
-                      Retry
-                    </button>
-                  </section>
-                )}
-              </Show>
-            }
-          >
-            <section class="editor-region" aria-label="Daily note editor">
-              <div class="editor-toolbar">
-                <div class="editor-mode-toggle" role="group" aria-label="Editor mode">
-                  <button
-                    type="button"
-                    class={editorMode() === "wysiwyg" ? "active" : ""}
-                    aria-pressed={editorMode() === "wysiwyg"}
-                    onClick={() => updateEditorMode("wysiwyg")}
-                  >
-                    WYSIWYG
-                  </button>
-                  <button
-                    type="button"
-                    class={editorMode() === "text" ? "active" : ""}
-                    aria-pressed={editorMode() === "text"}
-                    onClick={() => updateEditorMode("text")}
-                  >
-                    Text
-                  </button>
-                </div>
-              </div>
               <Show
                 when={editorMode() === "wysiwyg"}
                 fallback={

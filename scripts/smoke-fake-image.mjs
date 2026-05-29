@@ -92,10 +92,10 @@ try {
     await waitForExpression(cdp, "document.readyState === 'complete'");
 
     await clickButton(cdp, "Use development storage");
-    await waitForExpression(cdp, "document.querySelector('.image-attachment-panel button[aria-label=\"Insert image\"]') !== null");
+    await waitForExpression(cdp, "document.querySelector('.editor-toolbar button[aria-label=\"Insert image\"]') !== null");
     await clickButton(cdp, "Insert image");
     await clickButton(cdp, "Upload from device");
-    await setFileInput(cdp, ".image-attachment-panel input[type='file']", imagePath);
+    await setFileInput(cdp, ".editor-toolbar input[type='file']", imagePath);
     await waitForExpression(cdp, "document.querySelector('.image-attachment-import input[type=\"text\"]') !== null");
     await setAltText(cdp, "Smoke image");
     await clickFirstSizeButton(cdp);
