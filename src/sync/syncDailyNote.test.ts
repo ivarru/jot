@@ -9,7 +9,7 @@ import type {
   SaveDailyNoteInput,
   SaveDailyNoteResult
 } from "~/storage/types";
-import { saveAndSyncDailyNoteSnapshot, syncDirtyDailyNoteDrafts } from "./syncDailyNote";
+import { loadDailyNoteSession, saveAndSyncDailyNoteSnapshot, syncDirtyDailyNoteDrafts } from "./syncDailyNote";
 
 class MemoryDraftStore implements LocalDraftStore {
   readonly drafts = new Map<IsoDate, LocalDraft>();
@@ -37,8 +37,10 @@ class MemoryDraftStore implements LocalDraftStore {
 
 class RecordingRemoteStorageProvider implements RemoteStorageProvider {
   readonly savedInputs: SaveDailyNoteInput[] = [];
+  loadError: Error | null = null;
 
   async loadDailyNote(): Promise<RemoteDailyNote | null> {
+    if (this.loadError !== null) throw this.loadError;
     return null;
   }
 
@@ -65,6 +67,18 @@ class RecordingRemoteStorageProvider implements RemoteStorageProvider {
 }
 
 describe("daily note sync", () => {
+  it("loads an existing local draft without requiring remote access", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    remote.loadError = new Error("Reconnect to Google to continue syncing.");
+    await drafts.save(createDraft("2030-02-02", "local draft", "", null, true));
+
+    await expect(loadDailyNoteSession("2030-02-02", drafts, remote)).resolves.toEqual({
+      markdown: "local draft",
+      status: "saved-locally"
+    });
+  });
+
   it("syncs the captured date and markdown snapshot", async () => {
     const drafts = new MemoryDraftStore();
     const remote = new RecordingRemoteStorageProvider();

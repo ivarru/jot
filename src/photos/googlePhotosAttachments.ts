@@ -227,9 +227,22 @@ export class GooglePhotosAttachmentProvider {
     });
 
     if (!response.ok) {
-      throw new GooglePhotosRequestError(response.status, await response.text());
+      const responseBody = await response.text();
+      if (isGoogleAuthFailure(response.status, responseBody)) {
+        this.tokenProvider.invalidateAccessToken?.();
+      }
+      throw new GooglePhotosRequestError(response.status, responseBody);
     }
 
     return response;
   }
+}
+
+function isGoogleAuthFailure(status: number, responseBody: string): boolean {
+  return (
+    status === 401 ||
+    responseBody.includes("invalid_token") ||
+    responseBody.includes("Invalid Credentials") ||
+    responseBody.includes("Request is missing required authentication credential")
+  );
 }

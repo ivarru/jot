@@ -1,7 +1,15 @@
 import type { IsoDate } from "~/domain/dates";
 import type { JotSettings } from "~/domain/settings";
 
-export type SyncStatus = "local-only" | "saved-locally" | "syncing" | "synced" | "offline" | "conflict" | "error";
+export type SyncStatus =
+  | "local-only"
+  | "saved-locally"
+  | "syncing"
+  | "synced"
+  | "offline"
+  | "auth-required"
+  | "conflict"
+  | "error";
 
 export interface RemoteDailyNote {
   readonly date: IsoDate;

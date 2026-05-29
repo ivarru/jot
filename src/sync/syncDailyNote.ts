@@ -13,8 +13,7 @@ export async function loadDailyNoteSession(
   drafts: LocalDraftStore,
   remote: RemoteStorageProvider
 ): Promise<DailyNoteSession> {
-  const [localDraft, remoteNote] = await Promise.all([drafts.load(date), remote.loadDailyNote(date)]);
-
+  const localDraft = await drafts.load(date);
   if (localDraft !== null) {
     return {
       markdown: localDraft.markdown,
@@ -22,6 +21,7 @@ export async function loadDailyNoteSession(
     };
   }
 
+  const remoteNote = await remote.loadDailyNote(date);
   if (remoteNote !== null) {
     await drafts.save(createDraft(date, remoteNote.markdown, remoteNote.markdown, remoteNote.revisionId, false));
     return {

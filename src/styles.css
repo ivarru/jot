@@ -166,6 +166,11 @@ select {
   border-color: color-mix(in srgb, var(--danger), transparent 45%);
 }
 
+.sync-auth-required {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent), transparent 35%);
+}
+
 .sync-alert {
   display: grid;
   gap: 8px;
@@ -182,6 +187,14 @@ select {
 
 .sync-alert-conflict {
   border-color: var(--accent);
+}
+
+.sync-alert-auth {
+  border-color: color-mix(in srgb, var(--accent), transparent 35%);
+}
+
+.sync-alert p {
+  margin: 0;
 }
 
 .sync-alert pre {

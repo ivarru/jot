@@ -5,7 +5,7 @@ const GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth
 const ACCESS_TOKEN_STORAGE_PREFIX = "jot.googleAccessToken.";
 const REDIRECT_STATE_STORAGE_PREFIX = "jot.googleOAuthRedirect.";
 const REDIRECT_STATE_TTL_MS = 10 * 60 * 1000;
-const TOKEN_REQUEST_TIMEOUT_MS = 30000;
+const TOKEN_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
 
 interface GoogleTokenResponse {
   readonly access_token?: string;
@@ -48,6 +48,13 @@ interface GoogleIdentityApi {
       revoke(token: string, done: () => void): void;
     };
   };
+}
+
+export class GoogleAccessTokenUnavailableError extends Error {
+  constructor() {
+    super("Reconnect to Google to continue syncing.");
+    this.name = "GoogleAccessTokenUnavailableError";
+  }
 }
 
 declare global {
@@ -135,11 +142,15 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
       return cachedToken;
     }
 
+    if (request.interactive !== true) {
+      throw new GoogleAccessTokenUnavailableError();
+    }
+
     const client = await this.getTokenClient();
 
     return await new Promise<string>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
-        reject(new Error("Google sign-in did not complete within 30 seconds."));
+        reject(new Error("Google sign-in is still waiting. Try again if the popup was closed or blocked."));
       }, TOKEN_REQUEST_TIMEOUT_MS);
       const finish = (result: () => void) => {
         window.clearTimeout(timeout);
@@ -177,6 +188,10 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
     await new Promise<void>((resolve) => {
       window.google?.accounts.oauth2.revoke(token, resolve);
     });
+  }
+
+  invalidateAccessToken(): void {
+    this.clearStoredAccessToken();
   }
 
   private getUsableCachedToken(): string | null {

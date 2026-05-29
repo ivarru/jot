@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } from "solid-js";
 import { ImageAttachmentFlow, type LocalImageAttachmentSource, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
-import { GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
+import { GoogleAccessTokenUnavailableError, GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
 import { ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
 import { MilkdownEditor } from "~/components/MilkdownEditor";
 import { PlainTextEditor } from "~/components/PlainTextEditor";
@@ -19,7 +19,7 @@ import {
   shouldApplySyncResult
 } from "~/editor/dateBoundEditor";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
-import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
+import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
 import type { RemoteStorageProvider, SyncStatus } from "~/storage/types";
 import {
@@ -34,6 +34,7 @@ import {
   GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE,
   GOOGLE_PHOTOS_PICKER_SCOPE,
   GooglePhotosAttachmentProvider,
+  GooglePhotosRequestError,
   preservePickerUri,
   type GooglePhotosPickingSession,
   type PickedGooglePhotosMediaItem
@@ -86,6 +87,8 @@ export default function Home() {
   const [redirectAuthErrorActive, setRedirectAuthErrorActive] = createSignal(redirectAuthResult.type === "error");
   const [signingIn, setSigningIn] = createSignal(false);
   const [preparingAuth, setPreparingAuth] = createSignal(runtime.kind === "google");
+  const [authReconnectRequired, setAuthReconnectRequired] = createSignal(false);
+  const [reconnectingAuth, setReconnectingAuth] = createSignal(false);
   const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(dateFromHash());
   const [invalidDate, setInvalidDate] = createSignal<string | null>(invalidDateFromHash());
   const [markdown, setMarkdown] = createSignal("");
@@ -141,6 +144,21 @@ export default function Home() {
     setCameraStream(null);
   };
 
+  const handleRemoteError = (error: unknown, retry: SyncErrorState | null = null): boolean => {
+    if (!isAuthReconnectError(error)) return false;
+
+    if (runtime.kind === "google") {
+      runtime.tokenProvider.invalidateAccessToken?.();
+    }
+    setAuthReconnectRequired(true);
+    setSyncStatus("auth-required");
+    setLastSyncError(null);
+    if (retry?.retry === "load-selected-note") {
+      setLoadError(null);
+    }
+    return true;
+  };
+
   createEffect(() => {
     if (runtime.kind !== "google") {
       setPreparingAuth(false);
@@ -162,6 +180,7 @@ export default function Home() {
     if (!authenticated()) return;
 
     void loadSettingsOrDefault(runtime.remote).then(setSettings).catch((error: unknown) => {
+      if (handleRemoteError(error, { message: errorMessage(error), retry: "save-settings" })) return;
       const message = errorMessage(error);
       setLoadError(message);
       setLastSyncError({ message, retry: "save-settings" });
@@ -169,6 +188,7 @@ export default function Home() {
     });
 
     void syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate)).catch((error: unknown) => {
+      if (handleRemoteError(error, { message: errorMessage(error), retry: "sync-dirty-drafts" })) return;
       setLastSyncError({ message: errorMessage(error), retry: "sync-dirty-drafts" });
       setSyncStatus("error");
     });
@@ -224,6 +244,7 @@ export default function Home() {
       ([value]) => {
         const date = selectedDate();
         if (!authenticated() || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+        if (authReconnectRequired()) return;
         if (date === null) return;
 
         const timeout = window.setTimeout(() => {
@@ -281,6 +302,7 @@ export default function Home() {
       ([isAuthenticated, date, loaded, value]) => {
         if (
           !isAuthenticated ||
+          authReconnectRequired() ||
           date === null ||
           loaded !== date ||
           runtime.imageAttachments === null
@@ -321,6 +343,10 @@ export default function Home() {
               ...displays,
               ...Object.fromEntries(resolved.map((display) => [display.id, display]))
             }));
+          },
+          (error: unknown) => {
+            if (cancelled || selectedDate() !== date || loadedDate() !== date) return;
+            handleRemoteError(error);
           }
         );
 
@@ -338,6 +364,7 @@ export default function Home() {
       ([isAuthenticated, date, loaded]) => {
         if (
           !isAuthenticated ||
+          authReconnectRequired() ||
           runtime.kind !== "google" ||
           runtime.imageAttachments === null ||
           date === null ||
@@ -369,6 +396,7 @@ export default function Home() {
   const loadSelectedDate = async (date: IsoDate) => {
     const session = await loadDailyNoteSession(date, drafts, runtime.remote).catch((error: unknown) => {
       if (shouldApplyLoadedNote(date, selectedDate())) {
+        if (handleRemoteError(error, { message: errorMessage(error), retry: "load-selected-note", date })) return null;
         const message = errorMessage(error);
         setLoadError(message);
         setLastSyncError({ message, retry: "load-selected-note", date });
@@ -388,9 +416,16 @@ export default function Home() {
   };
 
   const saveAndSyncSnapshot = async (date: IsoDate, value: string) => {
+    if (authReconnectRequired()) {
+      await persistLocalDraft(date, value, drafts);
+      if (shouldApplySyncResult(date, selectedDate())) setSyncStatus("auth-required");
+      return;
+    }
+
     if (shouldApplySyncResult(date, selectedDate())) setSyncStatus("syncing");
     const session = await saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch((error: unknown) => {
       if (shouldApplySyncResult(date, selectedDate())) {
+        if (handleRemoteError(error, { message: errorMessage(error), retry: "save-current-note", date })) return null;
         setLastSyncError({ message: errorMessage(error), retry: "save-current-note", date });
       }
       return null;
@@ -440,6 +475,7 @@ export default function Home() {
         return;
       case "sync-dirty-drafts":
         void syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate)).catch((syncError: unknown) => {
+          if (handleRemoteError(syncError, { message: errorMessage(syncError), retry: "sync-dirty-drafts" })) return;
           setLastSyncError({ message: errorMessage(syncError), retry: "sync-dirty-drafts" });
           setSyncStatus("error");
         });
@@ -451,6 +487,7 @@ export default function Home() {
     const normalized = normalizeJotSettings(next);
     setSettings(normalized);
     void runtime.remote.saveSettings(normalized).then(() => setLastSyncError(null)).catch((error: unknown) => {
+      if (handleRemoteError(error, { message: errorMessage(error), retry: "save-settings" })) return;
       setLastSyncError({ message: errorMessage(error), retry: "save-settings" });
       setSyncStatus("error");
     });
@@ -468,7 +505,9 @@ export default function Home() {
     if (editorChangeTarget(date, { selectedDate: selectedDate(), loadedDate: loadedDate() }) === "current-editor") {
       setMarkdown(value);
     } else {
-      void saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch(() => undefined);
+      void saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch((error: unknown) => {
+        if (handleRemoteError(error, { message: errorMessage(error), retry: "save-current-note", date })) return;
+      });
     }
   };
 
@@ -507,6 +546,10 @@ export default function Home() {
       navigatePickerWindow(pickerWindow, session.pickerUri);
       void waitForPickedImage(session.id, date);
     } catch (error: unknown) {
+      if (handleRemoteError(error)) {
+        setImageAttachmentStatus("idle");
+        return;
+      }
       clearStoredActiveImagePicker();
       setImageAttachmentError(errorMessage(error));
       setImageAttachmentStatus("idle");
@@ -546,6 +589,10 @@ export default function Home() {
       throw new Error("Timed out waiting for a selected Google Photos image.");
     } catch (error: unknown) {
       if (imagePickingSession()?.id !== sessionId || imageAttachmentDate() !== date) return;
+      if (handleRemoteError(error)) {
+        setImageAttachmentStatus("idle");
+        return;
+      }
       setImageAttachmentError(errorMessage(error));
       setImageAttachmentStatus("waiting");
     }
@@ -596,6 +643,11 @@ export default function Home() {
       await saveAndSyncSnapshot(date, nextMarkdown);
     } catch (error: unknown) {
       if (selectedDate() !== date || imageAttachmentDate() !== date) return;
+      if (handleRemoteError(error)) {
+        setImageAttachmentStatus("choosing");
+        setImportingImageResolutionName(null);
+        return;
+      }
       setImageAttachmentError(errorMessage(error));
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("choosing");
@@ -637,6 +689,11 @@ export default function Home() {
       setImageAttachmentStatus("idle");
       await saveAndSyncSnapshot(date, nextMarkdown);
     } catch (error: unknown) {
+      if (handleRemoteError(error)) {
+        setImageAttachmentStatus("choosing");
+        setImportingImageResolutionName(null);
+        return;
+      }
       setImageAttachmentError(errorMessage(error));
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("choosing");
@@ -682,6 +739,10 @@ export default function Home() {
       setImageAttachmentAltText(defaultLocalImageAltText(source));
       setImageAttachmentStatus("choosing");
     } catch (error: unknown) {
+      if (handleRemoteError(error)) {
+        setImageAttachmentStatus("idle");
+        return;
+      }
       setImageAttachmentError(errorMessage(error));
       setImageAttachmentStatus("idle");
     }
@@ -819,8 +880,42 @@ export default function Home() {
     }
   };
 
+  const reconnectGoogle = async () => {
+    if (runtime.kind !== "google" || reconnectingAuth()) return;
+
+    setReconnectingAuth(true);
+    setAuthError(null);
+    setLastSyncError(null);
+    try {
+      await signIn(runtime);
+      setAuthenticated(true);
+      setAuthReconnectRequired(false);
+      const date = selectedDate();
+      if (date !== null) {
+        if (canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) {
+          await saveAndSyncSnapshot(date, markdown());
+        } else {
+          await loadSelectedDate(date);
+          if (canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) {
+            await saveAndSyncSnapshot(date, markdown());
+          }
+        }
+      }
+      await syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate));
+      if (date !== null && shouldApplySyncResult(date, selectedDate()) && syncStatus() === "auth-required") {
+        setSyncStatus("synced");
+      }
+    } catch (error: unknown) {
+      if (!isGooglePopupFailedToOpen(error)) {
+        setAuthError(errorMessage(error));
+      }
+    } finally {
+      setReconnectingAuth(false);
+    }
+  };
+
   const signOut = async () => {
-    if (syncStatus() === "saved-locally" || syncStatus() === "conflict" || syncStatus() === "error") {
+    if (syncStatus() === "saved-locally" || syncStatus() === "conflict" || syncStatus() === "error" || syncStatus() === "auth-required") {
       const confirmed = window.confirm("Signing out will delete unsynced local data on this device.");
       if (!confirmed) return;
     }
@@ -831,6 +926,7 @@ export default function Home() {
     }
     clearStoredActiveImagePicker();
     globalThis.localStorage?.removeItem("jot.fakeAuth");
+    setAuthReconnectRequired(false);
     setAuthenticated(false);
     setMarkdown("");
     setSyncStatus("local-only");
@@ -861,6 +957,7 @@ export default function Home() {
                       if (runtime.kind === "fake") {
                         globalThis.localStorage?.setItem("jot.fakeAuth", "true");
                       }
+                      setAuthReconnectRequired(false);
                       setAuthenticated(true);
                     })
                     .catch((error: unknown) => setAuthError(errorMessage(error)))
@@ -939,6 +1036,11 @@ export default function Home() {
             </div>
             <div class="top-actions">
               <span class={`sync-status sync-${syncStatus()}`}>{syncStatusLabel(syncStatus())}</span>
+              <Show when={authReconnectRequired()}>
+                <button type="button" disabled={reconnectingAuth()} onClick={() => void reconnectGoogle()}>
+                  {reconnectingAuth() ? "Reconnecting..." : "Reconnect"}
+                </button>
+              </Show>
               <button type="button" onClick={() => setSettingsOpen((open) => !open)}>
                 Settings
               </button>
@@ -951,6 +1053,19 @@ export default function Home() {
           <Show when={syncStatus() === "conflict"}>
             <aside class="sync-alert sync-alert-conflict" aria-live="polite">
               Conflict markers were inserted. Resolve them in the note and save again.
+            </aside>
+          </Show>
+
+          <Show when={authReconnectRequired()}>
+            <aside class="sync-alert sync-alert-auth" aria-live="polite">
+              <strong>Reconnect to sync</strong>
+              <p>Jot is keeping edits on this device until Google access is refreshed.</p>
+              <button type="button" disabled={reconnectingAuth()} onClick={() => void reconnectGoogle()}>
+                {reconnectingAuth() ? "Reconnecting..." : "Reconnect"}
+              </button>
+              <Show when={authError()}>
+                {(message) => <p class="auth-error">{message()}</p>}
+              </Show>
             </aside>
           </Show>
 
@@ -1245,10 +1360,10 @@ function createStorageRuntime(): StorageRuntime {
 async function signIn(runtime: StorageRuntime): Promise<void> {
   if (runtime.kind === "google") {
     try {
-      await runtime.tokenProvider.getAccessToken({ prompt: "consent" });
+      await runtime.tokenProvider.getAccessToken({ interactive: true });
     } catch (error: unknown) {
       if (isGooglePopupFailedToOpen(error)) {
-        runtime.tokenProvider.redirectForAccessToken({ prompt: "consent" });
+        runtime.tokenProvider.redirectForAccessToken();
         await new Promise<never>(() => undefined);
       }
       throw error;
@@ -1285,6 +1400,8 @@ function syncStatusLabel(status: SyncStatus): string {
       return "Synced";
     case "offline":
       return "Offline";
+    case "auth-required":
+      return "Reconnect";
     case "conflict":
       return "Conflict";
     case "error":
@@ -1294,6 +1411,23 @@ function syncStatusLabel(status: SyncStatus): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isAuthReconnectError(error: unknown): boolean {
+  if (error instanceof GoogleAccessTokenUnavailableError) return true;
+  if (error instanceof GoogleDriveRequestError || error instanceof GooglePhotosRequestError) {
+    return isGoogleAuthFailure(error.status, error.responseBody);
+  }
+  return false;
+}
+
+function isGoogleAuthFailure(status: number, responseBody: string): boolean {
+  return (
+    status === 401 ||
+    responseBody.includes("invalid_token") ||
+    responseBody.includes("Invalid Credentials") ||
+    responseBody.includes("Request is missing required authentication credential")
+  );
 }
 
 function pickerAutocloseUrl(pickerUri: string): string {

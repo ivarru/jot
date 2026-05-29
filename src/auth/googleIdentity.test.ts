@@ -1,4 +1,4 @@
-import { GoogleIdentityTokenProvider } from "./googleIdentity";
+import { GoogleAccessTokenUnavailableError, GoogleIdentityTokenProvider } from "./googleIdentity";
 
 describe("GoogleIdentityTokenProvider", () => {
   afterEach(() => {
@@ -9,7 +9,7 @@ describe("GoogleIdentityTokenProvider", () => {
     document.head.replaceChildren();
   });
 
-  it("refreshes cached access tokens before reusing expired tokens", async () => {
+  it("reuses cached access tokens until they expire", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
 
@@ -32,10 +32,12 @@ describe("GoogleIdentityTokenProvider", () => {
     };
     const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
 
-    await expect(provider.getAccessToken()).resolves.toBe("token-1");
+    await expect(provider.getAccessToken({ interactive: true })).resolves.toBe("token-1");
     await expect(provider.getAccessToken()).resolves.toBe("token-1");
     vi.setSystemTime(61000);
-    await expect(provider.getAccessToken()).resolves.toBe("token-2");
+    await expect(provider.getAccessToken()).rejects.toBeInstanceOf(GoogleAccessTokenUnavailableError);
+    expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(1);
+    await expect(provider.getAccessToken({ interactive: true })).resolves.toBe("token-2");
     expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(2);
   });
 
@@ -78,7 +80,7 @@ describe("GoogleIdentityTokenProvider", () => {
     };
     const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
 
-    await expect(provider.getAccessToken()).rejects.toThrow("popup_failed_to_open");
+    await expect(provider.getAccessToken({ interactive: true })).rejects.toThrow("popup_failed_to_open");
   });
 
   it("redirects for an access token with the current date route in state", () => {

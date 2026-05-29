@@ -13,6 +13,8 @@ interface CapturedRequest {
 }
 
 class StaticTokenProvider implements AccessTokenProvider {
+  readonly invalidateAccessToken = vi.fn();
+
   async getAccessToken(): Promise<string> {
     return "photos-token";
   }
@@ -137,6 +139,24 @@ describe("GooglePhotosAttachmentProvider", () => {
       baseUrl: "https://lh3.googleusercontent.com/p/copy"
     });
     expect(fetch.requests[0]?.url).toBe("https://photoslibrary.googleapis.com/v1/mediaItems/copy-id");
+  });
+
+  it("invalidates the cached access token after an auth failure", async () => {
+    const responseBody = JSON.stringify({
+      error: {
+        code: 401,
+        message: "Invalid Credentials"
+      }
+    });
+    const fetch = createPhotosFetch([new Response(responseBody, { status: 401 })]);
+    const tokenProvider = new StaticTokenProvider();
+    const provider = new GooglePhotosAttachmentProvider(tokenProvider, fetch.fetch);
+
+    await expect(provider.getMediaItem("copy-id")).rejects.toMatchObject({
+      status: 401,
+      responseBody
+    });
+    expect(tokenProvider.invalidateAccessToken).toHaveBeenCalledTimes(1);
   });
 });
 

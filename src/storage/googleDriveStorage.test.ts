@@ -9,6 +9,8 @@ interface CapturedRequest {
 }
 
 class StaticTokenProvider implements AccessTokenProvider {
+  readonly invalidateAccessToken = vi.fn();
+
   async getAccessToken(): Promise<string> {
     return "test-token";
   }
@@ -452,6 +454,25 @@ describe("GoogleDriveStorageProvider", () => {
       status: 403,
       responseBody
     } satisfies Partial<GoogleDriveRequestError>);
+  });
+
+  it("invalidates the cached access token after an auth failure", async () => {
+    const responseBody = JSON.stringify({
+      error: {
+        code: 401,
+        message: "Invalid Credentials"
+      }
+    });
+    const fetch = createDriveFetch([new Response(responseBody, { status: 401 })]);
+    const tokenProvider = new StaticTokenProvider();
+    const provider = new GoogleDriveStorageProvider(tokenProvider, fetch.fetch);
+
+    await expect(provider.loadDailyNote("2030-02-01")).rejects.toMatchObject({
+      name: "GoogleDriveRequestError",
+      status: 401,
+      responseBody
+    } satisfies Partial<GoogleDriveRequestError>);
+    expect(tokenProvider.invalidateAccessToken).toHaveBeenCalledTimes(1);
   });
 });
 
