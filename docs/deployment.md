@@ -28,10 +28,7 @@ npm run smoke:pages
 
 ```sh
 npm ci
-npm run test
-npm run typecheck
-npm run build:pages
-npm run smoke:pages
+npm run verify:pages
 ```
 
 The workflow uploads `.output/public` with GitHub's Pages artifact action and deploys it through GitHub Pages.
@@ -58,10 +55,14 @@ For local preview, add:
 - Authorized JavaScript origin: `http://127.0.0.1:4173`
 - Authorized redirect URI: `http://127.0.0.1:4173/`
 
+If Vite falls back to another local port because `4173` is occupied, add that exact origin and redirect URI temporarily as well, or stop the process occupying `4173` and keep testing on the documented URL.
+
 For GitHub Pages, add:
 
 - Authorized JavaScript origin: `https://<github-owner>.github.io`
 - Authorized redirect URI: `https://<github-owner>.github.io/jot/`
+
+The redirect URI is exact. Jot's same-tab fallback computes it from the current browser origin and pathname, without the hash route, so project Pages must use the trailing-slash `/jot/` URI.
 
 If the OAuth consent screen remains in Testing mode, add the Google account used for Jot as a test user.
 
@@ -82,11 +83,15 @@ The manifest uses `start_url: "."` and relative icon paths so it works under the
 Before pushing a release commit:
 
 ```sh
-npm run test
-npm run typecheck
-BASE_PATH=/jot/ VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com npm run build:pages
-npm run smoke:pages
+BASE_PATH=/jot/ VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com npm run verify:pages
 ```
+
+Before enabling the GitHub Actions deployment, confirm:
+
+1. Repository Pages is set to deploy from GitHub Actions.
+2. Repository variable or secret `VITE_GOOGLE_CLIENT_ID` exists.
+3. The Google OAuth client has the production Pages origin and redirect URI.
+4. Drive, Photos Picker, and Photos Library APIs are enabled in the same Google Cloud project.
 
 After the first Pages deployment:
 

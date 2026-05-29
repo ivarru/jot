@@ -18,6 +18,12 @@ BASE_PATH=/jot/ VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com 
 npm run smoke:pages
 ```
 
+For the full local Pages preflight:
+
+```sh
+BASE_PATH=/jot/ VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com npm run verify:pages
+```
+
 For a static preview with fake storage enabled:
 
 ```sh

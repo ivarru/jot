@@ -6,6 +6,7 @@
     "dev": "vinxi dev",
     "build": "vinxi build",
     "build:pages": "export BASE_PATH=${BASE_PATH:-/jot/}; npm run build && node scripts/prepare-pages.mjs",
+    "verify:pages": "npm run test && npm run typecheck && npm run build:pages && npm run smoke:pages",
     "preview": "vite preview --host 127.0.0.1 --port 4173 --outDir .output/public",
     "smoke:pages": "node scripts/smoke-pages.mjs",
     "smoke:preview": "node scripts/smoke-preview.mjs",

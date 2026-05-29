@@ -37,17 +37,8 @@ jobs:
       - name: Check Google OAuth client id
         run: test -n "$VITE_GOOGLE_CLIENT_ID"
 
-      - name: Test
-        run: npm run test
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Build Pages artifact
-        run: npm run build:pages
-
       - name: Verify Pages artifact
-        run: npm run smoke:pages
+        run: npm run verify:pages
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
