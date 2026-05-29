@@ -23,8 +23,10 @@ const IMAGE_ATTACHMENTS_FOLDER_NAME = "Image Attachments";
 const SETTINGS_FILE_NAME = "settings.json";
 const IMAGE_ALBUM_FILE_NAME = "image-album.json";
 const AGENTS_FILE_NAME = "AGENTS.md";
-const AGENTS_CONTENT = jotDriveAgentsTemplate;
-const AGENTS_TEMPLATE_MODIFIED_AT = readTemplateModifiedAt(AGENTS_CONTENT);
+const AGENTS_TEMPLATE_CONTENT_MARKER = "--- jot-drive-agents-content ---";
+const AGENTS_TEMPLATE = parseDriveAgentsTemplate(jotDriveAgentsTemplate);
+const AGENTS_CONTENT = AGENTS_TEMPLATE.content;
+const AGENTS_TEMPLATE_MODIFIED_AT = AGENTS_TEMPLATE.modifiedAt;
 
 type FetchLike = typeof fetch;
 
@@ -554,12 +556,21 @@ function driveRevisionId(file: DriveFile): string {
   return file.version ?? file.modifiedTime ?? file.id;
 }
 
-function readTemplateModifiedAt(content: string): string {
+function parseDriveAgentsTemplate(content: string): { readonly modifiedAt: string; readonly content: string } {
   const match = content.match(/^Template modified: ([0-9:.TZ-]+)$/m);
   if (match?.[1] === undefined) {
     throw new Error("Drive AGENTS template is missing a Template modified timestamp.");
   }
-  return match[1];
+
+  const markerIndex = content.indexOf(AGENTS_TEMPLATE_CONTENT_MARKER);
+  if (markerIndex === -1) {
+    throw new Error("Drive AGENTS template is missing the generated content marker.");
+  }
+
+  return {
+    modifiedAt: match[1],
+    content: content.slice(markerIndex + AGENTS_TEMPLATE_CONTENT_MARKER.length).trimStart()
+  };
 }
 
 function isDriveFileOlderThan(file: DriveFile, isoDate: string): boolean {

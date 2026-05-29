@@ -1,5 +1,8 @@
 This is the source template for the automatically managed Google Drive `jot/AGENTS.md` file; it is not repository guidance for coding agents.
-Template modified: 2026-05-29T08:48:57.000Z
+Template modified: 2026-05-29T09:25:28.000Z
+The generated Google Drive file starts after this marker.
+
+--- jot-drive-agents-content ---
 
 # Agent Notes for the jot Drive Folder
 

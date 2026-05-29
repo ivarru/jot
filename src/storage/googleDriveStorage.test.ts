@@ -83,9 +83,14 @@ describe("GoogleDriveStorageProvider", () => {
     expect(String(createNoteRequest?.init.body)).toContain("# First");
     const createAgentsRequest = fetch.requests.find((request) => String(request.init.body).includes('"name":"AGENTS.md"'));
     expect(createAgentsRequest?.url).toContain("uploadType=multipart");
-    expect(String(createAgentsRequest?.init.body)).toContain("Agent Notes for the jot Drive Folder");
+    const createAgentsBody = String(createAgentsRequest?.init.body);
+    expect(createAgentsBody).toContain("Agent Notes for the jot Drive Folder");
+    expect(createAgentsBody).toContain("This file is managed automatically by the Jot web app.");
+    expect(createAgentsBody).not.toContain("This is the source template");
+    expect(createAgentsBody).not.toContain("Template modified:");
+    expect(createAgentsBody).not.toContain("jot-drive-agents-content");
     expect(String(createAgentsRequest?.init.body)).toContain('"jotType":"agents"');
-    expect(String(createAgentsRequest?.init.body)).toContain('"templateModifiedAt":"2026-05-29T08:48:57.000Z"');
+    expect(String(createAgentsRequest?.init.body)).toContain('"templateModifiedAt":"2026-05-29T09:25:28.000Z"');
     expect(String(createAgentsRequest?.init.body)).toContain("`jot:image:<id>`");
   });
 
