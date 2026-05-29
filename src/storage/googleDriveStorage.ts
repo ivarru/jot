@@ -7,6 +7,7 @@ import {
 } from "~/domain/imageAttachments";
 import { type JotSettings, normalizeJotSettings } from "~/domain/settings";
 import type { RemoteDailyNote, RemoteStorageProvider, SaveDailyNoteInput, SaveDailyNoteResult } from "./types";
+import jotDriveAgentsTemplate from "./jot-drive-agents-template.md?raw";
 
 export const GOOGLE_DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
@@ -21,13 +22,9 @@ const DAILY_NOTES_FOLDER_NAME = "Daily Notes";
 const IMAGE_ATTACHMENTS_FOLDER_NAME = "Image Attachments";
 const SETTINGS_FILE_NAME = "settings.json";
 const IMAGE_ALBUM_FILE_NAME = "image-album.json";
-const README_FILE_NAME = "README.md";
-const README_CONTENT = `# Jot
-
-This folder is managed by the Jot progressive web app.
-
-Daily notes are stored as plain Markdown files in the Daily Notes folder. They can be edited manually if necessary, but Jot expects at most one note file per local date.
-`;
+const AGENTS_FILE_NAME = "AGENTS.md";
+const AGENTS_CONTENT = jotDriveAgentsTemplate;
+const AGENTS_TEMPLATE_MODIFIED_AT = readTemplateModifiedAt(AGENTS_CONTENT);
 
 type FetchLike = typeof fetch;
 
@@ -292,7 +289,7 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
 
   private async loadOrCreateFolders(): Promise<JotDriveFolders> {
     const jotFolder = await this.findOrCreateFolder("root", JOT_FOLDER_NAME, "Jot Folder");
-    await this.ensureReadmeFile(jotFolder.id);
+    await this.ensureAgentsFile(jotFolder.id);
     const dailyNotesFolder = await this.findOrCreateFolder(
       jotFolder.id,
       DAILY_NOTES_FOLDER_NAME,
@@ -305,26 +302,32 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     };
   }
 
-  private async ensureReadmeFile(jotFolderId: string): Promise<void> {
+  private async ensureAgentsFile(jotFolderId: string): Promise<void> {
     const existing = await this.findSingleFile({
       parentId: jotFolderId,
-      name: README_FILE_NAME,
+      name: AGENTS_FILE_NAME,
       mimeType: MARKDOWN_MIME_TYPE,
-      description: "Jot README"
+      description: "Jot Drive AGENTS"
     });
 
-    if (existing !== null) return;
+    if (existing !== null) {
+      if (isDriveFileOlderThan(existing, AGENTS_TEMPLATE_MODIFIED_AT)) {
+        await this.updateMediaFile(existing.id, AGENTS_CONTENT, MARKDOWN_MIME_TYPE);
+      }
+      return;
+    }
 
     await this.createMultipartFile({
       metadata: {
-        name: README_FILE_NAME,
+        name: AGENTS_FILE_NAME,
         mimeType: MARKDOWN_MIME_TYPE,
         parents: [jotFolderId],
         appProperties: {
-          jotType: "readme"
+          jotType: "agents",
+          templateModifiedAt: AGENTS_TEMPLATE_MODIFIED_AT
         }
       },
-      content: README_CONTENT,
+      content: AGENTS_CONTENT,
       contentType: MARKDOWN_MIME_TYPE
     });
   }
@@ -547,6 +550,24 @@ function driveFileToDailyNote(date: IsoDate, file: DriveFile, markdown: string):
 
 function driveRevisionId(file: DriveFile): string {
   return file.version ?? file.modifiedTime ?? file.id;
+}
+
+function readTemplateModifiedAt(content: string): string {
+  const match = content.match(/^Template modified: ([0-9:.TZ-]+)$/m);
+  if (match?.[1] === undefined) {
+    throw new Error("Drive AGENTS template is missing a Template modified timestamp.");
+  }
+  return match[1];
+}
+
+function isDriveFileOlderThan(file: DriveFile, isoDate: string): boolean {
+  const fileModifiedAtMs = Date.parse(file.modifiedTime ?? "");
+  const templateModifiedAtMs = Date.parse(isoDate);
+
+  return (
+    Number.isFinite(templateModifiedAtMs) &&
+    (!Number.isFinite(fileModifiedAtMs) || fileModifiedAtMs < templateModifiedAtMs)
+  );
 }
 
 function driveQueryStringLiteral(value: string): string {

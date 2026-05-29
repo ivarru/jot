@@ -19,7 +19,7 @@ describe("GoogleDriveStorageProvider", () => {
     const originalFetch = globalThis.fetch;
     const responses = [
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
-      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [] })
     ];
@@ -49,7 +49,7 @@ describe("GoogleDriveStorageProvider", () => {
       json({ files: [] }),
       json(file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")),
       json({ files: [] }),
-      json(file("readme-file", "README.md", "text/markdown", "1")),
+      json(file("agents-file", "AGENTS.md", "text/markdown", "1")),
       json({ files: [] }),
       json(file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")),
       json({ files: [] }),
@@ -81,15 +81,39 @@ describe("GoogleDriveStorageProvider", () => {
     expect(String(createNoteRequest?.init.body)).toContain('"name":"2030-02-01.md"');
     expect(String(createNoteRequest?.init.body)).toContain('"parents":["daily-folder"]');
     expect(String(createNoteRequest?.init.body)).toContain("# First");
-    const createReadmeRequest = fetch.requests.find((request) => String(request.init.body).includes('"name":"README.md"'));
-    expect(createReadmeRequest?.url).toContain("uploadType=multipart");
-    expect(String(createReadmeRequest?.init.body)).toContain("This folder is managed by the Jot progressive web app.");
+    const createAgentsRequest = fetch.requests.find((request) => String(request.init.body).includes('"name":"AGENTS.md"'));
+    expect(createAgentsRequest?.url).toContain("uploadType=multipart");
+    expect(String(createAgentsRequest?.init.body)).toContain("Agent Notes for the jot Drive Folder");
+    expect(String(createAgentsRequest?.init.body)).toContain('"jotType":"agents"');
+    expect(String(createAgentsRequest?.init.body)).toContain('"templateModifiedAt":"2026-05-29T08:19:54.000Z"');
+    expect(String(createAgentsRequest?.init.body)).toContain("`jot:image:<id>`");
+  });
+
+  it("updates Drive AGENTS.md when the bundled template is newer than the Drive file", async () => {
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1", "2026-05-28T00:00:00.000Z")] }),
+      json(file("agents-file", "AGENTS.md", "text/markdown", "2")),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [] })
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+    await expect(provider.loadDailyNote("2030-02-01")).resolves.toBeNull();
+
+    const updateAgentsRequest = fetch.requests[2];
+    expect(updateAgentsRequest?.url).toContain("https://www.googleapis.com/upload/drive/v3/files/agents-file?");
+    expect(updateAgentsRequest?.url).toContain("uploadType=media");
+    expect(updateAgentsRequest?.init.method).toBe("PATCH");
+    expect(new Headers(updateAgentsRequest?.init.headers).get("Content-Type")).toBe("text/markdown; charset=UTF-8");
+    expect(String(updateAgentsRequest?.init.body)).toContain("The app updates this Drive file");
+    expect(String(updateAgentsRequest?.init.body)).toContain("Google Photos album `jot`");
   });
 
   it("loads an existing Daily Note by metadata and media content", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
-      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("note-file", "2030-02-01.md", "text/markdown", "7")] }),
       text("# Existing")
@@ -108,7 +132,7 @@ describe("GoogleDriveStorageProvider", () => {
   it("returns a conflict instead of overwriting when Drive version changed", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
-      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("note-file", "2030-02-01.md", "text/markdown", "8")] }),
       text("# Remote")
@@ -136,7 +160,7 @@ describe("GoogleDriveStorageProvider", () => {
   it("returns a conflict when a local-only note finds an existing Drive file", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
-      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("note-file", "2030-02-01.md", "text/markdown", "8")] }),
       text("# Remote")
@@ -164,7 +188,7 @@ describe("GoogleDriveStorageProvider", () => {
   it("updates an existing Daily Note when the expected revision matches", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
-      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("note-file", "2030-02-01.md", "text/markdown", "7")] }),
       json(file("note-file", "2030-02-01.md", "text/markdown", "8"))
@@ -188,7 +212,7 @@ describe("GoogleDriveStorageProvider", () => {
   it("loads and saves settings as JSON in the Jot Folder", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
-      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [] }),
       json(file("settings-file", "settings.json", "application/json", "1"))
@@ -226,7 +250,7 @@ describe("GoogleDriveStorageProvider", () => {
     };
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
-      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [] }),
       json(file("image-attachments-folder", "Image Attachments", "application/vnd.google-apps.folder", "1")),
@@ -249,7 +273,7 @@ describe("GoogleDriveStorageProvider", () => {
   it("stores the Jot Image Album id in the Jot Folder", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
-      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [] }),
       json(file("image-album", "image-album.json", "application/json", "1"))
@@ -288,7 +312,7 @@ describe("GoogleDriveStorageProvider", () => {
     };
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
-      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("image-attachments-folder", "Image Attachments", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("attachment-metadata", "01HZY3J2CJX6N7Y25K2K3N8E4A.json", "application/json", "1")] }),
@@ -321,7 +345,7 @@ describe("GoogleDriveStorageProvider", () => {
     };
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
-      json({ files: [file("readme-file", "README.md", "text/markdown", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("image-attachments-folder", "Image Attachments", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("attachment-metadata", "01HZY3J2CJX6N7Y25K2K3N8E4A.json", "application/json", "1")] }),
@@ -353,7 +377,7 @@ describe("GoogleDriveStorageProvider", () => {
       json({ files: [] }),
       json(file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")),
       json({ files: [] }),
-      json(file("readme-file", "README.md", "text/markdown", "1")),
+      json(file("agents-file", "AGENTS.md", "text/markdown", "1")),
       json({ files: [] }),
       json(file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")),
       json({ files: [] })
@@ -413,13 +437,19 @@ function text(value: string): Response {
   });
 }
 
-function file(id: string, name: string, mimeType: string, version: string): object {
+function file(
+  id: string,
+  name: string,
+  mimeType: string,
+  version: string,
+  modifiedTime = "2030-01-01T00:00:00.000Z"
+): object {
   return {
     id,
     name,
     mimeType,
     version,
-    modifiedTime: "2030-01-01T00:00:00.000Z"
+    modifiedTime
   };
 }
 
