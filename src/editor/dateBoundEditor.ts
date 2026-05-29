@@ -24,6 +24,15 @@ export function shouldApplySyncResult(syncDate: IsoDate, selectedDate: IsoDate |
   return syncDate === selectedDate;
 }
 
+export function shouldApplySyncMarkdownResult(input: {
+  readonly syncDate: IsoDate;
+  readonly selectedDate: IsoDate | null;
+  readonly syncedMarkdown: string;
+  readonly currentMarkdown: string;
+}): boolean {
+  return input.syncDate === input.selectedDate && input.syncedMarkdown === input.currentMarkdown;
+}
+
 export function shouldApplyEditorAsyncResult(documentDate: IsoDate, state: DateBoundEditorState): boolean {
   return state.selectedDate === documentDate && state.loadedDate === documentDate;
 }

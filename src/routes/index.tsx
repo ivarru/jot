@@ -16,6 +16,7 @@ import {
   editorChangeTarget,
   shouldApplyEditorAsyncResult,
   shouldApplyLoadedNote,
+  shouldApplySyncMarkdownResult,
   shouldApplySyncResult
 } from "~/editor/dateBoundEditor";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
@@ -434,8 +435,16 @@ export default function Home() {
       if (shouldApplySyncResult(date, selectedDate())) setSyncStatus("error");
       return;
     }
-    if (shouldApplySyncResult(date, selectedDate())) {
+    const shouldApplyMarkdown = shouldApplySyncMarkdownResult({
+      syncDate: date,
+      selectedDate: selectedDate(),
+      syncedMarkdown: value,
+      currentMarkdown: markdown()
+    });
+    if (shouldApplyMarkdown || session.status === "conflict") {
       replaceMarkdownFromStorage(session.markdown);
+    }
+    if (shouldApplySyncResult(date, selectedDate())) {
       setSyncStatus(session.status);
       if (session.status !== "conflict") setLastSyncError(null);
     }

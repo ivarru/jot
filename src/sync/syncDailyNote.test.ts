@@ -38,6 +38,7 @@ class MemoryDraftStore implements LocalDraftStore {
 class RecordingRemoteStorageProvider implements RemoteStorageProvider {
   readonly savedInputs: SaveDailyNoteInput[] = [];
   loadError: Error | null = null;
+  beforeSaveResult: (() => Promise<void>) | null = null;
 
   async loadDailyNote(): Promise<RemoteDailyNote | null> {
     if (this.loadError !== null) throw this.loadError;
@@ -46,6 +47,7 @@ class RecordingRemoteStorageProvider implements RemoteStorageProvider {
 
   async saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {
     this.savedInputs.push(input);
+    await this.beforeSaveResult?.();
     return {
       type: "saved",
       note: {
@@ -98,6 +100,31 @@ describe("daily note sync", () => {
     });
   });
 
+  it("does not overwrite newer local edits when an older sync finishes", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    const saveStarted = deferred();
+    const continueSave = deferred();
+    remote.beforeSaveResult = async () => {
+      saveStarted.resolve();
+      await continueSave.promise;
+    };
+
+    const syncing = saveAndSyncDailyNoteSnapshot("2030-02-02", "old", drafts, remote);
+    await saveStarted.promise;
+    await drafts.save(createDraft("2030-02-02", "new", "", null, true));
+    continueSave.resolve();
+
+    await expect(syncing).resolves.toEqual({
+      markdown: "new",
+      status: "saved-locally"
+    });
+    await expect(drafts.load("2030-02-02")).resolves.toMatchObject({
+      markdown: "new",
+      dirty: true
+    });
+  });
+
   it("does not create a remote file for an unchanged empty note snapshot", async () => {
     const drafts = new MemoryDraftStore();
     const remote = new RecordingRemoteStorageProvider();
@@ -130,3 +157,13 @@ describe("daily note sync", () => {
     });
   });
 });
+
+function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void };
+function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void };
+function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value?: T) => void } {
+  let resolve!: (value?: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve as (value?: T) => void;
+  });
+  return { promise, resolve };
+}

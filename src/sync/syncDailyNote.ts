@@ -1,7 +1,7 @@
 import { mergeDailyNote } from "~/domain/merge";
 import { createDraft } from "~/storage/localDraftStore";
 import type { IsoDate } from "~/domain/dates";
-import type { LocalDraftStore, RemoteStorageProvider, SyncStatus } from "~/storage/types";
+import type { LocalDraft, LocalDraftStore, RemoteStorageProvider, SyncStatus } from "~/storage/types";
 
 export interface DailyNoteSession {
   readonly markdown: string;
@@ -71,6 +71,10 @@ export async function syncDailyNote(
     markdown: draft.markdown,
     expectedRevisionId: draft.baselineRevisionId
   });
+  const currentDraft = await drafts.load(date);
+  if (draftChangedSinceSyncStarted(draft, currentDraft)) {
+    return draftToSession(currentDraft);
+  }
 
   if (result.type === "saved") {
     await drafts.save(createDraft(date, result.note.markdown, result.note.markdown, result.note.revisionId, false));
@@ -117,4 +121,23 @@ export async function syncDirtyDailyNoteDrafts(
   }
 
   return sessions;
+}
+
+function draftChangedSinceSyncStarted(startedWith: LocalDraft, current: LocalDraft | null): current is LocalDraft {
+  return (
+    current !== null &&
+    (
+      current.markdown !== startedWith.markdown ||
+      current.baselineMarkdown !== startedWith.baselineMarkdown ||
+      current.baselineRevisionId !== startedWith.baselineRevisionId ||
+      current.dirty !== startedWith.dirty
+    )
+  );
+}
+
+function draftToSession(draft: LocalDraft): DailyNoteSession {
+  return {
+    markdown: draft.markdown,
+    status: draft.dirty ? "saved-locally" : "synced"
+  };
 }

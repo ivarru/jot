@@ -3,6 +3,7 @@ import {
   editorChangeTarget,
   shouldApplyEditorAsyncResult,
   shouldApplyLoadedNote,
+  shouldApplySyncMarkdownResult,
   shouldApplySyncResult
 } from "./dateBoundEditor";
 
@@ -35,6 +36,25 @@ describe("date-bound editor guards", () => {
   it("does not apply stale sync results to the visible editor", () => {
     expect(shouldApplySyncResult("2030-02-01", "2030-02-02")).toBe(false);
     expect(shouldApplySyncResult("2030-02-02", "2030-02-02")).toBe(true);
+  });
+
+  it("does not apply old sync markdown after newer visible edits", () => {
+    expect(
+      shouldApplySyncMarkdownResult({
+        syncDate: "2030-02-02",
+        selectedDate: "2030-02-02",
+        syncedMarkdown: "older",
+        currentMarkdown: "newer"
+      })
+    ).toBe(false);
+    expect(
+      shouldApplySyncMarkdownResult({
+        syncDate: "2030-02-02",
+        selectedDate: "2030-02-02",
+        syncedMarkdown: "current",
+        currentMarkdown: "current"
+      })
+    ).toBe(true);
   });
 
   it("does not apply async editor mutations after date navigation", () => {
