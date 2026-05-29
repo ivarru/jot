@@ -275,9 +275,41 @@ select {
   display: none;
 }
 
+.editor-region {
+  margin-top: 12px;
+}
+
+.editor-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.editor-mode-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.editor-mode-toggle button {
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  color: var(--muted);
+}
+
+.editor-mode-toggle button.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
 .editor-shell {
   min-height: 65vh;
-  margin-top: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
@@ -365,7 +397,8 @@ select {
   font-size: 13px;
 }
 
-.fallback-editor {
+.fallback-editor,
+.plain-text-editor {
   display: block;
   width: 100%;
   min-height: 65vh;
@@ -400,7 +433,8 @@ select {
   }
 
   .milkdown-root,
-  .fallback-editor {
+  .fallback-editor,
+  .plain-text-editor {
     padding: 16px;
   }
 }

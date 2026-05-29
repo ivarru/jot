@@ -4,6 +4,7 @@ import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
 import { ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
 import { MilkdownEditor } from "~/components/MilkdownEditor";
+import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
 import { appendImageAttachmentReference, findImageAttachmentReferences } from "~/domain/attachmentReferences";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
@@ -57,6 +58,7 @@ type StorageRuntime =
     };
 
 type ImageAttachmentStatus = "idle" | "starting" | "waiting" | "choosing" | "importing";
+type EditorMode = "wysiwyg" | "text";
 
 interface StoredActiveImagePicker {
   readonly date: IsoDate;
@@ -89,6 +91,7 @@ export default function Home() {
   const [lastSyncError, setLastSyncError] = createSignal<SyncErrorState | null>(null);
   const [settings, setSettings] = createSignal<JotSettings>(DEFAULT_JOT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  const [editorMode, setEditorMode] = createSignal<EditorMode>("wysiwyg");
   const [editorResetKey, setEditorResetKey] = createSignal(0);
   const [focusEditorAtEnd, setFocusEditorAtEnd] = createSignal(false);
   const [imageAttachmentStatus, setImageAttachmentStatus] = createSignal<ImageAttachmentStatus>("idle");
@@ -417,6 +420,28 @@ export default function Home() {
       setLastSyncError({ message: errorMessage(error), retry: "save-settings" });
       setSyncStatus("error");
     });
+  };
+
+  const updateEditorMode = (mode: EditorMode) => {
+    if (editorMode() === mode) return;
+    setEditorMode(mode);
+    setFocusEditorAtEnd(true);
+  };
+
+  const handleEditorChange = (documentKey: string, value: string) => {
+    const date = parseIsoDate(documentKey);
+    if (date === null) return;
+    if (editorChangeTarget(date, { selectedDate: selectedDate(), loadedDate: loadedDate() }) === "current-editor") {
+      setMarkdown(value);
+    } else {
+      void saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch(() => undefined);
+    }
+  };
+
+  const handleEditorBlur = (documentKey: string, value: string) => {
+    const date = parseIsoDate(documentKey);
+    if (date === null) return;
+    void saveAndSyncSnapshot(date, value);
   };
 
   const startImagePick = async () => {
@@ -885,28 +910,53 @@ export default function Home() {
               </Show>
             }
           >
-            <MilkdownEditor
-              documentKey={selectedDate()!}
-              resetKey={editorResetKey()}
-              focusAtEnd={focusEditorAtEnd()}
-              onFocusApplied={() => setFocusEditorAtEnd(false)}
-              imageAttachmentDisplays={imageAttachmentDisplays()}
-              value={markdown()}
-              onChange={(documentKey, value) => {
-                const date = parseIsoDate(documentKey);
-                if (date === null) return;
-                if (editorChangeTarget(date, { selectedDate: selectedDate(), loadedDate: loadedDate() }) === "current-editor") {
-                  setMarkdown(value);
-                } else {
-                  void saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch(() => undefined);
+            <section class="editor-region" aria-label="Daily note editor">
+              <div class="editor-toolbar">
+                <div class="editor-mode-toggle" role="group" aria-label="Editor mode">
+                  <button
+                    type="button"
+                    class={editorMode() === "wysiwyg" ? "active" : ""}
+                    aria-pressed={editorMode() === "wysiwyg"}
+                    onClick={() => updateEditorMode("wysiwyg")}
+                  >
+                    WYSIWYG
+                  </button>
+                  <button
+                    type="button"
+                    class={editorMode() === "text" ? "active" : ""}
+                    aria-pressed={editorMode() === "text"}
+                    onClick={() => updateEditorMode("text")}
+                  >
+                    Text
+                  </button>
+                </div>
+              </div>
+              <Show
+                when={editorMode() === "wysiwyg"}
+                fallback={
+                  <PlainTextEditor
+                    documentKey={selectedDate()!}
+                    resetKey={editorResetKey()}
+                    focusAtEnd={focusEditorAtEnd()}
+                    onFocusApplied={() => setFocusEditorAtEnd(false)}
+                    value={markdown()}
+                    onChange={handleEditorChange}
+                    onBlur={handleEditorBlur}
+                  />
                 }
-              }}
-              onBlur={(documentKey, value) => {
-                const date = parseIsoDate(documentKey);
-                if (date === null) return;
-                void saveAndSyncSnapshot(date, value);
-              }}
-            />
+              >
+                <MilkdownEditor
+                  documentKey={selectedDate()!}
+                  resetKey={editorResetKey()}
+                  focusAtEnd={focusEditorAtEnd()}
+                  onFocusApplied={() => setFocusEditorAtEnd(false)}
+                  imageAttachmentDisplays={imageAttachmentDisplays()}
+                  value={markdown()}
+                  onChange={handleEditorChange}
+                  onBlur={handleEditorBlur}
+                />
+              </Show>
+            </section>
           </Show>
         </Show>
       </Show>
