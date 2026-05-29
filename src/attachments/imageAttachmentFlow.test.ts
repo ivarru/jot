@@ -1,4 +1,4 @@
-import { ImageAttachmentFlow } from "./imageAttachmentFlow";
+import { ImageAttachmentFlow, type LocalImageAttachmentSource } from "./imageAttachmentFlow";
 import type { ImageAttachmentMetadata } from "~/domain/imageAttachments";
 import type { GooglePhotosAttachmentProvider } from "~/photos/googlePhotosAttachments";
 import type { GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
@@ -118,6 +118,71 @@ describe("ImageAttachmentFlow", () => {
     expect(result.markdownReference).toBe("![Reuse this](jot:image:01HZY3J2CJX6N7Y25K2K3N8E4A)");
     expect(photos.downloadPickedImage).not.toHaveBeenCalled();
     expect(photos.uploadImageToAlbum).not.toHaveBeenCalled();
+  });
+
+  it("imports local image sources without checking for reusable Google Photos metadata", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-01-01T00:00:00.000Z"));
+
+    const photos = {
+      createAlbum: vi.fn(async () => ({
+        id: "album-id",
+        title: "jot"
+      })),
+      uploadImageToAlbum: vi.fn(async () => ({
+        id: "copy-media-id",
+        mimeType: "image/png",
+        mediaMetadata: {
+          width: "1200",
+          height: "800"
+        }
+      }))
+    } as unknown as GooglePhotosAttachmentProvider;
+    const drive = {
+      findImageAttachmentMetadataByMediaItemId: vi.fn(),
+      loadJotImageAlbum: vi.fn(async () => null),
+      saveJotImageAlbum: vi.fn(async () => undefined),
+      saveImageAttachmentMetadata: vi.fn(async () => undefined)
+    } as unknown as GoogleDriveStorageProvider;
+    const source: LocalImageAttachmentSource = {
+      kind: "device-upload",
+      bytes: new Blob(["image"], { type: "image/png" }),
+      filename: "upload.png",
+      mimeType: "image/png",
+      width: 1200,
+      height: 800,
+      lastModified: "2030-01-01T00:00:00.000Z"
+    };
+
+    const flow = new ImageAttachmentFlow(photos, drive);
+    const result = await flow.importLocalImage({
+      source,
+      selectedResolution: flow.getAvailableResolutionsForLocalImage(source).find((resolution) => resolution.name === "original")!,
+      altText: "Uploaded"
+    });
+
+    expect(result.markdownReference).toMatch(/^!\[Uploaded\]\(jot:image:[0-9A-HJKMNP-TV-Z]{26}\)$/);
+    expect(drive.findImageAttachmentMetadataByMediaItemId).not.toHaveBeenCalled();
+    expect(photos.uploadImageToAlbum).toHaveBeenCalledWith(
+      expect.objectContaining({
+        albumId: "album-id",
+        filename: expect.stringMatching(/\.png$/),
+        mimeType: "image/png"
+      })
+    );
+    expect(drive.saveImageAttachmentMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selectedResolution: "original",
+        source: expect.objectContaining({
+          kind: "device-upload",
+          filename: "upload.png",
+          mimeType: "image/png"
+        }),
+        copy: expect.objectContaining({
+          mediaItemId: "copy-media-id"
+        })
+      })
+    );
   });
 
   it("reuses existing metadata when the same original source image is picked again", async () => {

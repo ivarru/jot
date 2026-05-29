@@ -1,6 +1,7 @@
 import {
   canEditSelectedDate,
   editorChangeTarget,
+  shouldApplyEditorAsyncResult,
   shouldApplyLoadedNote,
   shouldApplySyncResult
 } from "./dateBoundEditor";
@@ -34,5 +35,20 @@ describe("date-bound editor guards", () => {
   it("does not apply stale sync results to the visible editor", () => {
     expect(shouldApplySyncResult("2030-02-01", "2030-02-02")).toBe(false);
     expect(shouldApplySyncResult("2030-02-02", "2030-02-02")).toBe(true);
+  });
+
+  it("does not apply async editor mutations after date navigation", () => {
+    expect(
+      shouldApplyEditorAsyncResult("2030-02-01", {
+        selectedDate: "2030-02-02",
+        loadedDate: "2030-02-02"
+      })
+    ).toBe(false);
+    expect(
+      shouldApplyEditorAsyncResult("2030-02-02", {
+        selectedDate: "2030-02-02",
+        loadedDate: "2030-02-02"
+      })
+    ).toBe(true);
   });
 });

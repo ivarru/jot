@@ -10,6 +10,7 @@ import {
   type ImageAttachmentMetadata,
   type ImageAttachmentResolution,
   type ImageAttachmentResolutionName,
+  type ImageAttachmentSourceKind,
   type JotImageAlbumMetadata
 } from "~/domain/imageAttachments";
 import {
@@ -54,6 +55,16 @@ export interface ReusableImageAttachment {
   readonly metadata: ImageAttachmentMetadata;
 }
 
+export interface LocalImageAttachmentSource {
+  readonly kind: Exclude<ImageAttachmentSourceKind, "google-photos-picker">;
+  readonly bytes: Blob;
+  readonly filename?: string;
+  readonly mimeType: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly lastModified?: string;
+}
+
 export class ImageAttachmentFlow {
   constructor(
     private readonly photos: ImageAttachmentPhotosProvider,
@@ -81,6 +92,36 @@ export class ImageAttachmentFlow {
     });
   }
 
+  getAvailableResolutionsForLocalImage(source: LocalImageAttachmentSource): ImageAttachmentResolution[] {
+    return availableImageAttachmentResolutions({
+      ...defined("width", source.width),
+      ...defined("height", source.height)
+    });
+  }
+
+  async prepareLocalImageSource(input: {
+    readonly kind: LocalImageAttachmentSource["kind"];
+    readonly bytes: Blob;
+    readonly filename?: string;
+    readonly lastModified?: number;
+  }): Promise<LocalImageAttachmentSource> {
+    const mimeType = input.bytes.type || "application/octet-stream";
+    if (!mimeType.startsWith("image/")) {
+      throw new Error("Jot can only attach image files.");
+    }
+
+    const dimensions = await readImageDimensions(input.bytes);
+    return {
+      kind: input.kind,
+      bytes: input.bytes,
+      mimeType,
+      ...defined("filename", input.filename),
+      ...defined("width", dimensions.width),
+      ...defined("height", dimensions.height),
+      ...defined("lastModified", input.lastModified === undefined ? undefined : new Date(input.lastModified).toISOString())
+    };
+  }
+
   async findReusablePickedImage(picked: PickedGooglePhotosMediaItem): Promise<ReusableImageAttachment | null> {
     const metadata = await this.findReusableAttachment(picked);
     return metadata === null ? null : { metadata };
@@ -106,6 +147,43 @@ export class ImageAttachmentFlow {
       selectedResolution: input.selectedResolution.name,
       album,
       picked: input.picked,
+      copiedMediaItemId: copy?.id ?? "",
+      ...defined("copiedProductUrl", copy?.productUrl),
+      ...defined("copiedMimeType", copy?.mimeType),
+      ...defined("copiedWidth", numberFromString(copy?.mediaMetadata?.width)),
+      ...defined("copiedHeight", numberFromString(copy?.mediaMetadata?.height))
+    });
+
+    await this.drive.saveImageAttachmentMetadata(metadata);
+
+    return {
+      metadata,
+      markdownReference: createImageAttachmentReference(id, input.altText)
+    };
+  }
+
+  async importLocalImage(input: {
+    readonly source: LocalImageAttachmentSource;
+    readonly selectedResolution: ImageAttachmentResolution;
+    readonly altText: string;
+  }): Promise<InsertedImageAttachment> {
+    const id = createImageAttachmentId();
+    const album = await this.ensureJotImageAlbum();
+    const bytes = await resizeImageBlob(input.source.bytes, input.selectedResolution, {
+      ...defined("width", input.source.width),
+      ...defined("height", input.source.height)
+    });
+    const copy = await this.photos.uploadImageToAlbum({
+      albumId: album.albumId,
+      filename: imageAttachmentFilenameForLocalSource(id, input.source),
+      mimeType: input.source.mimeType,
+      bytes
+    });
+    const metadata = createLocalImageAttachmentMetadata({
+      id,
+      selectedResolution: input.selectedResolution.name,
+      album,
+      source: input.source,
       copiedMediaItemId: copy?.id ?? "",
       ...defined("copiedProductUrl", copy?.productUrl),
       ...defined("copiedMimeType", copy?.mimeType),
@@ -265,6 +343,42 @@ function createImageAttachmentMetadata(input: {
   };
 }
 
+function createLocalImageAttachmentMetadata(input: {
+  readonly id: string;
+  readonly selectedResolution: ImageAttachmentResolutionName;
+  readonly album: JotImageAlbumMetadata;
+  readonly source: LocalImageAttachmentSource;
+  readonly copiedMediaItemId: string;
+  readonly copiedProductUrl?: string;
+  readonly copiedMimeType?: string;
+  readonly copiedWidth?: number;
+  readonly copiedHeight?: number;
+}): ImageAttachmentMetadata {
+  return {
+    version: IMAGE_ATTACHMENT_METADATA_VERSION,
+    id: input.id,
+    createdAt: new Date().toISOString(),
+    selectedResolution: input.selectedResolution,
+    source: {
+      kind: input.source.kind,
+      ...defined("filename", input.source.filename),
+      mimeType: input.source.mimeType,
+      ...defined("width", input.source.width),
+      ...defined("height", input.source.height),
+      ...defined("lastModified", input.source.lastModified)
+    },
+    copy: {
+      kind: "google-photos-library",
+      albumId: input.album.albumId,
+      mediaItemId: input.copiedMediaItemId,
+      ...defined("productUrl", input.copiedProductUrl),
+      ...defined("mimeType", input.copiedMimeType),
+      ...defined("width", input.copiedWidth),
+      ...defined("height", input.copiedHeight)
+    }
+  };
+}
+
 function isPickedImage(item: PickedGooglePhotosMediaItem): boolean {
   return item.type !== "VIDEO" && item.mediaFile?.mimeType?.startsWith("image/") === true;
 }
@@ -272,6 +386,13 @@ function isPickedImage(item: PickedGooglePhotosMediaItem): boolean {
 function imageAttachmentFilename(id: string, picked: PickedGooglePhotosMediaItem, mimeType: string): string {
   const filename = picked.mediaFile?.filename;
   const extension = filename?.includes(".") ? filename.slice(filename.lastIndexOf(".")) : extensionForMimeType(mimeType);
+  return imageAttachmentMetadataFilename(id).replace(/\.json$/, extension);
+}
+
+function imageAttachmentFilenameForLocalSource(id: string, source: LocalImageAttachmentSource): string {
+  const extension = source.filename?.includes(".")
+    ? source.filename.slice(source.filename.lastIndexOf("."))
+    : extensionForMimeType(source.mimeType);
   return imageAttachmentMetadataFilename(id).replace(/\.json$/, extension);
 }
 
@@ -286,6 +407,69 @@ function extensionForMimeType(mimeType: string): string {
     default:
       return ".jpg";
   }
+}
+
+async function resizeImageBlob(
+  blob: Blob,
+  resolution: ImageAttachmentResolution,
+  dimensions: { readonly width?: number; readonly height?: number }
+): Promise<Blob> {
+  if (
+    resolution.name === "original" ||
+    blob.type === "image/gif" ||
+    dimensions.width === undefined ||
+    dimensions.height === undefined ||
+    Math.max(dimensions.width, dimensions.height) <= resolution.maxWidth
+  ) {
+    return blob;
+  }
+
+  const image = await loadImage(blob);
+  const scale = Math.min(resolution.maxWidth / image.naturalWidth, resolution.maxHeight / image.naturalHeight, 1);
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (context === null) return blob;
+  context.drawImage(image, 0, 0, width, height);
+
+  return await new Promise<Blob>((resolve) => {
+    canvas.toBlob((resized) => resolve(resized ?? blob), blob.type || "image/jpeg", 0.9);
+  });
+}
+
+async function readImageDimensions(blob: Blob): Promise<{ readonly width?: number; readonly height?: number }> {
+  const image = await loadImage(blob).catch(() => null);
+  if (image === null) return {};
+
+  return {
+    ...defined("width", image.naturalWidth || undefined),
+    ...defined("height", image.naturalHeight || undefined)
+  };
+}
+
+function loadImage(blob: Blob): Promise<HTMLImageElement> {
+  let url: string;
+  try {
+    url = URL.createObjectURL(blob);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  const image = new Image();
+
+  return new Promise((resolve, reject) => {
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not read image."));
+    };
+    image.src = url;
+  });
 }
 
 function numberFromString(value: string | undefined): number | undefined {

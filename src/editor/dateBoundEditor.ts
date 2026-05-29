@@ -23,3 +23,7 @@ export function editorChangeTarget(
 export function shouldApplySyncResult(syncDate: IsoDate, selectedDate: IsoDate | null): boolean {
   return syncDate === selectedDate;
 }
+
+export function shouldApplyEditorAsyncResult(documentDate: IsoDate, state: DateBoundEditorState): boolean {
+  return state.selectedDate === documentDate && state.loadedDate === documentDate;
+}

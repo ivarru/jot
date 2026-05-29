@@ -244,8 +244,10 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
       appProperties: {
         jotType: "image-attachment",
         imageAttachmentId: metadata.id,
-        sourceMediaItemId: metadata.source.mediaItemId,
-        copyMediaItemId: metadata.copy.mediaItemId
+        ...driveAppProperties({
+          sourceMediaItemId: metadata.source.kind === "google-photos-picker" ? metadata.source.mediaItemId : undefined,
+          copyMediaItemId: metadata.copy.mediaItemId
+        })
       },
       value: metadata
     });
@@ -576,4 +578,8 @@ function driveQueryStringLiteral(value: string): string {
 
 function driveAppPropertyQuery(key: string, value: string): string {
   return `appProperties has { key=${driveQueryStringLiteral(key)} and value=${driveQueryStringLiteral(value)} }`;
+}
+
+function driveAppProperties(values: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(Object.entries(values).filter((entry): entry is [string, string] => entry[1] !== undefined));
 }

@@ -85,7 +85,7 @@ describe("GoogleDriveStorageProvider", () => {
     expect(createAgentsRequest?.url).toContain("uploadType=multipart");
     expect(String(createAgentsRequest?.init.body)).toContain("Agent Notes for the jot Drive Folder");
     expect(String(createAgentsRequest?.init.body)).toContain('"jotType":"agents"');
-    expect(String(createAgentsRequest?.init.body)).toContain('"templateModifiedAt":"2026-05-29T08:19:54.000Z"');
+    expect(String(createAgentsRequest?.init.body)).toContain('"templateModifiedAt":"2026-05-29T08:48:57.000Z"');
     expect(String(createAgentsRequest?.init.body)).toContain("`jot:image:<id>`");
   });
 
@@ -268,6 +268,49 @@ describe("GoogleDriveStorageProvider", () => {
 	    expect(String(createMetadataRequest?.init.body)).toContain('"mediaItemId": "source-media-id"');
 	    expect(String(createMetadataRequest?.init.body)).toContain('"sourceMediaItemId":"source-media-id"');
 	    expect(String(createMetadataRequest?.init.body)).toContain('"copyMediaItemId":"copy-media-id"');
+  });
+
+  it("stores local image attachment metadata without source media item app properties", async () => {
+    const metadata: ImageAttachmentMetadata = {
+      version: 1,
+      id: "01HZY3J2CJX6N7Y25K2K3N8E4A",
+      createdAt: "2030-01-01T00:00:00.000Z",
+      selectedResolution: "original",
+      source: {
+        kind: "device-upload",
+        filename: "upload.png",
+        mimeType: "image/png",
+        width: 1200,
+        height: 800,
+        lastModified: "2030-01-01T00:00:00.000Z"
+      },
+      copy: {
+        kind: "google-photos-library",
+        albumId: "album-id",
+        mediaItemId: "copy-media-id",
+        mimeType: "image/png"
+      }
+    };
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [] }),
+      json(file("image-attachments-folder", "Image Attachments", "application/vnd.google-apps.folder", "1")),
+      json({ files: [] }),
+      json(file("attachment-metadata", "01HZY3J2CJX6N7Y25K2K3N8E4A.json", "application/json", "1"))
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+    await provider.saveImageAttachmentMetadata(metadata);
+
+    const createMetadataRequest = fetch.requests.at(-1);
+    expect(createMetadataRequest?.url).toContain("uploadType=multipart");
+    expect(String(createMetadataRequest?.init.body)).toContain('"jotType":"image-attachment"');
+    expect(String(createMetadataRequest?.init.body)).toContain('"imageAttachmentId":"01HZY3J2CJX6N7Y25K2K3N8E4A"');
+    expect(String(createMetadataRequest?.init.body)).not.toContain("sourceMediaItemId");
+    expect(String(createMetadataRequest?.init.body)).toContain('"copyMediaItemId":"copy-media-id"');
+    expect(String(createMetadataRequest?.init.body)).toContain('"kind": "device-upload"');
   });
 
   it("stores the Jot Image Album id in the Jot Folder", async () => {

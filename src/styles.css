@@ -249,6 +249,19 @@ select {
   gap: 8px;
 }
 
+.camera-capture-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.camera-capture-panel video {
+  width: min(100%, 720px);
+  max-height: 50vh;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #000;
+}
+
 .image-attachment-import label {
   display: grid;
   gap: 4px;

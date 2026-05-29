@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } from "solid-js";
-import { ImageAttachmentFlow, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
+import { ImageAttachmentFlow, type LocalImageAttachmentSource, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
 import { ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
@@ -14,6 +14,7 @@ import { DEFAULT_JOT_SETTINGS, normalizeJotSettings, type JotSettings } from "~/
 import {
   canEditSelectedDate,
   editorChangeTarget,
+  shouldApplyEditorAsyncResult,
   shouldApplyLoadedNote,
   shouldApplySyncResult
 } from "~/editor/dateBoundEditor";
@@ -59,6 +60,7 @@ type StorageRuntime =
 
 type ImageAttachmentStatus = "idle" | "starting" | "waiting" | "choosing" | "importing";
 type EditorMode = "wysiwyg" | "text";
+type LocalImageSourceKind = LocalImageAttachmentSource["kind"];
 
 interface StoredActiveImagePicker {
   readonly date: IsoDate;
@@ -71,7 +73,8 @@ export default function Home() {
   const redirectAuthResult = runtime.kind === "google"
     ? runtime.tokenProvider.consumeRedirectAccessToken()
     : { type: "none" as const };
-  let fakeImageInput: HTMLInputElement | undefined;
+  let uploadImageInput: HTMLInputElement | undefined;
+  let cameraVideo: HTMLVideoElement | undefined;
   const [authenticated, setAuthenticated] = createSignal(
     redirectAuthResult.type === "authenticated" ||
     runtime.kind === "fake" && ENABLE_FAKE_AUTH && globalThis.localStorage?.getItem("jot.fakeAuth") === "true"
@@ -99,6 +102,8 @@ export default function Home() {
   const [imageAttachmentDate, setImageAttachmentDate] = createSignal<IsoDate | null>(null);
   const [imagePickingSession, setImagePickingSession] = createSignal<GooglePhotosPickingSession | null>(null);
   const [pickedImage, setPickedImage] = createSignal<PickedGooglePhotosMediaItem | null>(null);
+  const [localImageSource, setLocalImageSource] = createSignal<LocalImageAttachmentSource | null>(null);
+  const [cameraStream, setCameraStream] = createSignal<MediaStream | null>(null);
   const [reusableImageAttachment, setReusableImageAttachment] = createSignal<ReusableImageAttachment | null>(null);
   const [imageAttachmentAltText, setImageAttachmentAltText] = createSignal("");
   const [importingImageResolutionName, setImportingImageResolutionName] = createSignal<string | null>(null);
@@ -120,11 +125,23 @@ export default function Home() {
     return date !== null && date !== today();
   });
   const imageAttachmentResolutionChoices = createMemo(() => {
+    const local = localImageSource();
+    if (local !== null && runtime.imageAttachments !== null) {
+      return runtime.imageAttachments.getAvailableResolutionsForLocalImage(local);
+    }
     const picked = pickedImage();
     if (reusableImageAttachment() !== null || runtime.imageAttachments === null || picked === null) return [];
     return runtime.imageAttachments.getAvailableResolutions(picked);
   });
   const imageAttachmentFlowActive = createMemo(() => imageAttachmentStatus() !== "idle");
+
+  const clearCameraStream = () => {
+    const stream = cameraStream();
+    if (stream !== null) {
+      stopCameraStream(stream);
+    }
+    setCameraStream(null);
+  };
 
   createEffect(() => {
     if (runtime.kind !== "google") {
@@ -173,6 +190,8 @@ export default function Home() {
 	        setImageAttachmentDate(null);
 	        setImagePickingSession(null);
 	        setPickedImage(null);
+	        setLocalImageSource(null);
+	        clearCameraStream();
 	        setReusableImageAttachment(null);
 	        setImageAttachmentAltText("");
 	        setImportingImageResolutionName(null);
@@ -235,11 +254,23 @@ export default function Home() {
   createEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState !== "hidden") return;
+      clearCameraStream();
       void saveCurrentEditorSnapshot();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     onCleanup(() => document.removeEventListener("visibilitychange", onVisibilityChange));
   });
+
+  createEffect(() => {
+    const stream = cameraStream();
+    if (cameraVideo === undefined) return;
+    cameraVideo.srcObject = stream;
+    if (stream !== null) {
+      void cameraVideo.play().catch((error: unknown) => setImageAttachmentError(errorMessage(error)));
+    }
+  });
+
+  onCleanup(() => clearCameraStream());
 
   createEffect(
     on(
@@ -444,7 +475,7 @@ export default function Home() {
     void saveAndSyncSnapshot(date, value);
   };
 
-  const startImagePick = async () => {
+  const startGooglePhotosImagePick = async () => {
     if (runtime.imageAttachments === null) return;
     const date = selectedDate();
     if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
@@ -454,16 +485,13 @@ export default function Home() {
     setImagePickingSession(null);
     clearStoredActiveImagePicker();
     setPickedImage(null);
+    setLocalImageSource(null);
+    clearCameraStream();
     setReusableImageAttachment(null);
     setImageAttachmentAltText("");
     setImportingImageResolutionName(null);
     setImageAttachmentDate(date);
-
-    if (runtime.kind === "fake") {
-      fakeImageInput?.click();
-      setImageAttachmentStatus("idle");
-      return;
-    }
+    if (runtime.kind !== "google") return;
 
     const pickerWindow = openPickerPlaceholderWindow();
 
@@ -504,6 +532,7 @@ export default function Home() {
 
         const reusable = await runtime.imageAttachments.findReusablePickedImage(picked);
         setPickedImage(picked);
+        setLocalImageSource(null);
         setReusableImageAttachment(reusable);
         setImageAttachmentAltText(defaultImageAltText(picked, reusable));
         setImageAttachmentStatus("choosing");
@@ -518,12 +547,13 @@ export default function Home() {
     }
   };
 
-  const insertPickedImage = async (selectedResolution: ImageAttachmentResolution) => {
+  const insertSelectedImage = async (selectedResolution: ImageAttachmentResolution) => {
     const picked = pickedImage();
+    const local = localImageSource();
     const date = imageAttachmentDate();
     if (
       runtime.imageAttachments === null ||
-      picked === null ||
+      (picked === null && local === null) ||
       date === null ||
       !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() }) ||
       selectedDate() !== date
@@ -533,11 +563,18 @@ export default function Home() {
     setImportingImageResolutionName(selectedResolution.name);
     setImageAttachmentError(null);
     try {
-      const inserted = await runtime.imageAttachments.importPickedImage({
-        picked,
-        selectedResolution,
-        altText: imageAttachmentAltText()
-      });
+      const inserted = local !== null
+        ? await runtime.imageAttachments.importLocalImage({
+            source: local,
+            selectedResolution,
+            altText: imageAttachmentAltText()
+          })
+	    : await runtime.imageAttachments.importPickedImage({
+	            picked: picked!,
+	            selectedResolution,
+	            altText: imageAttachmentAltText()
+	          });
+      if (!shouldApplyEditorAsyncResult(date, { selectedDate: selectedDate(), loadedDate: loadedDate() })) return;
       const nextMarkdown = appendImageAttachmentReference(markdown(), inserted.markdownReference);
       setMarkdown(nextMarkdown);
       setFocusEditorAtEnd(true);
@@ -545,6 +582,8 @@ export default function Home() {
       setImagePickingSession(null);
       clearStoredActiveImagePicker();
       setPickedImage(null);
+      setLocalImageSource(null);
+      clearCameraStream();
       setReusableImageAttachment(null);
       setImageAttachmentDate(null);
       setImageAttachmentAltText("");
@@ -552,6 +591,7 @@ export default function Home() {
       setImageAttachmentStatus("idle");
       await saveAndSyncSnapshot(date, nextMarkdown);
     } catch (error: unknown) {
+      if (selectedDate() !== date || imageAttachmentDate() !== date) return;
       setImageAttachmentError(errorMessage(error));
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("choosing");
@@ -584,6 +624,8 @@ export default function Home() {
       setImagePickingSession(null);
       clearStoredActiveImagePicker();
       setPickedImage(null);
+      setLocalImageSource(null);
+      clearCameraStream();
       setReusableImageAttachment(null);
       setImageAttachmentDate(null);
       setImageAttachmentAltText("");
@@ -606,24 +648,151 @@ export default function Home() {
     setImagePickingSession(null);
     clearStoredActiveImagePicker();
     setPickedImage(null);
+    setLocalImageSource(null);
+    clearCameraStream();
     setReusableImageAttachment(null);
     setImageAttachmentAltText("");
     setImportingImageResolutionName(null);
   };
 
-  const handleFakeImageFile = async (file: File | undefined) => {
-    if (runtime.kind !== "fake" || runtime.imageAttachments === null || file === undefined) return;
+  const handleLocalImageFile = async (file: File | undefined, kind: LocalImageSourceKind) => {
+    if (runtime.imageAttachments === null || file === undefined) return;
     const date = imageAttachmentDate();
     if (date === null || selectedDate() !== date || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
 
-    setImageAttachmentStatus("starting");
+    setImageAttachmentStatus("idle");
     setImageAttachmentError(null);
     try {
-      const picked = await runtime.fakePhotos.pickImageFile(file);
-      const reusable = await runtime.imageAttachments.findReusablePickedImage(picked);
-      setPickedImage(picked);
-      setReusableImageAttachment(reusable);
-      setImageAttachmentAltText(defaultImageAltText(picked, reusable));
+      const source = await runtime.imageAttachments.prepareLocalImageSource({
+        kind,
+        bytes: file,
+        filename: file.name || "image",
+        lastModified: file.lastModified
+      });
+      setPickedImage(null);
+      setLocalImageSource(source);
+      setReusableImageAttachment(null);
+      setImageAttachmentAltText(defaultLocalImageAltText(source));
+      setImageAttachmentStatus("choosing");
+    } catch (error: unknown) {
+      setImageAttachmentError(errorMessage(error));
+      setImageAttachmentStatus("idle");
+    }
+  };
+
+  const startLocalImageFilePick = () => {
+    if (runtime.imageAttachments === null) return;
+    const date = selectedDate();
+    if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+
+    setImageAttachmentStatus("idle");
+    setImageAttachmentError(null);
+    setImageAttachmentDate(date);
+    setImagePickingSession(null);
+    clearStoredActiveImagePicker();
+    setPickedImage(null);
+    setLocalImageSource(null);
+    clearCameraStream();
+    setReusableImageAttachment(null);
+    setImageAttachmentAltText("");
+    setImportingImageResolutionName(null);
+    uploadImageInput?.click();
+  };
+
+  const startCameraCapture = async () => {
+    if (runtime.imageAttachments === null) return;
+    const date = selectedDate();
+    if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+
+    setImageAttachmentStatus("starting");
+    setImageAttachmentError(null);
+    setImageAttachmentDate(date);
+    setImagePickingSession(null);
+    clearStoredActiveImagePicker();
+    setPickedImage(null);
+    setLocalImageSource(null);
+    clearCameraStream();
+    setReusableImageAttachment(null);
+    setImageAttachmentAltText("");
+    setImportingImageResolutionName(null);
+
+    try {
+      if (navigator.mediaDevices?.getUserMedia === undefined) {
+        throw new Error("Camera capture is not supported by this browser.");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" }
+        }
+      });
+      if (selectedDate() !== date || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) {
+        stopCameraStream(stream);
+        return;
+      }
+      setCameraStream(stream);
+      setImageAttachmentStatus("waiting");
+    } catch (error: unknown) {
+      setImageAttachmentError(errorMessage(error));
+      setImageAttachmentStatus("idle");
+    }
+  };
+
+  const captureCameraImage = async () => {
+    const date = imageAttachmentDate();
+    if (runtime.imageAttachments === null || cameraVideo === undefined || date === null) return;
+    if (selectedDate() !== date || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+
+    try {
+      const blob = await captureVideoFrame(cameraVideo);
+      clearCameraStream();
+      const source = await runtime.imageAttachments.prepareLocalImageSource({
+        kind: "device-camera",
+        bytes: blob,
+        filename: `camera-${date}-${Date.now()}.jpg`,
+        lastModified: Date.now()
+      });
+      setPickedImage(null);
+      setLocalImageSource(source);
+      setReusableImageAttachment(null);
+      setImageAttachmentAltText(defaultLocalImageAltText(source));
+      setImageAttachmentStatus("choosing");
+    } catch (error: unknown) {
+      setImageAttachmentError(errorMessage(error));
+      setImageAttachmentStatus("waiting");
+    }
+  };
+
+  const pasteImageFromClipboard = async () => {
+    if (runtime.imageAttachments === null) return;
+    const date = selectedDate();
+    if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+
+    setImageAttachmentStatus("starting");
+    setImageAttachmentError(null);
+    setImageAttachmentDate(date);
+    setImagePickingSession(null);
+    clearStoredActiveImagePicker();
+    setPickedImage(null);
+    setLocalImageSource(null);
+    clearCameraStream();
+    setReusableImageAttachment(null);
+    setImageAttachmentAltText("");
+    setImportingImageResolutionName(null);
+
+    try {
+      const clipboardItems = await navigator.clipboard?.read?.();
+      const blob = await firstClipboardImage(clipboardItems ?? []);
+      if (blob === null) {
+        throw new Error("The clipboard does not contain an image.");
+      }
+      const source = await runtime.imageAttachments.prepareLocalImageSource({
+        kind: "clipboard",
+        bytes: blob,
+        filename: `clipboard-image${extensionForMimeType(blob.type)}`
+      });
+      setLocalImageSource(source);
+      setImageAttachmentAltText(defaultLocalImageAltText(source));
       setImageAttachmentStatus("choosing");
     } catch (error: unknown) {
       setImageAttachmentError(errorMessage(error));
@@ -780,38 +949,67 @@ export default function Home() {
             }
           >
             <section class="image-attachment-panel" aria-live="polite">
-              <Show when={runtime.kind === "fake"}>
-                <input
-                  ref={fakeImageInput}
-                  class="hidden-file-input"
-                  type="file"
-                  accept="image/*"
-                  onChange={(event) => {
-                    const file = event.currentTarget.files?.[0];
-                    event.currentTarget.value = "";
-                    void handleFakeImageFile(file);
-                  }}
-                />
-              </Show>
+              <input
+                ref={uploadImageInput}
+                class="hidden-file-input"
+                type="file"
+                accept="image/*"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  void handleLocalImageFile(file, "device-upload");
+                }}
+              />
               <div class="image-attachment-controls">
+                <Show when={runtime.kind === "google"}>
+                  <button
+                    type="button"
+                    disabled={imageAttachmentFlowActive()}
+                    onClick={() => void startGooglePhotosImagePick()}
+                  >
+                    Google Photos
+                  </button>
+                </Show>
                 <button
                   type="button"
-                  disabled={
-                    imageAttachmentFlowActive()
-                  }
-                  onClick={() => void startImagePick()}
+                  disabled={imageAttachmentFlowActive()}
+                  onClick={startLocalImageFilePick}
                 >
-                  {imageAttachmentStatus() === "starting"
-                    ? runtime.kind === "fake" ? "Loading image..." : "Opening Google Photos..."
-                    : imageAttachmentStatus() === "waiting"
-                      ? "Waiting for image..."
-                      : imageAttachmentStatus() === "choosing"
-                        ? "Image selected"
-                        : imageAttachmentStatus() === "importing"
-                          ? "Importing image..."
-                          : "Insert image"}
+                  Device
                 </button>
+                <button
+                  type="button"
+                  disabled={imageAttachmentFlowActive()}
+                  onClick={() => void startCameraCapture()}
+                >
+                  Camera
+                </button>
+                <button
+                  type="button"
+                  disabled={imageAttachmentFlowActive()}
+                  onClick={() => void pasteImageFromClipboard()}
+                >
+                  Paste
+                </button>
+                <Show when={imageAttachmentStatus() !== "idle"}>
+                  <span class="image-attachment-source">
+                    {cameraStream() !== null ? "Camera ready" : imageAttachmentStatusLabel(imageAttachmentStatus())}
+                  </span>
+                </Show>
               </div>
+              <Show when={cameraStream() !== null}>
+                <div class="camera-capture-panel">
+                  <video ref={cameraVideo} playsinline muted />
+                  <div class="image-attachment-controls">
+                    <button type="button" onClick={() => void captureCameraImage()}>
+                      Capture
+                    </button>
+                    <button type="button" onClick={cancelImageAttachmentSelection}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </Show>
               <Show when={imagePickingSession()}>
                 {(session) => (
                   <div class="image-attachment-session">
@@ -828,8 +1026,10 @@ export default function Home() {
                   </div>
                 )}
               </Show>
-              <Show when={pickedImage()}>
-                {(picked) => (
+              <Show
+                when={pickedImage() !== null || localImageSource() !== null}
+                fallback={null}
+              >
                   <div class="image-attachment-import">
                     <label>
                       Alt text
@@ -847,7 +1047,7 @@ export default function Home() {
                             <button
                               type="button"
                               disabled={imageAttachmentStatus() === "importing"}
-                              onClick={() => void insertPickedImage(resolution)}
+                              onClick={() => void insertSelectedImage(resolution)}
                             >
                               {importingImageResolutionName() === resolution.name
                                 ? "Importing..."
@@ -875,10 +1075,9 @@ export default function Home() {
                       Cancel
                     </button>
                     <span class="image-attachment-source">
-                      {picked().mediaFile?.filename ?? "Selected image"}
+                      {selectedImageSourceLabel(pickedImage(), localImageSource())}
                     </span>
                   </div>
-                )}
               </Show>
               <Show when={imageAttachmentError()}>
                 {(message) => <p class="image-attachment-error">{message()}</p>}
@@ -1128,6 +1327,104 @@ function defaultImageAltText(
   reusable: ReusableImageAttachment | null
 ): string {
   return reusable?.metadata.source.filename ?? picked.mediaFile?.filename ?? "";
+}
+
+function defaultLocalImageAltText(source: LocalImageAttachmentSource): string {
+  return source.filename ?? "";
+}
+
+function selectedImageSourceLabel(
+  picked: PickedGooglePhotosMediaItem | null,
+  local: LocalImageAttachmentSource | null
+): string {
+  if (local !== null) return local.filename ?? localSourceKindLabel(local.kind);
+  return picked?.mediaFile?.filename ?? "Selected image";
+}
+
+function localSourceKindLabel(kind: LocalImageSourceKind): string {
+  switch (kind) {
+    case "device-upload":
+      return "Device image";
+    case "device-camera":
+      return "Camera image";
+    case "clipboard":
+      return "Clipboard image";
+  }
+}
+
+function imageAttachmentStatusLabel(status: ImageAttachmentStatus): string {
+  switch (status) {
+    case "idle":
+      return "";
+    case "starting":
+      return "Selecting image...";
+    case "waiting":
+      return "Waiting for image selection...";
+    case "choosing":
+      return "Image selected";
+    case "importing":
+      return "Importing image...";
+  }
+}
+
+async function firstClipboardImage(items: readonly ClipboardItem[]): Promise<Blob | null> {
+  for (const item of items) {
+    const imageType = item.types.find((type) => type.startsWith("image/"));
+    if (imageType !== undefined) {
+      return await item.getType(imageType);
+    }
+  }
+  return null;
+}
+
+function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
+  const width = video.videoWidth;
+  const height = video.videoHeight;
+  if (width <= 0 || height <= 0) {
+    throw new Error("The camera is not ready yet.");
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (context === null) {
+    throw new Error("Could not capture the camera image.");
+  }
+  context.drawImage(video, 0, 0, width, height);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob === null) {
+          reject(new Error("Could not capture the camera image."));
+        } else {
+          resolve(blob);
+        }
+      },
+      "image/jpeg",
+      0.9
+    );
+  });
+}
+
+function stopCameraStream(stream: MediaStream): void {
+  for (const track of stream.getTracks()) {
+    track.stop();
+  }
+}
+
+function extensionForMimeType(mimeType: string): string {
+  switch (mimeType) {
+    case "image/png":
+      return ".png";
+    case "image/webp":
+      return ".webp";
+    case "image/gif":
+      return ".gif";
+    default:
+      return ".jpg";
+  }
 }
 
 function shouldResolveImageAttachmentDisplay(display: ImageAttachmentDisplay | undefined, nowMs: number): boolean {

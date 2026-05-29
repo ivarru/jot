@@ -1,5 +1,5 @@
 This is the source template for the automatically managed Google Drive `jot/AGENTS.md` file; it is not repository guidance for coding agents.
-Template modified: 2026-05-29T08:19:54.000Z
+Template modified: 2026-05-29T08:48:57.000Z
 
 # Agent Notes for the jot Drive Folder
 
@@ -20,5 +20,6 @@ Do not add personal agent directions here. They may be replaced by a future temp
 - There should be at most one daily note per local date.
 - Markdown image targets of the form `jot:image:<id>` refer to images in the Google Photos album `jot`.
 - The `<id>` in `jot:image:<id>` maps to `Image Attachments/<id>.json`.
+- Image attachment metadata records the source type, such as Google Photos picker, device upload, camera, or clipboard.
 - Image attachment metadata records source and copied Google Photos media item ids when available.
 - Do not replace `jot:image:<id>` references with Google Photos URLs in daily notes.

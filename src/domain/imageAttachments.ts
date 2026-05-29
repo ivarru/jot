@@ -24,15 +24,7 @@ export interface ImageAttachmentMetadata {
   readonly id: string;
   readonly createdAt: string;
   readonly selectedResolution: ImageAttachmentResolutionName;
-  readonly source: {
-    readonly kind: "google-photos-picker";
-    readonly mediaItemId: string;
-    readonly createTime?: string;
-    readonly filename?: string;
-    readonly mimeType?: string;
-    readonly width?: number;
-    readonly height?: number;
-  };
+  readonly source: ImageAttachmentSourceMetadata;
   readonly copy: {
     readonly kind: "google-photos-library";
     readonly albumId: string;
@@ -43,6 +35,31 @@ export interface ImageAttachmentMetadata {
     readonly height?: number;
   };
 }
+
+export type ImageAttachmentSourceKind =
+  | "google-photos-picker"
+  | "device-upload"
+  | "device-camera"
+  | "clipboard";
+
+export type ImageAttachmentSourceMetadata =
+  | {
+      readonly kind: "google-photos-picker";
+      readonly mediaItemId: string;
+      readonly createTime?: string;
+      readonly filename?: string;
+      readonly mimeType?: string;
+      readonly width?: number;
+      readonly height?: number;
+    }
+  | {
+      readonly kind: Exclude<ImageAttachmentSourceKind, "google-photos-picker">;
+      readonly filename?: string;
+      readonly mimeType?: string;
+      readonly width?: number;
+      readonly height?: number;
+      readonly lastModified?: string;
+    };
 
 export interface JotImageAlbumMetadata {
   readonly version: typeof IMAGE_ATTACHMENT_METADATA_VERSION;

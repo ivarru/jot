@@ -104,8 +104,13 @@ export class FakeRemoteStorageProvider implements RemoteStorageProvider {
     const metadata = await withStore<ImageAttachmentMetadata[]>("fakeImageAttachmentMetadata", "readonly", (store) =>
       store.getAll()
     );
-    return metadata.find((item) => item[field].mediaItemId === mediaItemId) ?? null;
+    return metadata.find((item) => imageAttachmentMediaItemId(item, field) === mediaItemId) ?? null;
   }
+}
+
+function imageAttachmentMediaItemId(metadata: ImageAttachmentMetadata, field: "source" | "copy"): string | undefined {
+  if (field === "copy") return metadata.copy.mediaItemId;
+  return metadata.source.kind === "google-photos-picker" ? metadata.source.mediaItemId : undefined;
 }
 
 export async function loadSettingsOrDefault(provider: RemoteStorageProvider): Promise<JotSettings> {
