@@ -121,7 +121,23 @@ describe("daily note sync", () => {
     });
     await expect(drafts.load("2030-02-02")).resolves.toMatchObject({
       markdown: "new",
+      baselineMarkdown: "old",
+      baselineRevisionId: "revision-1",
       dirty: true
+    });
+
+    await saveAndSyncDailyNoteSnapshot("2030-02-02", "new", drafts, remote);
+
+    expect(remote.savedInputs.at(-1)).toEqual({
+      date: "2030-02-02",
+      markdown: "new",
+      expectedRevisionId: "revision-1"
+    });
+    await expect(drafts.load("2030-02-02")).resolves.toMatchObject({
+      markdown: "new",
+      baselineMarkdown: "new",
+      baselineRevisionId: "revision-2",
+      dirty: false
     });
   });
 

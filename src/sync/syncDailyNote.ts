@@ -73,6 +73,15 @@ export async function syncDailyNote(
   });
   const currentDraft = await drafts.load(date);
   if (draftChangedSinceSyncStarted(draft, currentDraft)) {
+    if (result.type === "saved" && currentDraftStartedFromSameBaseline(draft, currentDraft)) {
+      const dirty = currentDraft.markdown !== result.note.markdown;
+      await drafts.save(createDraft(date, currentDraft.markdown, result.note.markdown, result.note.revisionId, dirty));
+      return {
+        markdown: currentDraft.markdown,
+        status: dirty ? "saved-locally" : "synced"
+      };
+    }
+
     return draftToSession(currentDraft);
   }
 
@@ -132,6 +141,14 @@ function draftChangedSinceSyncStarted(startedWith: LocalDraft, current: LocalDra
       current.baselineRevisionId !== startedWith.baselineRevisionId ||
       current.dirty !== startedWith.dirty
     )
+  );
+}
+
+function currentDraftStartedFromSameBaseline(startedWith: LocalDraft, current: LocalDraft | null): current is LocalDraft {
+  return (
+    current !== null &&
+    current.baselineMarkdown === startedWith.baselineMarkdown &&
+    current.baselineRevisionId === startedWith.baselineRevisionId
   );
 }
 
