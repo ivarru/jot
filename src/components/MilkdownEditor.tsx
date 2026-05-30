@@ -4,6 +4,7 @@ import type { ImageAttachmentDisplayMap } from "./milkdownImages";
 import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
 import { createListTightnessPlugin } from "./milkdownListTightness";
 import { renderMilkdownListItemLabel } from "./milkdownListItems";
+import { resizeTextAreaToContents } from "./textAreaSizing";
 
 interface MilkdownEditorProps {
   readonly documentKey: string;
@@ -19,6 +20,7 @@ interface MilkdownEditorProps {
 
 export function MilkdownEditor(props: MilkdownEditorProps) {
   let root!: HTMLDivElement;
+  let fallbackTextarea: HTMLTextAreaElement | undefined;
   const [error, setError] = createSignal<string | null>(null);
   let imageAttachmentDisplays: ImageAttachmentDisplayMap = {};
   const imageAttachmentDisplayListeners = new Set<() => void>();
@@ -136,6 +138,14 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
     )
   );
 
+  createEffect(() => {
+    props.value;
+    if (error() === null || fallbackTextarea === undefined) return;
+    requestAnimationFrame(() => {
+      if (fallbackTextarea !== undefined) resizeTextAreaToContents(fallbackTextarea);
+    });
+  });
+
   return (
     <div class="editor-shell">
       <div ref={root} class="milkdown-root" />
@@ -143,8 +153,15 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         <textarea
           class="fallback-editor"
           value={props.value}
-          ref={(element) => focusTextArea(element, props.focusAtEnd === true ? "end" : "default", props.onFocusApplied)}
-          onInput={(event) => props.onChange(props.documentKey, event.currentTarget.value)}
+          ref={(element) => {
+            fallbackTextarea = element;
+            resizeTextAreaToContents(element);
+            focusTextArea(element, props.focusAtEnd === true ? "end" : "default", props.onFocusApplied);
+          }}
+          onInput={(event) => {
+            resizeTextAreaToContents(event.currentTarget);
+            props.onChange(props.documentKey, event.currentTarget.value);
+          }}
           onBlur={(event) => props.onBlur(props.documentKey, event.currentTarget.value)}
           aria-label="Markdown editor fallback"
         />

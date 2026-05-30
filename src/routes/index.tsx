@@ -38,6 +38,12 @@ import {
 } from "~/sync/syncDailyNote";
 import { resolveSyncErrorRetry, type SyncErrorState } from "~/sync/syncErrorRetry";
 import {
+  nextSyncRetryDelayMs,
+  shouldScheduleSyncRetry,
+  shouldShowUnsyncedWarning,
+  shouldTrackUnsyncedSince
+} from "~/sync/syncScheduling";
+import {
   GOOGLE_PHOTOS_APPENDONLY_SCOPE,
   GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE,
   GOOGLE_PHOTOS_PICKER_SCOPE,
@@ -104,6 +110,9 @@ export default function Home() {
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [syncStatus, setSyncStatus] = createSignal<SyncStatus>("local-only");
   const [lastSyncError, setLastSyncError] = createSignal<SyncErrorState | null>(null);
+  const [syncRetryAttempt, setSyncRetryAttempt] = createSignal(0);
+  const [unsyncedSinceMs, setUnsyncedSinceMs] = createSignal<number | null>(null);
+  const [syncWarningTick, setSyncWarningTick] = createSignal(0);
   const [settings, setSettings] = createSignal<JotSettings>(DEFAULT_JOT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [topMenuOpen, setTopMenuOpen] = createSignal(false);
@@ -145,6 +154,10 @@ export default function Home() {
     return runtime.imageAttachments.getAvailableResolutions(picked);
   });
   const imageAttachmentFlowActive = createMemo(() => imageAttachmentStatus() !== "idle");
+  const syncDelayed = createMemo(() => {
+    syncWarningTick();
+    return shouldShowUnsyncedWarning(syncStatus(), unsyncedSinceMs(), Date.now());
+  });
 
   const clearCameraStream = () => {
     const stream = cameraStream();
@@ -266,8 +279,69 @@ export default function Home() {
     )
   );
 
+  createEffect(
+    on(syncStatus, (status) => {
+      if (!shouldTrackUnsyncedSince(status)) {
+        setUnsyncedSinceMs(null);
+        return;
+      }
+
+      if (unsyncedSinceMs() === null) {
+        setUnsyncedSinceMs(Date.now());
+      }
+    })
+  );
+
+  createEffect(
+    on(
+      () =>
+        [
+          lastSyncError(),
+          syncRetryAttempt(),
+          authenticated(),
+          authReconnectRequired(),
+          syncStatus(),
+          settings().retryInitialDelayMs,
+          settings().retryMaxDelayMs
+        ] as const,
+      ([error, attempt, isAuthenticated, reconnectRequired, status]) => {
+        if (
+          !shouldScheduleSyncRetry({
+            hasSyncError: error !== null,
+            authenticated: isAuthenticated,
+            authReconnectRequired: reconnectRequired,
+            syncStatus: status
+          })
+        ) return;
+
+        const timeout = window.setTimeout(() => {
+          setSyncRetryAttempt((current) => current + 1);
+          retryLastSyncError();
+        }, nextSyncRetryDelayMs(attempt, settings()));
+
+        onCleanup(() => window.clearTimeout(timeout));
+      }
+    )
+  );
+
+  createEffect(
+    on(
+      () => [lastSyncError(), syncStatus()] as const,
+      ([error, status]) => {
+        if (error === null && status !== "error" && status !== "syncing") {
+          setSyncRetryAttempt(0);
+        }
+      }
+    )
+  );
+
   createEffect(() => {
     const interval = window.setInterval(() => setToday(todayIsoDate()), 60000);
+    onCleanup(() => window.clearInterval(interval));
+  });
+
+  createEffect(() => {
+    const interval = window.setInterval(() => setSyncWarningTick((tick) => tick + 1), 10000);
     onCleanup(() => window.clearInterval(interval));
   });
 
@@ -1071,11 +1145,11 @@ export default function Home() {
             </div>
             <div class="top-actions">
               <span class={`sync-status sync-${syncStatus()}`}>{syncStatusLabel(syncStatus())}</span>
-              <Show when={authReconnectRequired()}>
-                <button type="button" disabled={reconnectingAuth()} onClick={() => void reconnectGoogle()}>
-                  {reconnectingAuth() ? "Reconnecting..." : "Reconnect"}
-                </button>
-              </Show>
+                <Show when={authReconnectRequired()}>
+                  <button type="button" disabled={reconnectingAuth()} onClick={() => void reconnectGoogle()}>
+                    {reconnectingAuth() ? "Reconnecting..." : "Reconnect"}
+                  </button>
+                </Show>
               <div class="top-menu">
                 <button
                   type="button"
@@ -1269,6 +1343,17 @@ export default function Home() {
                       </span>
                     </Show>
                   </div>
+                </Show>
+                <Show when={syncDelayed()}>
+                  <span
+                    class="sync-delay-warning"
+                    role="status"
+                    aria-live="polite"
+                    aria-label="Sync delayed"
+                    title="Sync delayed"
+                  >
+                    <SyncDelayedIcon />
+                  </span>
                 </Show>
                 <div
                   class="editor-mode-toggle"
@@ -1654,6 +1739,26 @@ function InsertImageIcon() {
       <path d="m21 15-4.5-4.5L9 18" />
       <path d="M16 5v6" />
       <path d="M13 8h6" />
+    </svg>
+  );
+}
+
+function SyncDelayedIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
     </svg>
   );
 }

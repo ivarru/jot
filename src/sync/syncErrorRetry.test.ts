@@ -36,4 +36,14 @@ describe("sync error retry", () => {
       date: "2030-02-01"
     });
   });
+
+  it("does not retry a save failure after switching to a different loaded date", () => {
+    const error: SyncErrorState = {
+      message: "Drive failed",
+      retry: "save-current-note",
+      date: "2030-02-01"
+    };
+
+    expect(resolveSyncErrorRetry(error, { selectedDate: "2030-02-02", loadedDate: "2030-02-02" })).toBeNull();
+  });
 });

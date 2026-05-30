@@ -1,4 +1,5 @@
 import { createEffect, on } from "solid-js";
+import { resizeTextAreaToContents } from "./textAreaSizing";
 
 interface PlainTextEditorProps {
   readonly documentKey: string;
@@ -21,13 +22,21 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
     )
   );
 
+  createEffect(() => {
+    props.value;
+    requestAnimationFrame(() => resizeTextAreaToContents(textarea));
+  });
+
   return (
     <div class="editor-shell">
       <textarea
         ref={textarea}
         class="plain-text-editor"
         value={props.value}
-        onInput={(event) => props.onChange(props.documentKey, event.currentTarget.value)}
+        onInput={(event) => {
+          resizeTextAreaToContents(event.currentTarget);
+          props.onChange(props.documentKey, event.currentTarget.value);
+        }}
         onBlur={(event) => props.onBlur(props.documentKey, event.currentTarget.value)}
         aria-label="Markdown text editor"
         spellcheck={true}

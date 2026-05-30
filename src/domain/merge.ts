@@ -1,3 +1,5 @@
+import { diffLines, type Change } from "diff";
+
 export interface MergeInput {
   readonly baseline: string;
   readonly local: string;
@@ -34,7 +36,7 @@ export function mergeDailyNote(input: MergeInput): MergeResult {
 }
 
 export function createConflictMarkdown(local: string, remote: string): string {
-  return `<<<<<<< Local Draft\n${ensureTrailingNewline(local)}=======\n${ensureTrailingNewline(remote)}>>>>>>> Google Drive\n`;
+  return conflictHunksFromLineDiff(diffLines(local, remote));
 }
 
 function tryAppendOnlyMerge(input: MergeInput): string | null {
@@ -49,4 +51,34 @@ function tryAppendOnlyMerge(input: MergeInput): string | null {
 
 function ensureTrailingNewline(value: string): string {
   return value.endsWith("\n") ? value : `${value}\n`;
+}
+
+function conflictHunksFromLineDiff(changes: readonly Change[]): string {
+  let markdown = "";
+  let local = "";
+  let remote = "";
+
+  for (const change of changes) {
+    if (!change.added && !change.removed) {
+      markdown += flushConflictHunk(local, remote);
+      local = "";
+      remote = "";
+      markdown += change.value;
+      continue;
+    }
+
+    if (change.removed) {
+      local += change.value;
+    } else if (change.added) {
+      remote += change.value;
+    }
+  }
+
+  markdown += flushConflictHunk(local, remote);
+  return markdown;
+}
+
+function flushConflictHunk(local: string, remote: string): string {
+  if (local === "" && remote === "") return "";
+  return `<<<<<<< Local Draft\n${ensureTrailingNewline(local)}=======\n${ensureTrailingNewline(remote)}>>>>>>> Google Drive\n`;
 }

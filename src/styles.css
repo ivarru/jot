@@ -544,6 +544,26 @@ select {
   transform: translateY(0);
 }
 
+.sync-delay-warning {
+  position: absolute;
+  left: 50%;
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--danger), transparent 45%);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--danger);
+  place-items: center;
+  transform: translateX(-50%);
+}
+
+.sync-delay-warning svg {
+  width: 16px;
+  height: 16px;
+}
+
 .editor-shell {
   min-height: 65vh;
   border: 1px solid var(--border);
@@ -592,14 +612,18 @@ select {
 .milkdown-root {
   min-height: 65vh;
   padding: 24px;
+  overflow: visible;
 }
 
 .milkdown-root .milkdown {
   outline: none;
+  overflow: visible;
 }
 
 .milkdown-root .ProseMirror {
+  min-height: calc(65vh - 48px);
   outline: none;
+  overflow: visible;
 }
 
 .milkdown-root :is(h1, h2, h3, h4, h5, h6) {
@@ -750,7 +774,8 @@ select {
   width: 100%;
   min-height: 65vh;
   border: 0;
-  resize: vertical;
+  overflow: hidden;
+  resize: none;
   padding: 24px;
   background: transparent;
   color: var(--text);

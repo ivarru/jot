@@ -35,9 +35,11 @@ export function resolveSyncErrorRetry(
       if (date === null || !shouldApplyLoadedNote(date, state.selectedDate)) return null;
       return { type: "load-selected-note", date };
     }
-    case "save-current-note":
-      if (!canEditSelectedDate(state) || state.selectedDate === null) return null;
-      return { type: "save-current-note", date: state.selectedDate };
+    case "save-current-note": {
+      const date = error.date;
+      if (date === undefined || !canEditSelectedDate(state) || state.selectedDate !== date) return null;
+      return { type: "save-current-note", date };
+    }
     case "save-settings":
       return { type: "save-settings" };
     case "sync-dirty-drafts":

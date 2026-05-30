@@ -15,10 +15,31 @@ describe("daily note merge", () => {
     });
   });
 
-  it("creates Git-style conflict markers when both sides changed", () => {
-    expect(mergeDailyNote({ baseline: "a\n", local: "local\n", remote: "remote\n" })).toEqual({
-      merged: createConflictMarkdown("local\n", "remote\n"),
+  it("creates Git-style conflict markers around only changed lines", () => {
+    expect(
+      mergeDailyNote({
+        baseline: "before\nold\nsame\nafter\n",
+        local: "before\nlocal\nsame\nafter\n",
+        remote: "before\nremote\nsame\nafter\n"
+      })
+    ).toEqual({
+      merged: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame\nafter\n",
       conflicted: true
     });
+  });
+
+  it("uses a line diff for multiple separated conflict hunks", () => {
+    expect(
+      createConflictMarkdown(
+        "keep 1\nlocal 1\nkeep 2\nlocal 2\nkeep 3\n",
+        "keep 1\nremote 1\nkeep 2\nremote 2\nkeep 3\n"
+      )
+    ).toBe(
+      "keep 1\n" +
+        "<<<<<<< Local Draft\nlocal 1\n=======\nremote 1\n>>>>>>> Google Drive\n" +
+        "keep 2\n" +
+        "<<<<<<< Local Draft\nlocal 2\n=======\nremote 2\n>>>>>>> Google Drive\n" +
+        "keep 3\n"
+    );
   });
 });
