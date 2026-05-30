@@ -503,10 +503,43 @@ select {
 
 .milkdown-root :is(h1, h2, h3, h4, h5, h6) {
   line-height: 1.2;
+  margin-block-end: 0.35em;
+}
+
+.milkdown-root h1 {
+  margin-block-start: 1.5em;
+}
+
+.milkdown-root h2 {
+  margin-block-start: 1.35em;
+}
+
+.milkdown-root h3 {
+  margin-block-start: 1.2em;
+}
+
+.milkdown-root :is(h4, h5, h6) {
+  margin-block-start: 1.1em;
+}
+
+.milkdown-root .ProseMirror > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-block-start: 0;
 }
 
 .milkdown-root :is(p, li) {
   line-height: 1.6;
+}
+
+.milkdown-root .ProseMirror :is(ul, ol) {
+  padding-inline-start: 0;
+}
+
+.milkdown-root .ProseMirror > :is(ul, ol) {
+  margin-inline-start: 0;
+}
+
+.milkdown-root .milkdown-list-item-block .children > :is(ul, ol) {
+  margin-inline-start: 18px;
 }
 
 .milkdown-root :is(ul, ol)[data-spread="false"] li p {
@@ -526,13 +559,14 @@ select {
 .milkdown-root .milkdown-list-item-block > .list-item {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 5px;
   list-style: none;
 }
 
 .milkdown-root .milkdown-list-item-block .label-wrapper {
   display: grid;
-  flex: 0 0 22px;
+  flex: 0 0 auto;
+  min-width: 18px;
   min-height: 1.6em;
   place-items: center;
   cursor: pointer;
@@ -550,7 +584,9 @@ select {
 
 .milkdown-root .jot-list-marker {
   color: var(--muted);
+  font-size: 1.15em;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .milkdown-root .jot-task-checkbox {
