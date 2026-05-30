@@ -2,6 +2,8 @@ import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
 import { firstClipboardImageFile } from "./clipboardImages";
 import type { ImageAttachmentDisplayMap } from "./milkdownImages";
 import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
+import { createListTightnessPlugin } from "./milkdownListTightness";
+import { renderMilkdownListItemLabel } from "./milkdownListItems";
 
 interface MilkdownEditorProps {
   readonly documentKey: string;
@@ -44,7 +46,9 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { gfm },
           { history },
           { listener, listenerCtx },
-          { $view }
+          { listItemBlockComponent, listItemBlockConfig },
+          { Plugin },
+          { $prose, $view }
         ] =
           await Promise.all([
             import("@milkdown/kit/core"),
@@ -52,8 +56,11 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             import("@milkdown/kit/preset/gfm"),
             import("@milkdown/kit/plugin/history"),
             import("@milkdown/kit/plugin/listener"),
+            import("@milkdown/kit/component/list-item-block"),
+            import("@milkdown/kit/prose/state"),
             import("@milkdown/kit/utils")
           ]);
+        const preserveListTightness = $prose(() => createListTightnessPlugin(Plugin));
         const jotImageView = $view(imageSchema.node, () => (node) => {
           let attrs = node.attrs;
           const dom = createMilkdownImageViewDom(attrs, imageAttachmentDisplays);
@@ -78,6 +85,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .config((ctx) => {
             ctx.set(rootCtx, root);
             ctx.set(defaultValueCtx, props.value);
+            ctx.update(listItemBlockConfig.key, (config) => ({
+              ...config,
+              renderLabel: renderMilkdownListItemLabel
+            }));
             ctx.get(listenerCtx).markdownUpdated((_ctx, markdown, previousMarkdown) => {
               if (markdown !== previousMarkdown) {
                 currentMarkdown = markdown;
@@ -88,6 +99,8 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(commonmark)
           .use(jotImageView)
           .use(gfm)
+          .use(listItemBlockComponent)
+          .use(preserveListTightness)
           .use(history)
           .use(listener)
           .create()
