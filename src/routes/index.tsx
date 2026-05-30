@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } 
 import { ImageAttachmentFlow, type LocalImageAttachmentSource, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { GoogleAccessTokenUnavailableError, GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
-import { ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
+import { APP_VERSION, ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
 import { MilkdownEditor } from "~/components/MilkdownEditor";
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
@@ -19,6 +19,13 @@ import {
   shouldApplySyncMarkdownResult,
   shouldApplySyncResult
 } from "~/editor/dateBoundEditor";
+import {
+  EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS,
+  EDITOR_MODE_TOGGLE_SHORTCUT_LABEL,
+  isEditorModeToggleShortcut,
+  nextEditorMode,
+  type EditorMode
+} from "~/editor/editorModeShortcut";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
 import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
@@ -61,7 +68,6 @@ type StorageRuntime =
     };
 
 type ImageAttachmentStatus = "idle" | "starting" | "waiting" | "choosing" | "importing";
-type EditorMode = "wysiwyg" | "text";
 type LocalImageSourceKind = LocalImageAttachmentSource["kind"];
 
 interface StoredActiveImagePicker {
@@ -78,6 +84,7 @@ export default function Home() {
   let uploadImageInput: HTMLInputElement | undefined;
   let cameraVideo: HTMLVideoElement | undefined;
   let imageAltTextInput: HTMLInputElement | undefined;
+  let aboutCloseButton: HTMLButtonElement | undefined;
   const [authenticated, setAuthenticated] = createSignal(
     redirectAuthResult.type === "authenticated" ||
     runtime.kind === "fake" && ENABLE_FAKE_AUTH && globalThis.localStorage?.getItem("jot.fakeAuth") === "true"
@@ -99,6 +106,8 @@ export default function Home() {
   const [lastSyncError, setLastSyncError] = createSignal<SyncErrorState | null>(null);
   const [settings, setSettings] = createSignal<JotSettings>(DEFAULT_JOT_SETTINGS);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  const [topMenuOpen, setTopMenuOpen] = createSignal(false);
+  const [aboutOpen, setAboutOpen] = createSignal(false);
   const [editorMode, setEditorMode] = createSignal<EditorMode>("wysiwyg");
   const [insertImageMenuOpen, setInsertImageMenuOpen] = createSignal(false);
   const [editorResetKey, setEditorResetKey] = createSignal(0);
@@ -282,6 +291,18 @@ export default function Home() {
   });
 
   createEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isEditorModeToggleShortcut(event)) return;
+      if (!authenticated() || !canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() })) return;
+
+      event.preventDefault();
+      updateEditorMode(nextEditorMode(editorMode()));
+    };
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  });
+
+  createEffect(() => {
     const stream = cameraStream();
     if (cameraVideo === undefined) return;
     cameraVideo.srcObject = stream;
@@ -293,6 +314,11 @@ export default function Home() {
   createEffect(() => {
     if ((pickedImage() === null && localImageSource() === null) || imageAttachmentStatus() !== "choosing") return;
     window.requestAnimationFrame(() => imageAltTextInput?.focus());
+  });
+
+  createEffect(() => {
+    if (!aboutOpen()) return;
+    window.requestAnimationFrame(() => aboutCloseButton?.focus());
   });
 
   onCleanup(() => clearCameraStream());
@@ -1050,12 +1076,52 @@ export default function Home() {
                   {reconnectingAuth() ? "Reconnecting..." : "Reconnect"}
                 </button>
               </Show>
-              <button type="button" onClick={() => setSettingsOpen((open) => !open)}>
-                Settings
-              </button>
-              <button type="button" onClick={() => void signOut()}>
-                Sign out
-              </button>
+              <div class="top-menu">
+                <button
+                  type="button"
+                  class="icon-button"
+                  aria-label="Open menu"
+                  aria-haspopup="menu"
+                  aria-expanded={topMenuOpen()}
+                  onClick={() => setTopMenuOpen((open) => !open)}
+                >
+                  <MenuIcon />
+                </button>
+                <Show when={topMenuOpen()}>
+                  <div class="top-menu-popover" role="menu" aria-label="Application menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setTopMenuOpen(false);
+                        setAboutOpen(true);
+                      }}
+                    >
+                      About Jot
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setTopMenuOpen(false);
+                        setSettingsOpen((open) => !open);
+                      }}
+                    >
+                      Settings
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setTopMenuOpen(false);
+                        void signOut();
+                      }}
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                </Show>
+              </div>
             </div>
           </header>
 
@@ -1090,6 +1156,40 @@ export default function Home() {
 
           <Show when={settingsOpen()}>
             <SettingsPanel settings={settings()} onChange={updateSettings} />
+          </Show>
+
+          <Show when={aboutOpen()}>
+            <div class="modal-backdrop" role="presentation" onClick={() => setAboutOpen(false)}>
+              <div
+                class="about-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="about-modal-title"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setAboutOpen(false);
+                }}
+              >
+                <div class="about-modal-header">
+                  <h2 id="about-modal-title">About Jot</h2>
+                  <button
+                    ref={aboutCloseButton}
+                    type="button"
+                    class="icon-button"
+                    aria-label="Close about dialog"
+                    onClick={() => setAboutOpen(false)}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+                <dl class="about-version-list">
+                  <div>
+                    <dt>Version</dt>
+                    <dd>{APP_VERSION}</dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
           </Show>
 
           <Show
@@ -1170,11 +1270,18 @@ export default function Home() {
                     </Show>
                   </div>
                 </Show>
-                <div class="editor-mode-toggle" role="group" aria-label="Editor mode">
+                <div
+                  class="editor-mode-toggle"
+                  role="group"
+                  aria-label="Editor mode"
+                  data-tooltip={`Toggle editor mode (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
+                >
                   <button
                     type="button"
                     class={editorMode() === "wysiwyg" ? "active" : ""}
                     aria-pressed={editorMode() === "wysiwyg"}
+                    aria-keyshortcuts={EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS}
+                    title={`Toggle editor mode (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
                     onClick={() => updateEditorMode("wysiwyg")}
                   >
                     WYSIWYG
@@ -1183,6 +1290,8 @@ export default function Home() {
                     type="button"
                     class={editorMode() === "text" ? "active" : ""}
                     aria-pressed={editorMode() === "text"}
+                    aria-keyshortcuts={EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS}
+                    title={`Toggle editor mode (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
                     onClick={() => updateEditorMode("text")}
                   >
                     Text
@@ -1545,6 +1654,43 @@ function InsertImageIcon() {
       <path d="m21 15-4.5-4.5L9 18" />
       <path d="M16 5v6" />
       <path d="M13 8h6" />
+    </svg>
+  );
+}
+
+function MenuIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+    >
+      <path d="M4 7h16" />
+      <path d="M4 12h16" />
+      <path d="M4 17h16" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+    >
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
     </svg>
   );
 }

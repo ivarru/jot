@@ -1,5 +1,9 @@
 # Repository Instructions
 
+## Versioning
+
+This app is deployed continuously. Every commit that changes app behavior, UI, documentation, or deployment artifacts must bump the `version` in `package.json` and `package-lock.json` before committing. Choose the SemVer part pragmatically: patch for fixes and small polish, minor for user-visible improvements, and major for breaking or migration-heavy changes.
+
 ## Date-Bound Notes
 
 Daily Note content must never be read from or written to a date inferred after an async boundary. When changing editor, sync, autosave, local draft, or date navigation behavior, carry the explicit `IsoDate` and markdown snapshot through timers, promises, and editor callbacks.

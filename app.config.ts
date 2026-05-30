@@ -1,4 +1,5 @@
 import { defineConfig } from "@solidjs/start/config";
+import packageJson from "./package.json";
 
 declare const process: {
   readonly env: {
@@ -13,6 +14,9 @@ export default defineConfig({
   },
   vite: {
     base: process.env.BASE_PATH ?? "/",
+    define: {
+      __APP_VERSION__: JSON.stringify(packageJson.version)
+    },
     build: {
       modulePreload: false
     }
