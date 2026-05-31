@@ -126,6 +126,8 @@ export default function Home() {
   const [insertImageMenuOpen, setInsertImageMenuOpen] = createSignal(false);
   const [editorResetKey, setEditorResetKey] = createSignal(0);
   const [focusEditorAtEnd, setFocusEditorAtEnd] = createSignal(false);
+  const [focusEditorOffset, setFocusEditorOffset] = createSignal<number | null>(null);
+  const [lastEditorCursorOffset, setLastEditorCursorOffset] = createSignal(0);
   const [imageAttachmentStatus, setImageAttachmentStatus] = createSignal<ImageAttachmentStatus>("idle");
   const [imageAttachmentError, setImageAttachmentError] = createSignal<string | null>(null);
   const [imageAttachmentDate, setImageAttachmentDate] = createSignal<IsoDate | null>(null);
@@ -695,8 +697,8 @@ export default function Home() {
 
   const updateEditorMode = (mode: EditorMode) => {
     if (editorMode() === mode) return;
+    setFocusEditorOffset(lastEditorCursorOffset());
     setEditorMode(mode);
-    setFocusEditorAtEnd(true);
   };
 
   const handleEditorChange = (documentKey: string, value: string) => {
@@ -833,6 +835,7 @@ export default function Home() {
       setCleanEditorMarkdown(null);
       setMarkdown(nextMarkdown);
       setFocusEditorAtEnd(true);
+      setFocusEditorOffset(null);
       setEditorResetKey((key) => key + 1);
       setImagePickingSession(null);
       clearStoredActiveImagePicker();
@@ -882,6 +885,7 @@ export default function Home() {
       setCleanEditorMarkdown(null);
       setMarkdown(nextMarkdown);
       setFocusEditorAtEnd(true);
+      setFocusEditorOffset(null);
       setEditorResetKey((key) => key + 1);
       setImagePickingSession(null);
       clearStoredActiveImagePicker();
@@ -1603,7 +1607,12 @@ export default function Home() {
                     documentKey={selectedDate()!}
                     resetKey={editorResetKey()}
                     focusAtEnd={focusEditorAtEnd()}
-                    onFocusApplied={() => setFocusEditorAtEnd(false)}
+                    focusOffset={focusEditorOffset()}
+                    onFocusApplied={() => {
+                      setFocusEditorAtEnd(false);
+                      setFocusEditorOffset(null);
+                    }}
+                    onCursorChange={setLastEditorCursorOffset}
                     value={markdown()}
                     onChange={handleEditorChange}
                     onBlur={handleEditorBlur}
@@ -1614,7 +1623,12 @@ export default function Home() {
                   documentKey={selectedDate()!}
                   resetKey={editorResetKey()}
                   focusAtEnd={focusEditorAtEnd()}
-                  onFocusApplied={() => setFocusEditorAtEnd(false)}
+                  focusOffset={focusEditorOffset()}
+                  onFocusApplied={() => {
+                    setFocusEditorAtEnd(false);
+                    setFocusEditorOffset(null);
+                  }}
+                  onCursorChange={setLastEditorCursorOffset}
                   imageAttachmentDisplays={imageAttachmentDisplays()}
                   value={markdown()}
                   onChange={handleEditorChange}

@@ -5,12 +5,21 @@ import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdo
 import { createListTightnessPlugin } from "./milkdownListTightness";
 import { renderMilkdownListItemLabel } from "./milkdownListItems";
 import { resizeTextAreaToContents } from "./textAreaSizing";
+import {
+  markdownSourceOffsetToRenderedOffset,
+  renderedOffsetToMarkdownSourceOffset
+} from "~/editor/markdownCursor";
+import type { Node as ProseNode } from "@milkdown/kit/prose/model";
+import type { Selection } from "@milkdown/kit/prose/state";
+import type { EditorView } from "@milkdown/kit/prose/view";
 
 interface MilkdownEditorProps {
   readonly documentKey: string;
   readonly resetKey?: number;
   readonly focusAtEnd?: boolean;
+  readonly focusOffset?: number | null;
   readonly onFocusApplied?: () => void;
+  readonly onCursorChange?: (offset: number) => void;
   readonly imageAttachmentDisplays?: ImageAttachmentDisplayMap;
   readonly value: string;
   readonly onChange: (documentKey: string, markdown: string) => void;
@@ -38,18 +47,19 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
       async () => {
         const documentKey = props.documentKey;
         const focusAtEnd = props.focusAtEnd === true;
+        const focusOffset = props.focusOffset;
         let currentMarkdown = props.value;
         setError(null);
         root.replaceChildren();
 
         const [
-          { Editor, rootCtx, defaultValueCtx },
+          { Editor, rootCtx, defaultValueCtx, editorViewCtx },
           { commonmark, imageSchema },
           { gfm },
           { history },
           { listener, listenerCtx },
           { listItemBlockComponent, listItemBlockConfig },
-          { Plugin },
+          { Plugin, TextSelection },
           { $prose, $view }
         ] =
           await Promise.all([
@@ -97,6 +107,12 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 props.onChange(documentKey, markdown);
               }
             });
+            ctx.get(listenerCtx).selectionUpdated((_ctx, selection) => {
+              props.onCursorChange?.(renderedOffsetToMarkdownSourceOffset(
+                currentMarkdown,
+                selectionToRenderedTextOffset(selection)
+              ));
+            });
           })
           .use(commonmark)
           .use(jotImageView)
@@ -112,7 +128,15 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           });
 
         if (editor !== null) {
-          focusEditable(root, focusAtEnd ? "end" : "default", props.onFocusApplied);
+          const view = editor.ctx.get(editorViewCtx);
+          focusEditable(
+            root,
+            focusPlacement(focusAtEnd, focusOffset),
+            view,
+            TextSelection,
+            props.value,
+            props.onFocusApplied
+          );
         }
 
         const blurListener = () => props.onBlur(documentKey, currentMarkdown);
@@ -156,12 +180,16 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           ref={(element) => {
             fallbackTextarea = element;
             resizeTextAreaToContents(element);
-            focusTextArea(element, props.focusAtEnd === true ? "end" : "default", props.onFocusApplied);
+            focusTextArea(element, focusPlacement(props.focusAtEnd, props.focusOffset), props.onFocusApplied);
           }}
+          onClick={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
           onInput={(event) => {
             resizeTextAreaToContents(event.currentTarget);
+            props.onCursorChange?.(event.currentTarget.selectionStart);
             props.onChange(props.documentKey, event.currentTarget.value);
           }}
+          onKeyUp={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
+          onSelect={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
           onBlur={(event) => props.onBlur(props.documentKey, event.currentTarget.value)}
           aria-label="Markdown editor fallback"
         />
@@ -170,14 +198,41 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
   );
 }
 
-type FocusPlacement = "default" | "end";
+type FocusPlacement =
+  | {
+      readonly type: "default";
+    }
+  | {
+      readonly type: "end";
+    }
+  | {
+      readonly type: "offset";
+      readonly offset: number;
+    };
 
-function focusEditable(root: HTMLElement, placement: FocusPlacement, onFocusApplied?: () => void): void {
+function focusPlacement(focusAtEnd?: boolean, focusOffset?: number | null): FocusPlacement {
+  if (typeof focusOffset === "number") return { type: "offset", offset: focusOffset };
+  if (focusAtEnd === true) return { type: "end" };
+  return { type: "default" };
+}
+
+function focusEditable(
+  root: HTMLElement,
+  placement: FocusPlacement,
+  view: EditorView,
+  textSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
+  markdown: string,
+  onFocusApplied?: () => void
+): void {
   requestAnimationFrame(() => {
     const editable = root.querySelector<HTMLElement>("[contenteditable='true']");
     if (!editable) return;
     editable.focus();
-    if (placement === "end") placeSelectionAtEnd(editable);
+    if (placement.type === "end") {
+      placeSelectionAtEnd(editable);
+    } else if (placement.type === "offset") {
+      placeSelectionAtMarkdownSourceOffset(view, textSelection, markdown, placement.offset);
+    }
     onFocusApplied?.();
   });
 }
@@ -185,8 +240,12 @@ function focusEditable(root: HTMLElement, placement: FocusPlacement, onFocusAppl
 function focusTextArea(element: HTMLTextAreaElement, placement: FocusPlacement, onFocusApplied?: () => void): void {
   requestAnimationFrame(() => {
     element.focus();
-    if (placement === "end") {
-      element.setSelectionRange(element.value.length, element.value.length);
+    if (placement.type === "end") {
+      const offset = element.value.length;
+      element.setSelectionRange(offset, offset);
+    } else if (placement.type === "offset") {
+      const offset = Math.max(0, Math.min(element.value.length, placement.offset));
+      element.setSelectionRange(offset, offset);
     }
     onFocusApplied?.();
   });
@@ -201,4 +260,47 @@ function placeSelectionAtEnd(element: HTMLElement): void {
   range.collapse(false);
   selection.removeAllRanges();
   selection.addRange(range);
+}
+
+function selectionToRenderedTextOffset(selection: Selection): number {
+  return renderedTextOffsetBeforePosition(selection.$from.doc, selection.from);
+}
+
+function renderedTextOffsetBeforePosition(doc: ProseNode, position: number): number {
+  return doc.textBetween(0, Math.max(0, position), "\n\n", "\n").length;
+}
+
+function placeSelectionAtMarkdownSourceOffset(
+  view: EditorView,
+  textSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
+  markdown: string,
+  sourceOffset: number
+): void {
+  const renderedOffset = markdownSourceOffsetToRenderedOffset(markdown, sourceOffset);
+  const position = positionForRenderedTextOffset(view.state.doc, renderedOffset);
+  const selection = textSelection.near(view.state.doc.resolve(position));
+  view.dispatch(view.state.tr.setSelection(selection).scrollIntoView());
+}
+
+function positionForRenderedTextOffset(doc: ProseNode, offset: number): number {
+  const targetOffset = Math.max(0, offset);
+  let bestPosition = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  doc.descendants((node, position) => {
+    if (!node.isText) return true;
+
+    const text = node.text ?? "";
+    const startOffset = renderedTextOffsetBeforePosition(doc, position);
+    const endOffset = startOffset + text.length;
+    const clampedOffset = Math.max(startOffset, Math.min(endOffset, targetOffset));
+    const distance = Math.abs(targetOffset - clampedOffset);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestPosition = position + (clampedOffset - startOffset);
+    }
+    return true;
+  });
+
+  return Math.max(0, Math.min(doc.content.size, bestPosition));
 }

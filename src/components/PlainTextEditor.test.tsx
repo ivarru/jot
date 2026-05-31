@@ -33,4 +33,33 @@ describe("PlainTextEditor", () => {
 
     dispose();
   });
+
+  it("restores focus at the requested cursor offset", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(
+      () => PlainTextEditor({
+        documentKey: "2030-02-01",
+        value: "first\nsecond",
+        focusOffset: 7,
+        onChange: () => undefined,
+        onBlur: () => undefined
+      }),
+      host
+    );
+
+    await animationFrame();
+
+    const textarea = host.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    expect(textarea!.selectionStart).toBe(7);
+    expect(textarea!.selectionEnd).toBe(7);
+
+    dispose();
+  });
 });
+
+function animationFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
