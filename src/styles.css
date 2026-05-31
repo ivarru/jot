@@ -125,8 +125,7 @@ select {
 }
 
 .toolbar-date-column {
-  flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   align-content: flex-start;
 }
 
@@ -135,7 +134,7 @@ select {
 }
 
 .date-context-row {
-  width: 100%;
+  width: auto;
 }
 
 .toolbar-editor-column {
@@ -908,5 +907,16 @@ select {
   .fallback-editor,
   .plain-text-editor {
     padding: 16px;
+  }
+}
+
+@media (max-width: 560px) {
+  .toolbar-date-column {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .date-context-row {
+    width: 100%;
   }
 }
