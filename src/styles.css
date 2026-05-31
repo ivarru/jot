@@ -100,40 +100,95 @@ select {
   color: var(--danger);
 }
 
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 8px;
-}
-
-.date-block {
-  min-width: 0;
-}
-
-.date-row,
-.top-actions {
-  display: flex;
-  align-items: center;
+.app-toolbar {
+  position: sticky;
+  z-index: 30;
+  top: 0;
+  display: grid;
+  grid-template-columns: minmax(148px, max-content) minmax(52px, 1fr) max-content;
   gap: 8px;
+  align-items: start;
+  margin: -6px 0 10px;
+  padding: 6px 0 8px;
+  background: var(--bg);
+  font-size: 13px;
+}
+
+.toolbar-column,
+.date-selector-row,
+.date-context-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 5px;
   flex-wrap: wrap;
 }
 
-.date-row > button:not(.today-jump-button) {
-  width: 36px;
+.toolbar-date-column {
+  flex-direction: column;
+  align-items: flex-start;
+  align-content: flex-start;
+}
+
+.date-selector-row {
+  gap: 3px;
+}
+
+.date-context-row {
+  width: 100%;
+}
+
+.toolbar-editor-column {
+  justify-content: center;
+}
+
+.toolbar-status-column {
+  display: grid;
+  grid-template-areas:
+    "status menu"
+    "warning menu";
+  grid-template-columns: auto auto;
+  align-items: start;
+  justify-content: end;
+  gap: 4px 6px;
+}
+
+.toolbar-status-column .sync-status {
+  grid-area: status;
+  justify-self: end;
+}
+
+.toolbar-status-column .sync-delay-warning {
+  grid-area: warning;
+  justify-self: end;
+}
+
+.toolbar-status-column .top-menu {
+  grid-area: menu;
+  justify-self: end;
+}
+
+.date-selector-row > button {
+  width: 30px;
+  min-width: 30px;
+  min-height: 32px;
+  height: 32px;
   padding: 0;
-  font-size: 22px;
+  font-size: 19px;
+  line-height: 1;
 }
 
 .iso-date-input {
-  width: 124px;
+  width: 106px;
+  min-height: 32px;
+  padding: 0 7px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
 .weekday-label {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.2;
 }
 
@@ -147,6 +202,11 @@ select {
   border: 1px solid var(--border);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.app-toolbar button,
+.app-toolbar input {
+  font-size: inherit;
 }
 
 .today-jump-button.is-today,
@@ -473,53 +533,46 @@ select {
 }
 
 .editor-region {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
-.editor-toolbar {
-  position: sticky;
-  z-index: 15;
-  top: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-  padding: 6px 0;
-  background: var(--bg);
-}
-
-.editor-mode-toggle {
+.raw-mode-toggle {
   position: relative;
   display: inline-flex;
+  align-items: center;
   gap: 2px;
-  padding: 2px;
+  min-height: 32px;
+  padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--panel);
+  color: var(--text);
+  white-space: nowrap;
 }
 
-.editor-mode-toggle button {
-  min-height: 30px;
-  padding: 4px 9px;
-  border: 0;
-  box-shadow: none;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
+.raw-mode-toggle input {
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  margin: 0 3px 0 0;
+  padding: 0;
 }
 
-.editor-mode-toggle button.active {
+.toolbar-reconnect-button {
+  min-height: 32px;
+  padding: 0 10px;
+  border-color: color-mix(in srgb, var(--accent), transparent 35%);
   background: var(--accent);
   color: var(--accent-contrast);
+  font-weight: 600;
 }
 
-.editor-mode-toggle::after {
+.raw-mode-toggle::after {
   position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
+  left: 50%;
+  top: calc(100% + 8px);
   z-index: 25;
+  display: none;
   width: max-content;
   max-width: min(240px, 80vw);
   padding: 6px 8px;
@@ -533,30 +586,28 @@ select {
   line-height: 1.3;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(2px);
+  transform: translate(-50%, -2px);
   transition: opacity 120ms ease, transform 120ms ease;
   white-space: nowrap;
 }
 
-.editor-mode-toggle:hover::after,
-.editor-mode-toggle:focus-within::after {
+.raw-mode-toggle:hover::after,
+.raw-mode-toggle:focus-within::after {
+  display: block;
   opacity: 1;
-  transform: translateY(0);
+  transform: translate(-50%, 0);
 }
 
 .sync-delay-warning {
-  position: absolute;
-  left: 50%;
   display: inline-grid;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--danger), transparent 45%);
   border-radius: 999px;
   background: var(--panel);
   color: var(--danger);
   place-items: center;
-  transform: translateX(-50%);
 }
 
 .sync-delay-warning svg {
@@ -784,19 +835,73 @@ select {
 
 @media (max-width: 720px) {
   .app {
-    padding: 12px;
+    padding: 10px 8px 12px;
   }
 
-  .topbar {
-    display: grid;
+  .app-toolbar {
+    grid-template-columns: minmax(136px, max-content) minmax(48px, 1fr) max-content;
+    gap: 4px;
+    margin-top: -4px;
+    font-size: 12px;
   }
 
-  .top-actions {
-    justify-content: flex-start;
+  .date-selector-row > button {
+    width: 27px;
+    min-width: 27px;
+    min-height: 30px;
+    height: 30px;
+    font-size: 17px;
   }
 
-  .date-row {
-    gap: 6px;
+  .iso-date-input {
+    width: 98px;
+    min-height: 30px;
+    padding: 0 5px;
+  }
+
+  .today-jump-button,
+  .sync-status {
+    min-height: 24px;
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .icon-button {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    min-height: 32px;
+  }
+
+  .icon-menu-button {
+    width: 38px;
+    min-width: 38px;
+  }
+
+  .image-insert-menu-popover {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .raw-mode-toggle,
+  .toolbar-reconnect-button {
+    min-height: 30px;
+    padding-right: 7px;
+    padding-left: 7px;
+  }
+
+  .toolbar-editor-column {
+    align-content: flex-start;
+    gap: 4px;
+  }
+
+  .toolbar-status-column {
+    grid-template-areas:
+      "menu"
+      "status"
+      "warning";
+    grid-template-columns: auto;
+    gap: 3px;
   }
 
   .milkdown-root,

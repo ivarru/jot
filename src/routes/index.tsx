@@ -152,6 +152,7 @@ export default function Home() {
     const date = selectedDate();
     return date !== null && isToday(date);
   });
+  const selectedDateCanEdit = createMemo(() => canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() }));
   const imageAttachmentResolutionChoices = createMemo(() => {
     const local = localImageSource();
     if (local !== null && runtime.imageAttachments !== null) {
@@ -1202,9 +1203,9 @@ export default function Home() {
             </section>
           }
         >
-          <header class="topbar">
-            <div class="date-block">
-              <div class="date-row">
+          <header class="app-toolbar">
+            <div class="toolbar-column toolbar-date-column">
+              <div class="date-selector-row">
                 <button type="button" aria-label="Previous day" onClick={() => void navigateToDate(addDays(selectedDate()!, -1))}>
                   ‹
                 </button>
@@ -1232,6 +1233,8 @@ export default function Home() {
                 <button type="button" aria-label="Next day" onClick={() => void navigateToDate(addDays(selectedDate()!, 1))}>
                   ›
                 </button>
+              </div>
+              <div class="date-context-row">
                 <span class="weekday-label">{weekday()}</span>
                 <button
                   type="button"
@@ -1245,13 +1248,96 @@ export default function Home() {
                 </button>
               </div>
             </div>
-            <div class="top-actions">
+            <div class="toolbar-column toolbar-editor-column">
+              <Show when={runtime.imageAttachments !== null}>
+                <input
+                  ref={uploadImageInput}
+                  class="hidden-file-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    event.currentTarget.value = "";
+                    void handleLocalImageFile(file, "device-upload");
+                  }}
+                />
+                <div class="image-attachment-controls">
+                  <div class="image-insert-menu">
+                    <button
+                      type="button"
+                      class="icon-button icon-menu-button"
+                      aria-label="Insert image"
+                      aria-haspopup="menu"
+                      aria-expanded={insertImageMenuOpen()}
+                      disabled={!selectedDateCanEdit() || imageAttachmentFlowActive()}
+                      onClick={() => setInsertImageMenuOpen((open) => !open)}
+                    >
+                      <InsertImageIcon />
+                      <span class="dropdown-caret" aria-hidden="true" />
+                    </button>
+                    <Show when={insertImageMenuOpen()}>
+                      <div class="image-insert-menu-popover" role="menu" aria-label="Insert image source">
+                        <Show when={runtime.kind === "google"}>
+                          <button type="button" role="menuitem" onClick={() => void startGooglePhotosImagePick()}>
+                            Google Photos
+                          </button>
+                        </Show>
+                        <button type="button" role="menuitem" onClick={startLocalImageFilePick}>
+                          Upload from device
+                        </button>
+                        <button type="button" role="menuitem" onClick={() => void startCameraCapture()}>
+                          Use camera
+                        </button>
+                        <div class="image-insert-menu-hint" role="presentation">.. or just paste</div>
+                      </div>
+                    </Show>
+                  </div>
+                  <Show when={imageAttachmentStatus() !== "idle"}>
+                    <span class="image-attachment-source">
+                      {cameraStream() !== null
+                        ? "Camera ready"
+                        : imageAttachmentStatusLabel(imageAttachmentStatus())}
+                    </span>
+                  </Show>
+                </div>
+              </Show>
+              <label
+                class="raw-mode-toggle"
+                data-tooltip={`Toggle raw Markdown (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
+                title={`Toggle raw Markdown (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
+              >
+                <input
+                  type="checkbox"
+                  checked={editorMode() === "text"}
+                  aria-keyshortcuts={EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS}
+                  onChange={(event) => updateEditorMode(event.currentTarget.checked ? "text" : "wysiwyg")}
+                />
+                <span>Raw</span>
+              </label>
+              <Show when={authReconnectRequired()}>
+                <button
+                  type="button"
+                  class="toolbar-reconnect-button"
+                  disabled={reconnectingAuth()}
+                  onClick={() => void reconnectGoogle()}
+                >
+                  {reconnectingAuth() ? "Reconnecting..." : "Reconnect"}
+                </button>
+              </Show>
+            </div>
+            <div class="toolbar-column toolbar-status-column">
               <span class={`sync-status sync-${syncStatus()}`}>{syncStatusLabel(syncStatus())}</span>
-                <Show when={authReconnectRequired()}>
-                  <button type="button" disabled={reconnectingAuth()} onClick={() => void reconnectGoogle()}>
-                    {reconnectingAuth() ? "Reconnecting..." : "Reconnect"}
-                  </button>
-                </Show>
+              <Show when={syncDelayed()}>
+                <span
+                  class="sync-delay-warning"
+                  role="status"
+                  aria-live="polite"
+                  aria-label="Sync delayed"
+                  title="Sync delayed"
+                >
+                  <SyncDelayedIcon />
+                </span>
+              </Show>
               <div class="top-menu">
                 <button
                   type="button"
@@ -1311,9 +1397,6 @@ export default function Home() {
             <aside class="sync-alert sync-alert-auth" aria-live="polite">
               <strong>Reconnect to sync</strong>
               <p>Jot is keeping edits on this device until Google access is refreshed.</p>
-              <button type="button" disabled={reconnectingAuth()} onClick={() => void reconnectGoogle()}>
-                {reconnectingAuth() ? "Reconnecting..." : "Reconnect"}
-              </button>
               <Show when={authError()}>
                 {(message) => <p class="auth-error">{message()}</p>}
               </Show>
@@ -1369,7 +1452,7 @@ export default function Home() {
           </Show>
 
           <Show
-            when={canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() })}
+            when={selectedDateCanEdit()}
             fallback={
               <Show when={loadError()} fallback={<div class="editor-loading">Loading note...</div>}>
                 {(message) => (
@@ -1393,98 +1476,6 @@ export default function Home() {
             }
           >
             <section class="editor-region" aria-label="Daily note editor">
-              <div class="editor-toolbar">
-                <Show when={runtime.imageAttachments !== null}>
-                  <input
-                    ref={uploadImageInput}
-                    class="hidden-file-input"
-                    type="file"
-                    accept="image/*"
-                    onChange={(event) => {
-                      const file = event.currentTarget.files?.[0];
-                      event.currentTarget.value = "";
-                      void handleLocalImageFile(file, "device-upload");
-                    }}
-                  />
-                  <div class="image-attachment-controls">
-                    <div class="image-insert-menu">
-                      <button
-                        type="button"
-                        class="icon-button icon-menu-button"
-                        aria-label="Insert image"
-                        aria-haspopup="menu"
-                        aria-expanded={insertImageMenuOpen()}
-                        disabled={imageAttachmentFlowActive()}
-                        onClick={() => setInsertImageMenuOpen((open) => !open)}
-                      >
-                        <InsertImageIcon />
-                        <span class="dropdown-caret" aria-hidden="true" />
-                      </button>
-                      <Show when={insertImageMenuOpen()}>
-                        <div class="image-insert-menu-popover" role="menu" aria-label="Insert image source">
-                          <Show when={runtime.kind === "google"}>
-                            <button type="button" role="menuitem" onClick={() => void startGooglePhotosImagePick()}>
-                              Google Photos
-                            </button>
-                          </Show>
-                          <button type="button" role="menuitem" onClick={startLocalImageFilePick}>
-                            Upload from device
-                          </button>
-                          <button type="button" role="menuitem" onClick={() => void startCameraCapture()}>
-                            Use camera
-                          </button>
-                          <div class="image-insert-menu-hint" role="presentation">.. or just paste</div>
-                        </div>
-                      </Show>
-                    </div>
-                    <Show when={imageAttachmentStatus() !== "idle"}>
-                      <span class="image-attachment-source">
-                        {cameraStream() !== null
-                          ? "Camera ready"
-                          : imageAttachmentStatusLabel(imageAttachmentStatus())}
-                      </span>
-                    </Show>
-                  </div>
-                </Show>
-                <Show when={syncDelayed()}>
-                  <span
-                    class="sync-delay-warning"
-                    role="status"
-                    aria-live="polite"
-                    aria-label="Sync delayed"
-                    title="Sync delayed"
-                  >
-                    <SyncDelayedIcon />
-                  </span>
-                </Show>
-                <div
-                  class="editor-mode-toggle"
-                  role="group"
-                  aria-label="Editor mode"
-                  data-tooltip={`Toggle editor mode (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
-                >
-                  <button
-                    type="button"
-                    class={editorMode() === "wysiwyg" ? "active" : ""}
-                    aria-pressed={editorMode() === "wysiwyg"}
-                    aria-keyshortcuts={EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS}
-                    title={`Toggle editor mode (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
-                    onClick={() => updateEditorMode("wysiwyg")}
-                  >
-                    WYSIWYG
-                  </button>
-                  <button
-                    type="button"
-                    class={editorMode() === "text" ? "active" : ""}
-                    aria-pressed={editorMode() === "text"}
-                    aria-keyshortcuts={EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS}
-                    title={`Toggle editor mode (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
-                    onClick={() => updateEditorMode("text")}
-                  >
-                    Text
-                  </button>
-                </div>
-              </div>
               <Show
                 when={
                   runtime.imageAttachments !== null &&
@@ -1716,7 +1707,7 @@ function syncStatusLabel(status: SyncStatus): string {
     case "offline":
       return "Offline";
     case "auth-required":
-      return "Reconnect";
+      return "Auth required";
     case "conflict":
       return "Conflict";
     case "error":
