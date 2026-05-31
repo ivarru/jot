@@ -54,6 +54,7 @@ export interface LocalDraftStore {
   load(date: IsoDate): Promise<LocalDraft | null>;
   listDirty(): Promise<LocalDraft[]>;
   save(draft: LocalDraft): Promise<void>;
+  saveIfUnchanged(date: IsoDate, expected: LocalDraft | null, draft: LocalDraft): Promise<boolean>;
   remove(date: IsoDate): Promise<void>;
   clearAll(): Promise<void>;
 }

@@ -10,6 +10,12 @@ Daily Note content must never be read from or written to a date inferred after a
 
 Before finishing such changes, add or update regression tests that cover stale date transitions: switching from date A to date B while a load, autosave, blur, or sync operation for date A is still pending.
 
+## Regression-First Bug Fixes
+
+Bug fixes must start by reproducing the issue with a failing regression test. Do not change production code first and then add a passing test afterward.
+
+For sync bugs, first try to refine `src/sync/syncModel.test.ts` or the focused sync tests so the failure appears as a named trace or regression case. The sync model is described in [docs/sync-model.md](docs/sync-model.md). If the issue is outside the model's scope, add the closest focused regression test and document why the model was not the right fit.
+
 ## Verification
 
 Run these before finishing code changes:

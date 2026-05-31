@@ -14,6 +14,7 @@ import { DEFAULT_JOT_SETTINGS, normalizeJotSettings, type JotSettings } from "~/
 import {
   canEditSelectedDate,
   editorChangeTarget,
+  shouldApplyCleanRemoteRefresh,
   shouldApplyEditorAsyncResult,
   shouldApplyLoadedNote,
   shouldApplySyncMarkdownResult,
@@ -31,6 +32,9 @@ import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStoragePro
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
 import type { RemoteStorageProvider, SyncStatus } from "~/storage/types";
 import {
+  cleanDailyNoteRefreshToSession,
+  commitVisibleCleanDailyNoteRefresh,
+  loadCleanDailyNoteRefresh,
   loadDailyNoteSession,
   persistLocalDraft,
   saveAndSyncDailyNoteSnapshot,
@@ -106,6 +110,7 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(dateFromHash());
   const [invalidDate, setInvalidDate] = createSignal<string | null>(invalidDateFromHash());
   const [markdown, setMarkdown] = createSignal("");
+  const [cleanEditorMarkdown, setCleanEditorMarkdown] = createSignal<string | null>(null);
   const [loadedDate, setLoadedDate] = createSignal<IsoDate | null>(null);
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [syncStatus, setSyncStatus] = createSignal<SyncStatus>("local-only");
@@ -135,6 +140,7 @@ export default function Home() {
   const [imageAttachmentRefreshTick, setImageAttachmentRefreshTick] = createSignal(0);
   const [today, setToday] = createSignal(todayIsoDate());
   const [suppressLocalPersist, setSuppressLocalPersist] = createSignal(false);
+  const [editorChangeEpoch, setEditorChangeEpoch] = createSignal(0);
 
   const weekday = createMemo(() => {
     const date = selectedDate();
@@ -237,6 +243,7 @@ export default function Home() {
 	        setImageAttachmentAltText("");
 	        setImportingImageResolutionName(null);
 	        setImageAttachmentDisplays({});
+	        setCleanEditorMarkdown(null);
 	        replaceMarkdownFromStorage("");
 	        void loadSelectedDate(date);
       },
@@ -339,6 +346,38 @@ export default function Home() {
     const interval = window.setInterval(() => setToday(todayIsoDate()), 60000);
     onCleanup(() => window.clearInterval(interval));
   });
+
+  createEffect(
+    on(
+      () =>
+        [
+          authenticated(),
+          selectedDate(),
+          loadedDate(),
+          syncStatus(),
+          settings().cleanPollingIntervalMs,
+          settings().dirtyPollingIntervalMs
+        ] as const,
+      ([isAuthenticated, date, loaded, status]) => {
+        if (!isAuthenticated || authReconnectRequired() || date === null || loaded !== date) return;
+
+        if (isCleanRefreshStatus(status)) {
+          const interval = window.setInterval(() => {
+            void refreshCleanSelectedDate(date);
+          }, settings().cleanPollingIntervalMs);
+          onCleanup(() => window.clearInterval(interval));
+          return;
+        }
+
+        if (status === "saved-locally") {
+          const interval = window.setInterval(() => {
+            void saveAndSyncSnapshot(date, markdown());
+          }, settings().dirtyPollingIntervalMs);
+          onCleanup(() => window.clearInterval(interval));
+        }
+      }
+    )
+  );
 
   createEffect(() => {
     const interval = window.setInterval(() => setSyncWarningTick((tick) => tick + 1), 10000);
@@ -509,7 +548,54 @@ export default function Home() {
     replaceMarkdownFromStorage(session.markdown);
     setLoadedDate(date);
     setSyncStatus(session.status);
+    setCleanEditorMarkdown(isCleanRefreshStatus(session.status) ? session.markdown : null);
     if (session.status !== "conflict") setLastSyncError(null);
+  };
+
+  const refreshCleanSelectedDate = async (date: IsoDate) => {
+    const expectedCleanMarkdown = cleanEditorMarkdown();
+    const expectedEditorChangeEpoch = editorChangeEpoch();
+    if (expectedCleanMarkdown === null) return;
+    const shouldStillApplyRefresh = () => (
+      editorChangeEpoch() === expectedEditorChangeEpoch &&
+      cleanEditorMarkdown() === expectedCleanMarkdown &&
+      shouldApplyCleanRemoteRefresh({
+        refreshDate: date,
+        selectedDate: selectedDate(),
+        loadedDate: loadedDate(),
+        cleanMarkdown: expectedCleanMarkdown,
+        currentMarkdown: markdown()
+      })
+    );
+    if (!shouldStillApplyRefresh()) return;
+
+    const refresh = await loadCleanDailyNoteRefresh(date, drafts, runtime.remote).catch((error: unknown) => {
+      if (shouldApplyLoadedNote(date, selectedDate())) {
+        if (handleRemoteError(error, { message: errorMessage(error), retry: "load-selected-note", date })) return null;
+        setLastSyncError({ message: errorMessage(error), retry: "load-selected-note", date });
+        setSyncStatus("error");
+      }
+      return null;
+    });
+    if (refresh === null || !shouldStillApplyRefresh()) return;
+
+    const session = cleanDailyNoteRefreshToSession(refresh);
+    if (!shouldStillApplyRefresh()) return;
+
+    if (session.markdown !== markdown()) {
+      replaceMarkdownFromStorage(session.markdown);
+    }
+    setSyncStatus(session.status);
+    setCleanEditorMarkdown(isCleanRefreshStatus(session.status) ? session.markdown : null);
+    if (session.status !== "conflict") setLastSyncError(null);
+
+    await commitVisibleCleanDailyNoteRefresh(date, refresh, drafts).catch((error: unknown) => {
+      if (shouldApplyLoadedNote(date, selectedDate())) {
+        setLastSyncError({ message: errorMessage(error), retry: "load-selected-note", date });
+        setSyncStatus("error");
+      }
+      return false;
+    });
   };
 
   const flushAndSync = async (date: IsoDate, value: string) => {
@@ -546,6 +632,7 @@ export default function Home() {
     }
     if (shouldApplySyncResult(date, selectedDate())) {
       setSyncStatus(session.status);
+      setCleanEditorMarkdown(isCleanRefreshStatus(session.status) ? session.markdown : null);
       if (session.status !== "conflict") setLastSyncError(null);
     }
   };
@@ -554,6 +641,10 @@ export default function Home() {
     setSuppressLocalPersist(true);
     setMarkdown(value);
     queueMicrotask(() => setSuppressLocalPersist(false));
+  };
+
+  const markEditorLocallyChanged = () => {
+    setEditorChangeEpoch((epoch) => epoch + 1);
   };
 
   const saveCurrentEditorSnapshot = async () => {
@@ -612,6 +703,8 @@ export default function Home() {
     const date = parseIsoDate(documentKey);
     if (date === null) return;
     if (editorChangeTarget(date, { selectedDate: selectedDate(), loadedDate: loadedDate() }) === "current-editor") {
+      markEditorLocallyChanged();
+      setCleanEditorMarkdown(null);
       setMarkdown(value);
     } else {
       void saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch((error: unknown) => {
@@ -736,6 +829,8 @@ export default function Home() {
 	          });
       if (!shouldApplyEditorAsyncResult(date, { selectedDate: selectedDate(), loadedDate: loadedDate() })) return;
       const nextMarkdown = appendImageAttachmentReference(markdown(), inserted.markdownReference);
+      markEditorLocallyChanged();
+      setCleanEditorMarkdown(null);
       setMarkdown(nextMarkdown);
       setFocusEditorAtEnd(true);
       setEditorResetKey((key) => key + 1);
@@ -783,6 +878,8 @@ export default function Home() {
         altText: imageAttachmentAltText()
       });
       const nextMarkdown = appendImageAttachmentReference(markdown(), inserted.markdownReference);
+      markEditorLocallyChanged();
+      setCleanEditorMarkdown(null);
       setMarkdown(nextMarkdown);
       setFocusEditorAtEnd(true);
       setEditorResetKey((key) => key + 1);
@@ -1037,6 +1134,7 @@ export default function Home() {
     globalThis.localStorage?.removeItem("jot.fakeAuth");
     setAuthReconnectRequired(false);
     setAuthenticated(false);
+    setCleanEditorMarkdown(null);
     setMarkdown("");
     setSyncStatus("local-only");
   };
@@ -1610,6 +1708,10 @@ function syncStatusLabel(status: SyncStatus): string {
     case "error":
       return "Sync error";
   }
+}
+
+function isCleanRefreshStatus(status: SyncStatus): boolean {
+  return status === "synced" || status === "local-only";
 }
 
 function errorMessage(error: unknown): string {

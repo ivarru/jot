@@ -1,6 +1,7 @@
 import {
   canEditSelectedDate,
   editorChangeTarget,
+  shouldApplyCleanRemoteRefresh,
   shouldApplyEditorAsyncResult,
   shouldApplyLoadedNote,
   shouldApplySyncMarkdownResult,
@@ -55,6 +56,36 @@ describe("date-bound editor guards", () => {
         currentMarkdown: "current"
       })
     ).toBe(true);
+  });
+
+  it("applies clean remote refreshes only while the visible editor is still clean", () => {
+    expect(
+      shouldApplyCleanRemoteRefresh({
+        refreshDate: "2030-02-02",
+        selectedDate: "2030-02-02",
+        loadedDate: "2030-02-02",
+        cleanMarkdown: "",
+        currentMarkdown: ""
+      })
+    ).toBe(true);
+    expect(
+      shouldApplyCleanRemoteRefresh({
+        refreshDate: "2030-02-02",
+        selectedDate: "2030-02-02",
+        loadedDate: "2030-02-02",
+        cleanMarkdown: "",
+        currentMarkdown: "unsaved edit"
+      })
+    ).toBe(false);
+    expect(
+      shouldApplyCleanRemoteRefresh({
+        refreshDate: "2030-02-02",
+        selectedDate: "2030-02-03",
+        loadedDate: "2030-02-03",
+        cleanMarkdown: "",
+        currentMarkdown: ""
+      })
+    ).toBe(false);
   });
 
   it("does not apply async editor mutations after date navigation", () => {

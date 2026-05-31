@@ -36,3 +36,18 @@ export function shouldApplySyncMarkdownResult(input: {
 export function shouldApplyEditorAsyncResult(documentDate: IsoDate, state: DateBoundEditorState): boolean {
   return state.selectedDate === documentDate && state.loadedDate === documentDate;
 }
+
+export function shouldApplyCleanRemoteRefresh(input: {
+  readonly refreshDate: IsoDate;
+  readonly selectedDate: IsoDate | null;
+  readonly loadedDate: IsoDate | null;
+  readonly cleanMarkdown: string | null;
+  readonly currentMarkdown: string;
+}): boolean {
+  return (
+    input.refreshDate === input.selectedDate &&
+    input.refreshDate === input.loadedDate &&
+    input.cleanMarkdown !== null &&
+    input.currentMarkdown === input.cleanMarkdown
+  );
+}

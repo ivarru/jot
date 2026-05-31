@@ -8,16 +8,23 @@ export interface DailyNoteSession {
   readonly status: SyncStatus;
 }
 
+export interface CleanDailyNoteRefresh {
+  readonly markdown: string;
+  readonly baselineMarkdown: string;
+  readonly baselineRevisionId: string | null;
+  readonly status: "local-only" | "synced";
+}
+
 export async function loadDailyNoteSession(
   date: IsoDate,
   drafts: LocalDraftStore,
   remote: RemoteStorageProvider
 ): Promise<DailyNoteSession> {
   const localDraft = await drafts.load(date);
-  if (localDraft !== null) {
+  if (localDraft?.dirty) {
     return {
       markdown: localDraft.markdown,
-      status: localDraft.dirty ? "saved-locally" : "synced"
+      status: "saved-locally"
     };
   }
 
@@ -30,11 +37,75 @@ export async function loadDailyNoteSession(
     };
   }
 
+  if (localDraft !== null) {
+    return {
+      markdown: localDraft.markdown,
+      status: localDraft.baselineRevisionId === null ? "local-only" : "synced"
+    };
+  }
+
   await drafts.save(createDraft(date, "", "", null, false));
   return {
     markdown: "",
     status: "local-only"
   };
+}
+
+export async function loadCleanDailyNoteRefresh(
+  date: IsoDate,
+  drafts: LocalDraftStore,
+  remote: RemoteStorageProvider
+): Promise<CleanDailyNoteRefresh | null> {
+  const localDraft = await drafts.load(date);
+  if (localDraft?.dirty) return null;
+
+  const remoteNote = await remote.loadDailyNote(date);
+  if (remoteNote !== null) {
+    return {
+      markdown: remoteNote.markdown,
+      baselineMarkdown: remoteNote.markdown,
+      baselineRevisionId: remoteNote.revisionId,
+      status: "synced"
+    };
+  }
+
+  if (localDraft !== null) {
+    return {
+      markdown: localDraft.markdown,
+      baselineMarkdown: localDraft.baselineMarkdown,
+      baselineRevisionId: localDraft.baselineRevisionId,
+      status: localDraft.baselineRevisionId === null ? "local-only" : "synced"
+    };
+  }
+
+  return {
+    markdown: "",
+    baselineMarkdown: "",
+    baselineRevisionId: null,
+    status: "local-only"
+  };
+}
+
+export function cleanDailyNoteRefreshToSession(refresh: CleanDailyNoteRefresh): DailyNoteSession {
+  return {
+    markdown: refresh.markdown,
+    status: refresh.status
+  };
+}
+
+export async function commitVisibleCleanDailyNoteRefresh(
+  date: IsoDate,
+  refresh: CleanDailyNoteRefresh,
+  drafts: LocalDraftStore
+): Promise<boolean> {
+  const currentDraft = await drafts.load(date);
+  if (currentDraft?.dirty) return false;
+
+  return await drafts.saveIfUnchanged(
+    date,
+    currentDraft,
+    createDraft(date, refresh.markdown, refresh.baselineMarkdown, refresh.baselineRevisionId, false)
+  );
 }
 
 export async function persistLocalDraft(
@@ -59,10 +130,17 @@ export async function syncDailyNote(
   remote: RemoteStorageProvider
 ): Promise<DailyNoteSession> {
   const draft = await drafts.load(date);
-  if (draft === null || !draft.dirty) {
+  if (draft === null) {
     return {
-      markdown: draft?.markdown ?? "",
-      status: draft === null ? "local-only" : "synced"
+      markdown: "",
+      status: "local-only"
+    };
+  }
+
+  if (!draft.dirty) {
+    return {
+      markdown: draft.markdown,
+      status: draft.baselineRevisionId === null ? "local-only" : "synced"
     };
   }
 

@@ -87,6 +87,7 @@ Manual Google Photos validation is tracked in [docs/manual-google-photos-retest.
 Project terminology and decisions are documented in:
 
 - [CONTEXT.md](CONTEXT.md)
+- [docs/sync-model.md](docs/sync-model.md)
 - [docs/adr](docs/adr)
 
 The current deployment decision is captured in [docs/adr/0005-github-pages-hosting.md](docs/adr/0005-github-pages-hosting.md).
