@@ -13,6 +13,7 @@ Move stable decisions to `CONTEXT.md` or `docs/adr/`. Remove items when they are
 ## Known Issues
 
 - The editor toolbar is sticky on desktop, but may not remain sticky on Android mobile browsers such as Vivaldi, especially while editing with the virtual keyboard. Revisit whether the toolbar should use a deliberate scroll container or a mobile-specific fixed positioning strategy.
+- Google Drive file uploads do not expose a compare-and-swap write control that Jot can rely on for plain `.md` files. The app can detect stale revisions before writing and after later refreshes, but the final Drive media update is not known to be atomic against a near-simultaneous writer.
 
 ## Future Work
 
