@@ -67,10 +67,16 @@ export async function saveDailyNoteUploadPlan(
   const saveResults: SaveSelectedDailyNoteSnapshotResult[] = [];
 
   for (const item of input.pending.items) {
-    const markdown = item.existingMarkdown === null
+    const existingMarkdown = await existingDailyNoteMarkdown({
+      date: item.date,
+      drafts: input.drafts,
+      remote: input.remote,
+      getState: input.getState
+    });
+    const markdown = existingMarkdown === null
       ? item.uploadedMarkdown
       : dailyNoteUploadMarkdown({
-          existingMarkdown: item.existingMarkdown,
+          existingMarkdown,
           uploadedMarkdown: item.uploadedMarkdown,
           resolution: input.resolution
         });

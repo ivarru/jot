@@ -118,6 +118,38 @@ describe("daily note upload session", () => {
     }]);
   });
 
+  it("re-reads visible content when resolving a pending upload conflict", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    const pending = createPendingDailyNoteUpload([{
+      date: "2030-02-02",
+      filename: "2030-02-02.md",
+      uploadedMarkdown: "uploaded",
+      existingMarkdown: "visible when conflict opened"
+    }]);
+
+    const result = await saveDailyNoteUploadPlan({
+      pending,
+      resolution: "append",
+      authReconnectRequired: () => false,
+      drafts,
+      remote,
+      getState: () =>
+        editorState({
+          selectedDate: "2030-02-02",
+          loadedDate: "2030-02-02",
+          markdown: "edited while conflict open"
+        })
+    });
+
+    expect(result.type).toBe("uploaded");
+    expect(remote.savedInputs).toEqual([{
+      date: "2030-02-02",
+      markdown: "edited while conflict open\n\nuploaded",
+      expectedRevisionId: null
+    }]);
+  });
+
   it("returns a structured failure when an uploaded note cannot be saved", async () => {
     const drafts = new MemoryDraftStore();
     const remote = new FailingRemoteStorageProvider();
