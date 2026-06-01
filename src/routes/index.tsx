@@ -15,7 +15,6 @@ import {
   applyCleanDailyNoteRefreshResult,
   applyEditorChange,
   applyLoadedDailyNoteResult,
-  applySyncResult,
   canApplyEditorAsyncResult,
   canEditDailyNoteDate,
   canEditSelectedDate,
@@ -49,6 +48,12 @@ import {
   saveAndSyncDailyNoteSnapshot,
   syncDirtyDailyNoteDrafts
 } from "~/sync/syncDailyNote";
+import {
+  captureSaveRetrySnapshot,
+  saveSelectedDailyNoteSnapshot,
+  saveVisibleDailyNoteSnapshot,
+  type SaveSelectedDailyNoteSnapshotResult
+} from "~/sync/selectedDailyNoteSession";
 import { resolveSyncErrorRetry, type SyncErrorState } from "~/sync/syncErrorRetry";
 import {
   nextSyncRetryDelayMs,
@@ -626,35 +631,49 @@ export default function Home() {
   };
 
   const saveAndSyncSnapshot = async (snapshot: VisibleDailyNoteSnapshot) => {
-    if (authReconnectRequired()) {
-      await persistLocalDraft(snapshot.date, snapshot.markdown, drafts);
-      if (canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) setSyncStatus("auth-required");
-      return;
-    }
-
-    if (canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) setSyncStatus("syncing");
-    const session = await saveAndSyncDailyNoteSnapshot(snapshot.date, snapshot.markdown, drafts, runtime.remote).catch((error: unknown) => {
-      if (canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) {
-        if (handleRemoteError(error, { message: errorMessage(error), retry: "save-current-note", date: snapshot.date })) return null;
-        setLastSyncError({ message: errorMessage(error), retry: "save-current-note", date: snapshot.date });
-      }
-      return null;
+    if (!authReconnectRequired() && canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) setSyncStatus("syncing");
+    const result = await saveSelectedDailyNoteSnapshot({
+      snapshot,
+      authReconnectRequired: authReconnectRequired(),
+      drafts,
+      remote: runtime.remote,
+      getState: dateBoundEditorState
     });
-    if (session === null) {
-      if (canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) setSyncStatus("error");
-      return;
+    applySelectedDailyNoteSaveResult(result);
+  };
+
+  const applySelectedDailyNoteSaveResult = (result: SaveSelectedDailyNoteSnapshotResult) => {
+    switch (result.type) {
+      case "auth-required":
+        if (result.applyStatus !== null) setSyncStatus(result.applyStatus);
+        return;
+      case "saved":
+        if (result.transition === null) return;
+        applyDateBoundEditorTransition(result.transition);
+        setSyncStatus(result.session.status);
+        if (result.session.status !== "conflict") setLastSyncError(null);
+        return;
+      case "failed":
+        if (!result.applyToVisibleDailyNote) return;
+        if (handleRemoteError(result.error, {
+          message: errorMessage(result.error),
+          retry: "save-current-note",
+          date: result.snapshot.date
+        })) return;
+        setLastSyncError({ message: errorMessage(result.error), retry: "save-current-note", date: result.snapshot.date });
+        setSyncStatus("error");
+        return;
     }
-    const transition = applySyncResult(dateBoundEditorState(), snapshot, session);
-    if (transition === null) return;
-    applyDateBoundEditorTransition(transition);
-    setSyncStatus(session.status);
-    if (session.status !== "conflict") setLastSyncError(null);
   };
 
   const saveCurrentEditorSnapshot = async () => {
-    const snapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
-    if (snapshot === null) return;
-    await saveAndSyncSnapshot(snapshot);
+    const result = await saveVisibleDailyNoteSnapshot({
+      authReconnectRequired: authReconnectRequired(),
+      drafts,
+      remote: runtime.remote,
+      getState: dateBoundEditorState
+    });
+    if (result !== null) applySelectedDailyNoteSaveResult(result);
   };
 
   const retryLastSyncError = () => {
@@ -673,8 +692,8 @@ export default function Home() {
       }
       case "save-current-note":
         {
-          const snapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
-          if (snapshot !== null && snapshot.date === action.date) void saveAndSyncSnapshot(snapshot);
+          const snapshot = captureSaveRetrySnapshot(dateBoundEditorState(), action);
+          if (snapshot !== null) void saveAndSyncSnapshot(snapshot);
         }
         return;
       case "save-settings":
