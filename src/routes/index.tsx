@@ -12,13 +12,22 @@ import { addDays, dayOfWeek, isToday, parseIsoDate, todayIsoDate, type IsoDate }
 import type { ImageAttachmentResolution } from "~/domain/imageAttachments";
 import { DEFAULT_JOT_SETTINGS, normalizeJotSettings, type JotSettings } from "~/domain/settings";
 import {
+  applyCleanDailyNoteRefreshResult,
+  applyEditorChange,
+  applyLoadedDailyNoteResult,
+  applySyncResult,
+  canApplyEditorAsyncResult,
+  canEditDailyNoteDate,
   canEditSelectedDate,
-  editorChangeTarget,
-  shouldApplyCleanRemoteRefresh,
-  shouldApplyEditorAsyncResult,
-  shouldApplyLoadedNote,
-  shouldApplySyncMarkdownResult,
-  shouldApplySyncResult
+  captureDocumentSnapshot,
+  captureVisibleDailyNoteSnapshot,
+  createCleanDailyNoteRefreshRequest,
+  isSelectedDailyNoteDate,
+  resetSelectedDailyNoteSession,
+  type DateBoundEditorState,
+  type DateBoundEditorTransition,
+  type MarkdownWrite,
+  type VisibleDailyNoteSnapshot
 } from "~/editor/dateBoundEditor";
 import {
   EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS,
@@ -144,6 +153,14 @@ export default function Home() {
   const [suppressLocalPersist, setSuppressLocalPersist] = createSignal(false);
   const [editorChangeEpoch, setEditorChangeEpoch] = createSignal(0);
 
+  const dateBoundEditorState = (): DateBoundEditorState => ({
+    selectedDate: selectedDate(),
+    loadedDate: loadedDate(),
+    markdown: markdown(),
+    cleanMarkdown: cleanEditorMarkdown(),
+    editorChangeEpoch: editorChangeEpoch()
+  });
+
   const weekday = createMemo(() => {
     const date = selectedDate();
     return date ? dayOfWeek(date) : "";
@@ -152,7 +169,7 @@ export default function Home() {
     const date = selectedDate();
     return date !== null && isToday(date);
   });
-  const selectedDateCanEdit = createMemo(() => canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() }));
+  const selectedDateCanEdit = createMemo(() => canEditSelectedDate(dateBoundEditorState()));
   const imageAttachmentResolutionChoices = createMemo(() => {
     const local = localImageSource();
     if (local !== null && runtime.imageAttachments !== null) {
@@ -174,6 +191,28 @@ export default function Home() {
       stopCameraStream(stream);
     }
     setCameraStream(null);
+  };
+
+  const replaceMarkdownFromStorage = (value: string) => {
+    setSuppressLocalPersist(true);
+    setMarkdown(value);
+    queueMicrotask(() => setSuppressLocalPersist(false));
+  };
+
+  const applyDateBoundEditorTransition = (transition: DateBoundEditorTransition) => {
+    setLoadedDate(transition.state.loadedDate);
+    setCleanEditorMarkdown(transition.state.cleanMarkdown);
+    setEditorChangeEpoch(transition.state.editorChangeEpoch);
+    applyMarkdownWrite(transition.markdownWrite);
+  };
+
+  const applyMarkdownWrite = (write: MarkdownWrite | undefined) => {
+    if (write === undefined) return;
+    if (write.source === "storage") {
+      replaceMarkdownFromStorage(write.markdown);
+    } else {
+      setMarkdown(write.markdown);
+    }
   };
 
   const handleRemoteError = (error: unknown, retry: SyncErrorState | null = null): boolean => {
@@ -232,7 +271,7 @@ export default function Home() {
       ([isAuthenticated, date]) => {
         if (!isAuthenticated || date === null) return;
 
-	        setLoadedDate(null);
+	        applyDateBoundEditorTransition(resetSelectedDailyNoteSession(dateBoundEditorState(), date));
 	        setLoadError(null);
 	        setLastSyncError(null);
 	        setImageAttachmentStatus("idle");
@@ -246,8 +285,6 @@ export default function Home() {
 	        setImageAttachmentAltText("");
 	        setImportingImageResolutionName(null);
 	        setImageAttachmentDisplays({});
-	        setCleanEditorMarkdown(null);
-	        replaceMarkdownFromStorage("");
 	        void loadSelectedDate(date);
       },
       { defer: false }
@@ -256,13 +293,12 @@ export default function Home() {
 
   createEffect(
     on(markdown, (value) => {
-      const date = selectedDate();
-      if (!authenticated() || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() }) || suppressLocalPersist()) return;
-      if (date === null) return;
+      const snapshot = captureVisibleDailyNoteSnapshot({ ...dateBoundEditorState(), markdown: value });
+      if (!authenticated() || snapshot === null || suppressLocalPersist()) return;
 
       const timeout = window.setTimeout(() => {
-        void persistLocalDraft(date, value, drafts).then(setSyncStatus).catch((error: unknown) => {
-          setLastSyncError({ message: errorMessage(error), retry: "save-current-note", date });
+        void persistLocalDraft(snapshot.date, snapshot.markdown, drafts).then(setSyncStatus).catch((error: unknown) => {
+          setLastSyncError({ message: errorMessage(error), retry: "save-current-note", date: snapshot.date });
           setSyncStatus("error");
         });
       }, LOCAL_DRAFT_DEBOUNCE_MS);
@@ -275,13 +311,12 @@ export default function Home() {
     on(
       () => [markdown(), settings().autosaveDebounceMs] as const,
       ([value]) => {
-        const date = selectedDate();
-        if (!authenticated() || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+        const snapshot = captureVisibleDailyNoteSnapshot({ ...dateBoundEditorState(), markdown: value });
+        if (!authenticated() || snapshot === null) return;
         if (authReconnectRequired()) return;
-        if (date === null) return;
 
         const timeout = window.setTimeout(() => {
-          void flushAndSync(date, value);
+          void flushAndSync(snapshot);
         }, settings().autosaveDebounceMs);
 
         onCleanup(() => window.clearTimeout(timeout));
@@ -374,7 +409,8 @@ export default function Home() {
 
         if (status === "saved-locally") {
           const interval = window.setInterval(() => {
-            void saveAndSyncSnapshot(date, markdown());
+            const snapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
+            if (snapshot !== null) void saveAndSyncSnapshot(snapshot);
           }, settings().dirtyPollingIntervalMs);
           onCleanup(() => window.clearInterval(interval));
         }
@@ -409,7 +445,7 @@ export default function Home() {
   createEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!isEditorModeToggleShortcut(event)) return;
-      if (!authenticated() || !canEditSelectedDate({ selectedDate: selectedDate(), loadedDate: loadedDate() })) return;
+      if (!authenticated() || !canEditSelectedDate(dateBoundEditorState())) return;
 
       event.preventDefault();
       updateEditorMode(nextEditorMode(editorMode()));
@@ -481,14 +517,14 @@ export default function Home() {
         let cancelled = false;
         void Promise.all(unresolvedIds.map((id) => runtime.imageAttachments!.resolveImageAttachmentDisplay(id))).then(
           (resolved) => {
-            if (cancelled || selectedDate() !== date || loadedDate() !== date) return;
+            if (cancelled || !canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
             setImageAttachmentDisplays((displays) => ({
               ...displays,
               ...Object.fromEntries(resolved.map((display) => [display.id, display]))
             }));
           },
           (error: unknown) => {
-            if (cancelled || selectedDate() !== date || loadedDate() !== date) return;
+            if (cancelled || !canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
             handleRemoteError(error);
           }
         );
@@ -538,7 +574,7 @@ export default function Home() {
 
   const loadSelectedDate = async (date: IsoDate) => {
     const session = await loadDailyNoteSession(date, drafts, runtime.remote).catch((error: unknown) => {
-      if (shouldApplyLoadedNote(date, selectedDate())) {
+      if (isSelectedDailyNoteDate(date, dateBoundEditorState())) {
         if (handleRemoteError(error, { message: errorMessage(error), retry: "load-selected-note", date })) return null;
         const message = errorMessage(error);
         setLoadError(message);
@@ -547,53 +583,37 @@ export default function Home() {
       }
       return null;
     });
-    if (session === null || !shouldApplyLoadedNote(date, selectedDate())) return;
-    replaceMarkdownFromStorage(session.markdown);
-    setLoadedDate(date);
+    if (session === null) return;
+    const transition = applyLoadedDailyNoteResult(dateBoundEditorState(), date, session);
+    if (transition === null) return;
+    applyDateBoundEditorTransition(transition);
     setSyncStatus(session.status);
-    setCleanEditorMarkdown(isCleanRefreshStatus(session.status) ? session.markdown : null);
     if (session.status !== "conflict") setLastSyncError(null);
   };
 
   const refreshCleanSelectedDate = async (date: IsoDate) => {
-    const expectedCleanMarkdown = cleanEditorMarkdown();
-    const expectedEditorChangeEpoch = editorChangeEpoch();
-    if (expectedCleanMarkdown === null) return;
-    const shouldStillApplyRefresh = () => (
-      editorChangeEpoch() === expectedEditorChangeEpoch &&
-      cleanEditorMarkdown() === expectedCleanMarkdown &&
-      shouldApplyCleanRemoteRefresh({
-        refreshDate: date,
-        selectedDate: selectedDate(),
-        loadedDate: loadedDate(),
-        cleanMarkdown: expectedCleanMarkdown,
-        currentMarkdown: markdown()
-      })
-    );
-    if (!shouldStillApplyRefresh()) return;
+    const request = createCleanDailyNoteRefreshRequest(dateBoundEditorState(), date);
+    if (request === null) return;
 
     const refresh = await loadCleanDailyNoteRefresh(date, drafts, runtime.remote).catch((error: unknown) => {
-      if (shouldApplyLoadedNote(date, selectedDate())) {
+      if (isSelectedDailyNoteDate(date, dateBoundEditorState())) {
         if (handleRemoteError(error, { message: errorMessage(error), retry: "load-selected-note", date })) return null;
         setLastSyncError({ message: errorMessage(error), retry: "load-selected-note", date });
         setSyncStatus("error");
       }
       return null;
     });
-    if (refresh === null || !shouldStillApplyRefresh()) return;
+    if (refresh === null) return;
 
     const session = cleanDailyNoteRefreshToSession(refresh);
-    if (!shouldStillApplyRefresh()) return;
-
-    if (session.markdown !== markdown()) {
-      replaceMarkdownFromStorage(session.markdown);
-    }
+    const transition = applyCleanDailyNoteRefreshResult(dateBoundEditorState(), request, session);
+    if (transition === null) return;
+    applyDateBoundEditorTransition(transition);
     setSyncStatus(session.status);
-    setCleanEditorMarkdown(isCleanRefreshStatus(session.status) ? session.markdown : null);
     if (session.status !== "conflict") setLastSyncError(null);
 
     await commitVisibleCleanDailyNoteRefresh(date, refresh, drafts).catch((error: unknown) => {
-      if (shouldApplyLoadedNote(date, selectedDate())) {
+      if (isSelectedDailyNoteDate(date, dateBoundEditorState())) {
         setLastSyncError({ message: errorMessage(error), retry: "load-selected-note", date });
         setSyncStatus("error");
       }
@@ -601,59 +621,40 @@ export default function Home() {
     });
   };
 
-  const flushAndSync = async (date: IsoDate, value: string) => {
-    await saveAndSyncSnapshot(date, value);
+  const flushAndSync = async (snapshot: VisibleDailyNoteSnapshot) => {
+    await saveAndSyncSnapshot(snapshot);
   };
 
-  const saveAndSyncSnapshot = async (date: IsoDate, value: string) => {
+  const saveAndSyncSnapshot = async (snapshot: VisibleDailyNoteSnapshot) => {
     if (authReconnectRequired()) {
-      await persistLocalDraft(date, value, drafts);
-      if (shouldApplySyncResult(date, selectedDate())) setSyncStatus("auth-required");
+      await persistLocalDraft(snapshot.date, snapshot.markdown, drafts);
+      if (canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) setSyncStatus("auth-required");
       return;
     }
 
-    if (shouldApplySyncResult(date, selectedDate())) setSyncStatus("syncing");
-    const session = await saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch((error: unknown) => {
-      if (shouldApplySyncResult(date, selectedDate())) {
-        if (handleRemoteError(error, { message: errorMessage(error), retry: "save-current-note", date })) return null;
-        setLastSyncError({ message: errorMessage(error), retry: "save-current-note", date });
+    if (canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) setSyncStatus("syncing");
+    const session = await saveAndSyncDailyNoteSnapshot(snapshot.date, snapshot.markdown, drafts, runtime.remote).catch((error: unknown) => {
+      if (canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) {
+        if (handleRemoteError(error, { message: errorMessage(error), retry: "save-current-note", date: snapshot.date })) return null;
+        setLastSyncError({ message: errorMessage(error), retry: "save-current-note", date: snapshot.date });
       }
       return null;
     });
     if (session === null) {
-      if (shouldApplySyncResult(date, selectedDate())) setSyncStatus("error");
+      if (canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) setSyncStatus("error");
       return;
     }
-    const shouldApplyMarkdown = shouldApplySyncMarkdownResult({
-      syncDate: date,
-      selectedDate: selectedDate(),
-      syncedMarkdown: value,
-      currentMarkdown: markdown()
-    });
-    if (shouldApplyMarkdown || session.status === "conflict") {
-      replaceMarkdownFromStorage(session.markdown);
-    }
-    if (shouldApplySyncResult(date, selectedDate())) {
-      setSyncStatus(session.status);
-      setCleanEditorMarkdown(isCleanRefreshStatus(session.status) ? session.markdown : null);
-      if (session.status !== "conflict") setLastSyncError(null);
-    }
-  };
-
-  const replaceMarkdownFromStorage = (value: string) => {
-    setSuppressLocalPersist(true);
-    setMarkdown(value);
-    queueMicrotask(() => setSuppressLocalPersist(false));
-  };
-
-  const markEditorLocallyChanged = () => {
-    setEditorChangeEpoch((epoch) => epoch + 1);
+    const transition = applySyncResult(dateBoundEditorState(), snapshot, session);
+    if (transition === null) return;
+    applyDateBoundEditorTransition(transition);
+    setSyncStatus(session.status);
+    if (session.status !== "conflict") setLastSyncError(null);
   };
 
   const saveCurrentEditorSnapshot = async () => {
-    const date = selectedDate();
-    if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
-    await saveAndSyncSnapshot(date, markdown());
+    const snapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
+    if (snapshot === null) return;
+    await saveAndSyncSnapshot(snapshot);
   };
 
   const retryLastSyncError = () => {
@@ -671,7 +672,10 @@ export default function Home() {
         return;
       }
       case "save-current-note":
-        void saveAndSyncSnapshot(action.date, markdown());
+        {
+          const snapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
+          if (snapshot !== null && snapshot.date === action.date) void saveAndSyncSnapshot(snapshot);
+        }
         return;
       case "save-settings":
         updateSettings(settings());
@@ -705,27 +709,27 @@ export default function Home() {
   const handleEditorChange = (documentKey: string, value: string) => {
     const date = parseIsoDate(documentKey);
     if (date === null) return;
-    if (editorChangeTarget(date, { selectedDate: selectedDate(), loadedDate: loadedDate() }) === "current-editor") {
-      markEditorLocallyChanged();
-      setCleanEditorMarkdown(null);
-      setMarkdown(value);
-    } else {
-      void saveAndSyncDailyNoteSnapshot(date, value, drafts, runtime.remote).catch((error: unknown) => {
-        if (handleRemoteError(error, { message: errorMessage(error), retry: "save-current-note", date })) return;
-      });
+    const result = applyEditorChange(dateBoundEditorState(), date, value);
+    if (result.type === "current-editor") {
+      applyDateBoundEditorTransition({ state: result.state, markdownWrite: result.markdownWrite });
+      return;
     }
+
+    void saveAndSyncDailyNoteSnapshot(result.backgroundSave.date, result.backgroundSave.markdown, drafts, runtime.remote).catch((error: unknown) => {
+      if (handleRemoteError(error, { message: errorMessage(error), retry: "save-current-note", date: result.backgroundSave.date })) return;
+    });
   };
 
   const handleEditorBlur = (documentKey: string, value: string) => {
     const date = parseIsoDate(documentKey);
     if (date === null) return;
-    void saveAndSyncSnapshot(date, value);
+    void saveAndSyncSnapshot(captureDocumentSnapshot(date, value));
   };
 
   const startGooglePhotosImagePick = async () => {
     if (runtime.imageAttachments === null) return;
     const date = selectedDate();
-    if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+    if (!canEditDailyNoteDate(date, dateBoundEditorState())) return;
 
     setImageAttachmentStatus("starting");
     setInsertImageMenuOpen(false);
@@ -810,9 +814,7 @@ export default function Home() {
     if (
       runtime.imageAttachments === null ||
       (picked === null && local === null) ||
-      date === null ||
-      !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() }) ||
-      selectedDate() !== date
+      !canEditDailyNoteDate(date, dateBoundEditorState())
     ) return;
 
     setImageAttachmentStatus("importing");
@@ -830,11 +832,11 @@ export default function Home() {
 	            selectedResolution,
 	            altText: imageAttachmentAltText()
 	          });
-      if (!shouldApplyEditorAsyncResult(date, { selectedDate: selectedDate(), loadedDate: loadedDate() })) return;
+      if (!canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
       const nextMarkdown = appendImageAttachmentReference(markdown(), inserted.markdownReference);
-      markEditorLocallyChanged();
-      setCleanEditorMarkdown(null);
-      setMarkdown(nextMarkdown);
+      const result = applyEditorChange(dateBoundEditorState(), date, nextMarkdown);
+      if (result.type !== "current-editor") return;
+      applyDateBoundEditorTransition({ state: result.state, markdownWrite: result.markdownWrite });
       setFocusEditorAtEnd(true);
       setFocusEditorOffset(null);
       setEditorResetKey((key) => key + 1);
@@ -848,7 +850,7 @@ export default function Home() {
       setImageAttachmentAltText("");
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("idle");
-      await saveAndSyncSnapshot(date, nextMarkdown);
+      await saveAndSyncSnapshot(captureDocumentSnapshot(date, nextMarkdown));
     } catch (error: unknown) {
       if (selectedDate() !== date || imageAttachmentDate() !== date) return;
       if (handleRemoteError(error)) {
@@ -868,9 +870,7 @@ export default function Home() {
     if (
       runtime.imageAttachments === null ||
       reusable === null ||
-      date === null ||
-      !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() }) ||
-      selectedDate() !== date
+      !canEditDailyNoteDate(date, dateBoundEditorState())
     ) return;
 
     setImageAttachmentStatus("importing");
@@ -882,9 +882,9 @@ export default function Home() {
         altText: imageAttachmentAltText()
       });
       const nextMarkdown = appendImageAttachmentReference(markdown(), inserted.markdownReference);
-      markEditorLocallyChanged();
-      setCleanEditorMarkdown(null);
-      setMarkdown(nextMarkdown);
+      const result = applyEditorChange(dateBoundEditorState(), date, nextMarkdown);
+      if (result.type !== "current-editor") return;
+      applyDateBoundEditorTransition({ state: result.state, markdownWrite: result.markdownWrite });
       setFocusEditorAtEnd(true);
       setFocusEditorOffset(null);
       setEditorResetKey((key) => key + 1);
@@ -898,7 +898,7 @@ export default function Home() {
       setImageAttachmentAltText("");
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("idle");
-      await saveAndSyncSnapshot(date, nextMarkdown);
+      await saveAndSyncSnapshot(captureDocumentSnapshot(date, nextMarkdown));
     } catch (error: unknown) {
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("choosing");
@@ -931,7 +931,7 @@ export default function Home() {
   const handleLocalImageFile = async (file: File | undefined, kind: LocalImageSourceKind) => {
     if (runtime.imageAttachments === null || file === undefined) return;
     const date = imageAttachmentDate();
-    if (date === null || selectedDate() !== date || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+    if (!canEditDailyNoteDate(date, dateBoundEditorState())) return;
 
     setImageAttachmentStatus("idle");
     setInsertImageMenuOpen(false);
@@ -943,7 +943,7 @@ export default function Home() {
         filename: file.name || "image",
         lastModified: file.lastModified
       });
-      if (!shouldApplyEditorAsyncResult(date, { selectedDate: selectedDate(), loadedDate: loadedDate() })) return;
+      if (!canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
       setPickedImage(null);
       setLocalImageSource(source);
       setReusableImageAttachment(null);
@@ -962,7 +962,7 @@ export default function Home() {
   const startLocalImageFilePick = () => {
     if (runtime.imageAttachments === null) return;
     const date = selectedDate();
-    if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+    if (!canEditDailyNoteDate(date, dateBoundEditorState())) return;
 
     setImageAttachmentStatus("idle");
     setInsertImageMenuOpen(false);
@@ -982,7 +982,7 @@ export default function Home() {
   const startCameraCapture = async () => {
     if (runtime.imageAttachments === null) return;
     const date = selectedDate();
-    if (date === null || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+    if (!canEditDailyNoteDate(date, dateBoundEditorState())) return;
 
     setImageAttachmentStatus("starting");
     setInsertImageMenuOpen(false);
@@ -1007,7 +1007,7 @@ export default function Home() {
           facingMode: { ideal: "environment" }
         }
       });
-      if (selectedDate() !== date || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) {
+      if (!canApplyEditorAsyncResult(dateBoundEditorState(), date)) {
         stopCameraStream(stream);
         return;
       }
@@ -1021,8 +1021,8 @@ export default function Home() {
 
   const captureCameraImage = async () => {
     const date = imageAttachmentDate();
-    if (runtime.imageAttachments === null || cameraVideo === undefined || date === null) return;
-    if (selectedDate() !== date || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) return;
+    if (runtime.imageAttachments === null || cameraVideo === undefined) return;
+    if (!canEditDailyNoteDate(date, dateBoundEditorState())) return;
 
     try {
       const blob = await captureVideoFrame(cameraVideo);
@@ -1033,7 +1033,7 @@ export default function Home() {
         filename: `camera-${date}-${Date.now()}.jpg`,
         lastModified: Date.now()
       });
-      if (!shouldApplyEditorAsyncResult(date, { selectedDate: selectedDate(), loadedDate: loadedDate() })) return;
+      if (!canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
       setPickedImage(null);
       setLocalImageSource(source);
       setReusableImageAttachment(null);
@@ -1053,7 +1053,7 @@ export default function Home() {
 
   const preparePastedImageForDate = async (file: File, date: IsoDate) => {
     if (runtime.imageAttachments === null) return;
-    if (date === null || selectedDate() !== date || !canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) {
+    if (!canEditDailyNoteDate(date, dateBoundEditorState())) {
       setImageAttachmentStatus("idle");
       return;
     }
@@ -1080,7 +1080,7 @@ export default function Home() {
       });
       if (
         imageAttachmentDate() !== date ||
-        !shouldApplyEditorAsyncResult(date, { selectedDate: selectedDate(), loadedDate: loadedDate() })
+        !canApplyEditorAsyncResult(dateBoundEditorState(), date)
       ) return;
       setLocalImageSource(source);
       setImageAttachmentAltText(defaultLocalImageAltText(source));
@@ -1103,17 +1103,17 @@ export default function Home() {
       setAuthReconnectRequired(false);
       const date = selectedDate();
       if (date !== null) {
-        if (canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) {
-          await saveAndSyncSnapshot(date, markdown());
+        let snapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
+        if (snapshot !== null) {
+          await saveAndSyncSnapshot(snapshot);
         } else {
           await loadSelectedDate(date);
-          if (canEditSelectedDate({ selectedDate: date, loadedDate: loadedDate() })) {
-            await saveAndSyncSnapshot(date, markdown());
-          }
+          snapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
+          if (snapshot !== null) await saveAndSyncSnapshot(snapshot);
         }
       }
       await syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate));
-      if (date !== null && shouldApplySyncResult(date, selectedDate()) && syncStatus() === "auth-required") {
+      if (date !== null && canEditDailyNoteDate(date, dateBoundEditorState()) && syncStatus() === "auth-required") {
         setSyncStatus("synced");
       }
     } catch (error: unknown) {

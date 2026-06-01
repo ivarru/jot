@@ -1,5 +1,5 @@
 import type { IsoDate } from "~/domain/dates";
-import { canEditSelectedDate, shouldApplyLoadedNote, type DateBoundEditorState } from "~/editor/dateBoundEditor";
+import { canEditSelectedDate, isSelectedDailyNoteDate, type DateBoundEditorSelection } from "~/editor/dateBoundEditor";
 
 export type SyncErrorRetry = "load-selected-note" | "save-current-note" | "save-settings" | "sync-dirty-drafts";
 
@@ -27,12 +27,12 @@ export type SyncRetryAction =
 
 export function resolveSyncErrorRetry(
   error: SyncErrorState,
-  state: DateBoundEditorState
+  state: DateBoundEditorSelection
 ): SyncRetryAction | null {
   switch (error.retry) {
     case "load-selected-note": {
       const date = error.date ?? state.selectedDate;
-      if (date === null || !shouldApplyLoadedNote(date, state.selectedDate)) return null;
+      if (date === null || !isSelectedDailyNoteDate(date, state)) return null;
       return { type: "load-selected-note", date };
     }
     case "save-current-note": {
