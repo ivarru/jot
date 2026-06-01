@@ -30,9 +30,12 @@ npm run build
 
 Google Drive provider changes must include mocked `fetch` tests for request URLs, methods, auth headers, metadata bodies, media bodies, conflict behavior, and settings behavior. Do not require a live Google account for routine regression coverage.
 
+Browser API workflow changes must include an end-to-end smoke check through a real browser boundary. This applies to file inputs, clipboard, camera, drag/drop, auth popups or redirects, and external pickers. The check must exercise the actual user workflow and assert the resulting app state; verifying that controls render is not sufficient.
+
 For browser checks of the fake-storage milestone:
 
 ```sh
 VITE_ENABLE_FAKE_AUTH=true npm run build
 npm run preview
+npm run smoke:fake-daily-note-upload
 ```

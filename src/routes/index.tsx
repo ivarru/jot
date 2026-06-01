@@ -755,8 +755,7 @@ export default function Home() {
     dailyNoteUploadInput?.click();
   };
 
-  const handleDailyNoteUploadFiles = async (fileList: FileList | null) => {
-    const files = Array.from(fileList ?? []);
+  const handleDailyNoteUploadFiles = async (files: readonly File[]) => {
     if (files.length === 0) return;
 
     setDailyNoteUploadInProgress(true);
@@ -1443,7 +1442,7 @@ export default function Home() {
                 accept=".md,text/markdown"
                 multiple
                 onChange={(event) => {
-                  const files = event.currentTarget.files;
+                  const files = Array.from(event.currentTarget.files ?? []);
                   event.currentTarget.value = "";
                   void handleDailyNoteUploadFiles(files);
                 }}
