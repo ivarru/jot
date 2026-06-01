@@ -11,7 +11,11 @@ import type {
 } from "~/storage/types";
 import {
   captureSaveRetrySnapshot,
+  loadSelectedDailyNoteSession,
+  reconnectSelectedDailyNoteAction,
+  refreshCleanSelectedDailyNoteSession,
   saveSelectedDailyNoteSnapshot,
+  selectedDailyNotePollingAction,
   saveVisibleDailyNoteSnapshot
 } from "./selectedDailyNoteSession";
 
@@ -125,6 +129,136 @@ describe("selected Daily Note session async save seam", () => {
     expect(captureSaveRetrySnapshot(state, { type: "save-current-note", date: "2030-02-01" })).toBeNull();
     expect(captureSaveRetrySnapshot(state, { type: "save-settings" })).toBeNull();
   });
+
+  it("loads the Selected Date through the session seam", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    remote.note = {
+      date: "2030-02-02",
+      markdown: "remote",
+      revisionId: "revision-1",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+
+    const result = await loadSelectedDailyNoteSession({
+      date: "2030-02-02",
+      drafts,
+      remote,
+      getState: () => editorState({ selectedDate: "2030-02-02", loadedDate: null })
+    });
+
+    expect(result).toMatchObject({
+      type: "loaded",
+      session: {
+        markdown: "remote",
+        status: "synced"
+      },
+      transition: {
+        state: {
+          selectedDate: "2030-02-02",
+          loadedDate: "2030-02-02",
+          markdown: "remote",
+          cleanMarkdown: "remote"
+        }
+      }
+    });
+  });
+
+  it("refreshes a clean selected Daily Note and commits the visible draft", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    await drafts.save(createDraft("2030-02-02", "clean", "clean", "revision-1", false));
+    remote.note = {
+      date: "2030-02-02",
+      markdown: "remote refresh",
+      revisionId: "revision-2",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+
+    const result = await refreshCleanSelectedDailyNoteSession({
+      date: "2030-02-02",
+      drafts,
+      remote,
+      getState: () =>
+        editorState({
+          selectedDate: "2030-02-02",
+          loadedDate: "2030-02-02",
+          markdown: "clean",
+          cleanMarkdown: "clean"
+        })
+    });
+
+    expect(result).toMatchObject({
+      type: "refreshed",
+      session: {
+        markdown: "remote refresh",
+        status: "synced"
+      },
+      transition: {
+        state: {
+          markdown: "remote refresh",
+          cleanMarkdown: "remote refresh"
+        }
+      },
+      draftCommitted: true
+    });
+    await expect(drafts.load("2030-02-02")).resolves.toMatchObject({
+      markdown: "remote refresh",
+      baselineRevisionId: "revision-2",
+      dirty: false
+    });
+  });
+
+  it("chooses polling actions from the selected Daily Note session state", () => {
+    const cleanState = editorState({
+      selectedDate: "2030-02-02",
+      loadedDate: "2030-02-02",
+      markdown: "clean",
+      cleanMarkdown: "clean"
+    });
+    const dirtyState = editorState({
+      selectedDate: "2030-02-02",
+      loadedDate: "2030-02-02",
+      markdown: "dirty"
+    });
+
+    expect(selectedDailyNotePollingAction({ authenticated: true, authReconnectRequired: false, state: cleanState, status: "synced" })).toEqual({
+      type: "clean-refresh",
+      date: "2030-02-02"
+    });
+    expect(selectedDailyNotePollingAction({ authenticated: true, authReconnectRequired: false, state: dirtyState, status: "saved-locally" })).toEqual({
+      type: "dirty-save",
+      snapshot: {
+        date: "2030-02-02",
+        markdown: "dirty"
+      }
+    });
+    expect(selectedDailyNotePollingAction({ authenticated: true, authReconnectRequired: true, state: cleanState, status: "synced" })).toBeNull();
+  });
+
+  it("chooses reconnect actions from selected Daily Note visibility", () => {
+    expect(
+      reconnectSelectedDailyNoteAction(
+        editorState({
+          selectedDate: "2030-02-02",
+          loadedDate: "2030-02-02",
+          markdown: "visible"
+        })
+      )
+    ).toEqual({
+      type: "save-visible",
+      snapshot: {
+        date: "2030-02-02",
+        markdown: "visible"
+      }
+    });
+
+    expect(reconnectSelectedDailyNoteAction(editorState({ selectedDate: "2030-02-02", loadedDate: null }))).toEqual({
+      type: "load-selected",
+      date: "2030-02-02"
+    });
+    expect(reconnectSelectedDailyNoteAction(editorState({ selectedDate: null, loadedDate: null }))).toBeNull();
+  });
 });
 
 function editorState(overrides: Partial<DateBoundEditorState>): DateBoundEditorState {
@@ -171,9 +305,10 @@ class MemoryDraftStore implements LocalDraftStore {
 
 class RecordingRemoteStorageProvider implements RemoteStorageProvider {
   readonly savedInputs: SaveDailyNoteInput[] = [];
+  note: RemoteDailyNote | null = null;
 
-  async loadDailyNote(): Promise<RemoteDailyNote | null> {
-    return null;
+  async loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null> {
+    return this.note?.date === date ? this.note : null;
   }
 
   async saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {

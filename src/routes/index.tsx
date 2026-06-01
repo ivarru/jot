@@ -13,16 +13,12 @@ import { addDays, dayOfWeek, isToday, parseIsoDate, todayIsoDate, type IsoDate }
 import type { ImageAttachmentResolution } from "~/domain/imageAttachments";
 import { DEFAULT_JOT_SETTINGS, normalizeJotSettings, type JotSettings } from "~/domain/settings";
 import {
-  applyCleanDailyNoteRefreshResult,
   applyEditorChange,
-  applyLoadedDailyNoteResult,
   canApplyEditorAsyncResult,
   canEditDailyNoteDate,
   canEditSelectedDate,
   captureDocumentSnapshot,
   captureVisibleDailyNoteSnapshot,
-  createCleanDailyNoteRefreshRequest,
-  isSelectedDailyNoteDate,
   resetSelectedDailyNoteSession,
   type DateBoundEditorState,
   type DateBoundEditorTransition,
@@ -41,18 +37,20 @@ import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStoragePro
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
 import type { RemoteStorageProvider, SyncStatus } from "~/storage/types";
 import {
-  cleanDailyNoteRefreshToSession,
-  commitVisibleCleanDailyNoteRefresh,
-  loadCleanDailyNoteRefresh,
-  loadDailyNoteSession,
   persistLocalDraft,
   saveAndSyncDailyNoteSnapshot,
   syncDirtyDailyNoteDrafts
 } from "~/sync/syncDailyNote";
 import {
   captureSaveRetrySnapshot,
+  loadSelectedDailyNoteSession,
+  reconnectSelectedDailyNoteAction,
+  refreshCleanSelectedDailyNoteSession,
   saveSelectedDailyNoteSnapshot,
   saveVisibleDailyNoteSnapshot,
+  selectedDailyNotePollingAction,
+  type LoadSelectedDailyNoteSessionResult,
+  type RefreshCleanSelectedDailyNoteSessionResult,
   type SaveSelectedDailyNoteSnapshotResult
 } from "~/sync/selectedDailyNoteSession";
 import { resolveSyncErrorRetry, type SyncErrorState } from "~/sync/syncErrorRetry";
@@ -402,24 +400,33 @@ export default function Home() {
           settings().cleanPollingIntervalMs,
           settings().dirtyPollingIntervalMs
         ] as const,
-      ([isAuthenticated, date, loaded, status]) => {
-        if (!isAuthenticated || authReconnectRequired() || date === null || loaded !== date) return;
+      ([isAuthenticated, _date, _loaded, status]) => {
+        const action = selectedDailyNotePollingAction({
+          authenticated: isAuthenticated,
+          authReconnectRequired: authReconnectRequired(),
+          state: dateBoundEditorState(),
+          status
+        });
+        if (action === null) return;
 
-        if (isCleanRefreshStatus(status)) {
+        if (action.type === "clean-refresh") {
           const interval = window.setInterval(() => {
-            void refreshCleanSelectedDate(date);
+            void refreshCleanSelectedDate(action.date);
           }, settings().cleanPollingIntervalMs);
           onCleanup(() => window.clearInterval(interval));
           return;
         }
 
-        if (status === "saved-locally") {
-          const interval = window.setInterval(() => {
-            const snapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
-            if (snapshot !== null) void saveAndSyncSnapshot(snapshot);
-          }, settings().dirtyPollingIntervalMs);
-          onCleanup(() => window.clearInterval(interval));
-        }
+        const interval = window.setInterval(() => {
+          const nextAction = selectedDailyNotePollingAction({
+            authenticated: authenticated(),
+            authReconnectRequired: authReconnectRequired(),
+            state: dateBoundEditorState(),
+            status: syncStatus()
+          });
+          if (nextAction?.type === "dirty-save") void saveAndSyncSnapshot(nextAction.snapshot);
+        }, settings().dirtyPollingIntervalMs);
+        onCleanup(() => window.clearInterval(interval));
       }
     )
   );
@@ -579,52 +586,70 @@ export default function Home() {
   };
 
   const loadSelectedDate = async (date: IsoDate) => {
-    const session = await loadDailyNoteSession(date, drafts, runtime.remote).catch((error: unknown) => {
-      if (isSelectedDailyNoteDate(date, dateBoundEditorState())) {
-        if (handleRemoteError(error, { message: errorMessage(error), retry: "load-selected-note", date })) return null;
-        const message = errorMessage(error);
-        setLoadError(message);
-        setLastSyncError({ message, retry: "load-selected-note", date });
-        setSyncStatus("error");
-      }
-      return null;
+    const result = await loadSelectedDailyNoteSession({
+      date,
+      drafts,
+      remote: runtime.remote,
+      getState: dateBoundEditorState
     });
-    if (session === null) return;
-    const transition = applyLoadedDailyNoteResult(dateBoundEditorState(), date, session);
-    if (transition === null) return;
-    applyDateBoundEditorTransition(transition);
-    setSyncStatus(session.status);
-    if (session.status !== "conflict") setLastSyncError(null);
+    applySelectedDailyNoteLoadResult(result);
   };
 
   const refreshCleanSelectedDate = async (date: IsoDate) => {
-    const request = createCleanDailyNoteRefreshRequest(dateBoundEditorState(), date);
-    if (request === null) return;
-
-    const refresh = await loadCleanDailyNoteRefresh(date, drafts, runtime.remote).catch((error: unknown) => {
-      if (isSelectedDailyNoteDate(date, dateBoundEditorState())) {
-        if (handleRemoteError(error, { message: errorMessage(error), retry: "load-selected-note", date })) return null;
-        setLastSyncError({ message: errorMessage(error), retry: "load-selected-note", date });
-        setSyncStatus("error");
-      }
-      return null;
+    const result = await refreshCleanSelectedDailyNoteSession({
+      date,
+      drafts,
+      remote: runtime.remote,
+      getState: dateBoundEditorState
     });
-    if (refresh === null) return;
+    applySelectedDailyNoteRefreshResult(result);
+  };
 
-    const session = cleanDailyNoteRefreshToSession(refresh);
-    const transition = applyCleanDailyNoteRefreshResult(dateBoundEditorState(), request, session);
-    if (transition === null) return;
-    applyDateBoundEditorTransition(transition);
-    setSyncStatus(session.status);
-    if (session.status !== "conflict") setLastSyncError(null);
+  const applySelectedDailyNoteLoadResult = (result: LoadSelectedDailyNoteSessionResult) => {
+    switch (result.type) {
+      case "loaded":
+        if (result.transition === null) return;
+        applyDateBoundEditorTransition(result.transition);
+        setSyncStatus(result.session.status);
+        if (result.session.status !== "conflict") setLastSyncError(null);
+        return;
+      case "failed":
+        if (!result.applyToSelectedDate) return;
+        if (handleRemoteError(result.error, {
+          message: errorMessage(result.error),
+          retry: "load-selected-note",
+          date: result.date
+        })) return;
+        {
+          const message = errorMessage(result.error);
+          setLoadError(message);
+          setLastSyncError({ message, retry: "load-selected-note", date: result.date });
+          setSyncStatus("error");
+        }
+        return;
+    }
+  };
 
-    await commitVisibleCleanDailyNoteRefresh(date, refresh, drafts).catch((error: unknown) => {
-      if (isSelectedDailyNoteDate(date, dateBoundEditorState())) {
-        setLastSyncError({ message: errorMessage(error), retry: "load-selected-note", date });
+  const applySelectedDailyNoteRefreshResult = (result: RefreshCleanSelectedDailyNoteSessionResult) => {
+    switch (result.type) {
+      case "skipped":
+        return;
+      case "refreshed":
+        applyDateBoundEditorTransition(result.transition);
+        setSyncStatus(result.session.status);
+        if (result.session.status !== "conflict") setLastSyncError(null);
+        return;
+      case "failed":
+        if (!result.applyToSelectedDate) return;
+        if (result.phase === "load" && handleRemoteError(result.error, {
+          message: errorMessage(result.error),
+          retry: "load-selected-note",
+          date: result.date
+        })) return;
+        setLastSyncError({ message: errorMessage(result.error), retry: "load-selected-note", date: result.date });
         setSyncStatus("error");
-      }
-      return false;
-    });
+        return;
+    }
   };
 
   const flushAndSync = async (snapshot: VisibleDailyNoteSnapshot) => {
@@ -1127,18 +1152,16 @@ export default function Home() {
       await signIn(runtime);
       setAuthenticated(true);
       setAuthReconnectRequired(false);
-      const date = selectedDate();
-      if (date !== null) {
-        let snapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
-        if (snapshot !== null) {
-          await saveAndSyncSnapshot(snapshot);
-        } else {
-          await loadSelectedDate(date);
-          snapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
-          if (snapshot !== null) await saveAndSyncSnapshot(snapshot);
-        }
+      const reconnectAction = reconnectSelectedDailyNoteAction(dateBoundEditorState());
+      if (reconnectAction?.type === "save-visible") {
+        await saveAndSyncSnapshot(reconnectAction.snapshot);
+      } else if (reconnectAction?.type === "load-selected") {
+        await loadSelectedDate(reconnectAction.date);
+        const loadedAction = reconnectSelectedDailyNoteAction(dateBoundEditorState());
+        if (loadedAction?.type === "save-visible") await saveAndSyncSnapshot(loadedAction.snapshot);
       }
       await syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate));
+      const date = selectedDate();
       if (date !== null && canEditDailyNoteDate(date, dateBoundEditorState()) && syncStatus() === "auth-required") {
         setSyncStatus("synced");
       }
@@ -1739,10 +1762,6 @@ function syncStatusLabel(status: SyncStatus): string {
     case "error":
       return "Sync error";
   }
-}
-
-function isCleanRefreshStatus(status: SyncStatus): boolean {
-  return status === "synced" || status === "local-only";
 }
 
 function errorMessage(error: unknown): string {

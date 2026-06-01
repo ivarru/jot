@@ -1,12 +1,25 @@
 import {
+  applyCleanDailyNoteRefreshResult,
+  applyLoadedDailyNoteResult,
   applySyncResult,
   captureVisibleDailyNoteSnapshot,
+  createCleanDailyNoteRefreshRequest,
   type DateBoundEditorState,
   type DateBoundEditorTransition,
   type VisibleDailyNoteSnapshot
 } from "~/editor/dateBoundEditor";
+import type { IsoDate } from "~/domain/dates";
 import type { LocalDraftStore, RemoteStorageProvider, SyncStatus } from "~/storage/types";
-import { persistLocalDraft, saveAndSyncDailyNoteSnapshot, type DailyNoteSession } from "./syncDailyNote";
+import {
+  cleanDailyNoteRefreshToSession,
+  commitVisibleCleanDailyNoteRefresh,
+  loadCleanDailyNoteRefresh,
+  loadDailyNoteSession,
+  persistLocalDraft,
+  saveAndSyncDailyNoteSnapshot,
+  type CleanDailyNoteRefresh,
+  type DailyNoteSession
+} from "./syncDailyNote";
 import type { SyncRetryAction } from "./syncErrorRetry";
 
 export type SaveSelectedDailyNoteSnapshotResult =
@@ -40,6 +53,184 @@ export interface SaveVisibleDailyNoteSnapshotInput {
   readonly drafts: LocalDraftStore;
   readonly remote: RemoteStorageProvider;
   readonly getState: () => DateBoundEditorState;
+}
+
+export type LoadSelectedDailyNoteSessionResult =
+  | {
+      readonly type: "loaded";
+      readonly session: DailyNoteSession;
+      readonly transition: DateBoundEditorTransition | null;
+    }
+  | {
+      readonly type: "failed";
+      readonly date: IsoDate;
+      readonly error: unknown;
+      readonly applyToSelectedDate: boolean;
+    };
+
+export type RefreshCleanSelectedDailyNoteSessionResult =
+  | {
+      readonly type: "skipped";
+    }
+  | {
+      readonly type: "refreshed";
+      readonly refresh: CleanDailyNoteRefresh;
+      readonly session: DailyNoteSession;
+      readonly transition: DateBoundEditorTransition;
+      readonly draftCommitted: boolean;
+    }
+  | {
+      readonly type: "failed";
+      readonly date: IsoDate;
+      readonly phase: "load" | "commit";
+      readonly error: unknown;
+      readonly applyToSelectedDate: boolean;
+    };
+
+export type SelectedDailyNotePollingAction =
+  | {
+      readonly type: "clean-refresh";
+      readonly date: IsoDate;
+    }
+  | {
+      readonly type: "dirty-save";
+      readonly snapshot: VisibleDailyNoteSnapshot;
+    };
+
+export type ReconnectSelectedDailyNoteAction =
+  | {
+      readonly type: "save-visible";
+      readonly snapshot: VisibleDailyNoteSnapshot;
+    }
+  | {
+      readonly type: "load-selected";
+      readonly date: IsoDate;
+    };
+
+export interface LoadSelectedDailyNoteSessionInput {
+  readonly date: IsoDate;
+  readonly drafts: LocalDraftStore;
+  readonly remote: RemoteStorageProvider;
+  readonly getState: () => DateBoundEditorState;
+}
+
+export interface RefreshCleanSelectedDailyNoteSessionInput {
+  readonly date: IsoDate;
+  readonly drafts: LocalDraftStore;
+  readonly remote: RemoteStorageProvider;
+  readonly getState: () => DateBoundEditorState;
+  readonly beforeApply?: () => void;
+}
+
+export async function loadSelectedDailyNoteSession(
+  input: LoadSelectedDailyNoteSessionInput
+): Promise<LoadSelectedDailyNoteSessionResult> {
+  try {
+    const session = await loadDailyNoteSession(input.date, input.drafts, input.remote);
+    return {
+      type: "loaded",
+      session,
+      transition: applyLoadedDailyNoteResult(input.getState(), input.date, session)
+    };
+  } catch (error) {
+    return {
+      type: "failed",
+      date: input.date,
+      error,
+      applyToSelectedDate: selectedDateStillRequested(input.getState(), input.date)
+    };
+  }
+}
+
+export async function refreshCleanSelectedDailyNoteSession(
+  input: RefreshCleanSelectedDailyNoteSessionInput
+): Promise<RefreshCleanSelectedDailyNoteSessionResult> {
+  const request = createCleanDailyNoteRefreshRequest(input.getState(), input.date);
+  if (request === null) return { type: "skipped" };
+
+  let refresh: CleanDailyNoteRefresh | null;
+  try {
+    refresh = await loadCleanDailyNoteRefresh(input.date, input.drafts, input.remote);
+  } catch (error) {
+    return {
+      type: "failed",
+      date: input.date,
+      phase: "load",
+      error,
+      applyToSelectedDate: selectedDateStillRequested(input.getState(), input.date)
+    };
+  }
+  if (refresh === null) return { type: "skipped" };
+
+  input.beforeApply?.();
+  const session = cleanDailyNoteRefreshToSession(refresh);
+  const transition = applyCleanDailyNoteRefreshResult(input.getState(), request, session);
+  if (transition === null) return { type: "skipped" };
+
+  try {
+    return {
+      type: "refreshed",
+      refresh,
+      session,
+      transition,
+      draftCommitted: await commitVisibleCleanDailyNoteRefresh(input.date, refresh, input.drafts)
+    };
+  } catch (error) {
+    return {
+      type: "failed",
+      date: input.date,
+      phase: "commit",
+      error,
+      applyToSelectedDate: selectedDateStillRequested(input.getState(), input.date)
+    };
+  }
+}
+
+export function selectedDailyNotePollingAction(input: {
+  readonly authenticated: boolean;
+  readonly authReconnectRequired: boolean;
+  readonly state: DateBoundEditorState;
+  readonly status: SyncStatus;
+}): SelectedDailyNotePollingAction | null {
+  if (
+    !input.authenticated ||
+    input.authReconnectRequired ||
+    input.state.selectedDate === null ||
+    input.state.loadedDate !== input.state.selectedDate
+  ) {
+    return null;
+  }
+
+  if (input.status === "local-only" || input.status === "synced") {
+    return {
+      type: "clean-refresh",
+      date: input.state.selectedDate
+    };
+  }
+
+  if (input.status === "saved-locally") {
+    const snapshot = captureVisibleDailyNoteSnapshot(input.state);
+    return snapshot === null ? null : { type: "dirty-save", snapshot };
+  }
+
+  return null;
+}
+
+export function reconnectSelectedDailyNoteAction(state: DateBoundEditorState): ReconnectSelectedDailyNoteAction | null {
+  const snapshot = captureVisibleDailyNoteSnapshot(state);
+  if (snapshot !== null) {
+    return {
+      type: "save-visible",
+      snapshot
+    };
+  }
+
+  return state.selectedDate === null
+    ? null
+    : {
+        type: "load-selected",
+        date: state.selectedDate
+      };
 }
 
 export async function saveVisibleDailyNoteSnapshot(
@@ -111,4 +302,8 @@ export function syncStatusFromSaveResult(result: SaveSelectedDailyNoteSnapshotRe
 
 function snapshotStillVisible(state: DateBoundEditorState, snapshot: VisibleDailyNoteSnapshot): boolean {
   return state.selectedDate === snapshot.date && state.loadedDate === snapshot.date;
+}
+
+function selectedDateStillRequested(state: DateBoundEditorState, date: IsoDate): boolean {
+  return state.selectedDate === date;
 }
