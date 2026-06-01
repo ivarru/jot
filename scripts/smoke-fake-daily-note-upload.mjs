@@ -103,6 +103,8 @@ try {
       true
     );
     assert(successMessage, "Expected Daily Note upload success message.");
+    await clickButton(cdp, "Dismiss daily note upload message");
+    await waitForExpression(cdp, "!document.body.textContent.includes('Uploaded 1 daily note.')");
   } finally {
     cdp.close();
   }

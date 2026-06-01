@@ -240,6 +240,15 @@ select {
   background: var(--panel);
 }
 
+.sync-alert-dismissible {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.sync-alert-dismiss {
+  justify-self: end;
+}
+
 .sync-alert-error {
   border-color: color-mix(in srgb, var(--danger), transparent 45%);
 }

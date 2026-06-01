@@ -5,6 +5,7 @@ import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { GoogleAccessTokenUnavailableError, GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
 import { APP_VERSION, ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
 import { DailyNoteUploadConflictDialog } from "~/components/DailyNoteUploadConflictDialog";
+import { DailyNoteUploadStatusAlert } from "~/components/DailyNoteUploadStatusAlert";
 import { MilkdownEditor } from "~/components/MilkdownEditor";
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
@@ -1628,13 +1629,11 @@ export default function Home() {
             )}
           </Show>
 
-          <Show when={dailyNoteUploadMessage()}>
-            {(message) => (
-              <aside class="sync-alert" aria-live="polite">
-                <strong>{message()}</strong>
-              </aside>
-            )}
-          </Show>
+          <DailyNoteUploadStatusAlert
+            inProgress={dailyNoteUploadInProgress()}
+            message={dailyNoteUploadMessage()}
+            onDismissMessage={() => setDailyNoteUploadMessage(null)}
+          />
 
           <Show when={settingsOpen()}>
             <SettingsPanel settings={settings()} onChange={updateSettings} />
