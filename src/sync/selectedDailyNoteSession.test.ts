@@ -209,6 +209,49 @@ describe("selected Daily Note session async save seam", () => {
     });
   });
 
+  it("does not return a clean refresh transition after an edit during the draft commit", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    const commitStarted = deferred();
+    const continueCommit = deferred();
+    let currentState = editorState({
+      selectedDate: "2030-02-02",
+      loadedDate: "2030-02-02",
+      markdown: "clean",
+      cleanMarkdown: "clean",
+      editorChangeEpoch: 1
+    });
+    await drafts.save(createDraft("2030-02-02", "clean", "clean", "revision-1", false));
+    drafts.beforeSaveIfUnchanged = async () => {
+      commitStarted.resolve();
+      await continueCommit.promise;
+    };
+    remote.note = {
+      date: "2030-02-02",
+      markdown: "remote refresh",
+      revisionId: "revision-2",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+
+    const refreshing = refreshCleanSelectedDailyNoteSession({
+      date: "2030-02-02",
+      drafts,
+      remote,
+      getState: () => currentState
+    });
+    await commitStarted.promise;
+    currentState = editorState({
+      selectedDate: "2030-02-02",
+      loadedDate: "2030-02-02",
+      markdown: "local edit",
+      cleanMarkdown: null,
+      editorChangeEpoch: 2
+    });
+    continueCommit.resolve();
+
+    await expect(refreshing).resolves.toEqual({ type: "skipped" });
+  });
+
   it("chooses polling actions from the selected Daily Note session state", () => {
     const cleanState = editorState({
       selectedDate: "2030-02-02",
@@ -274,6 +317,7 @@ function editorState(overrides: Partial<DateBoundEditorState>): DateBoundEditorS
 
 class MemoryDraftStore implements LocalDraftStore {
   readonly drafts = new Map<IsoDate, LocalDraft>();
+  beforeSaveIfUnchanged: (() => Promise<void>) | null = null;
 
   async load(date: IsoDate): Promise<LocalDraft | null> {
     return this.drafts.get(date) ?? null;
@@ -288,6 +332,7 @@ class MemoryDraftStore implements LocalDraftStore {
   }
 
   async saveIfUnchanged(date: IsoDate, expected: LocalDraft | null, draft: LocalDraft): Promise<boolean> {
+    await this.beforeSaveIfUnchanged?.();
     const current = await this.load(date);
     if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
     await this.save(draft);
@@ -346,4 +391,12 @@ class ConflictRemoteStorageProvider extends RecordingRemoteStorageProvider {
       }
     };
   }
+}
+
+function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
 }

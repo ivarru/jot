@@ -164,16 +164,21 @@ export async function refreshCleanSelectedDailyNoteSession(
 
   input.beforeApply?.();
   const session = cleanDailyNoteRefreshToSession(refresh);
-  const transition = applyCleanDailyNoteRefreshResult(input.getState(), request, session);
-  if (transition === null) return { type: "skipped" };
+  if (applyCleanDailyNoteRefreshResult(input.getState(), request, session) === null) return { type: "skipped" };
 
   try {
+    const draftCommitted = await commitVisibleCleanDailyNoteRefresh(input.date, refresh, input.drafts);
+    if (!draftCommitted) return { type: "skipped" };
+
+    const transition = applyCleanDailyNoteRefreshResult(input.getState(), request, session);
+    if (transition === null) return { type: "skipped" };
+
     return {
       type: "refreshed",
       refresh,
       session,
       transition,
-      draftCommitted: await commitVisibleCleanDailyNoteRefresh(input.date, refresh, input.drafts)
+      draftCommitted
     };
   } catch (error) {
     return {
