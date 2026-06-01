@@ -1,3 +1,10 @@
+/**
+ * Canonical browser-local calendar date in YYYY-MM-DD form.
+ *
+ * IsoDate values identify local calendar days, not instants. Values produced by
+ * this module are canonical, so two IsoDate values are equal iff their string
+ * values are equal with ===.
+ */
 export type IsoDate = `${number}-${number}-${number}`;
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -11,6 +18,12 @@ export function toIsoDate(date: Date): IsoDate {
 
 export function todayIsoDate(now = new Date()): IsoDate {
   return toIsoDate(now);
+}
+
+export function millisecondsUntilNextLocalDay(now = new Date()): number {
+  const nextLocalDay = new Date(now);
+  nextLocalDay.setHours(24, 0, 0, 0);
+  return nextLocalDay.getTime() - now.getTime();
 }
 
 export function parseIsoDate(value: string): IsoDate | null {

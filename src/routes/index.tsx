@@ -9,7 +9,14 @@ import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
 import { findImageAttachmentReferences } from "~/domain/attachmentReferences";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
-import { addDays, dayOfWeek, isToday, parseIsoDate, todayIsoDate, type IsoDate } from "~/domain/dates";
+import {
+  addDays,
+  dayOfWeek,
+  millisecondsUntilNextLocalDay,
+  parseIsoDate,
+  todayIsoDate,
+  type IsoDate
+} from "~/domain/dates";
 import type { ImageAttachmentResolution } from "~/domain/imageAttachments";
 import { DEFAULT_JOT_SETTINGS, normalizeJotSettings, type JotSettings } from "~/domain/settings";
 import {
@@ -171,7 +178,7 @@ export default function Home() {
   });
   const selectedIsToday = createMemo(() => {
     const date = selectedDate();
-    return date !== null && isToday(date);
+    return date !== null && date === today();
   });
   const selectedDateCanEdit = createMemo(() => canEditSelectedDate(dateBoundEditorState()));
   const imageAttachmentResolutionChoices = createMemo(() => {
@@ -217,6 +224,19 @@ export default function Home() {
     } else {
       setMarkdown(write.markdown);
     }
+  };
+
+  let todayRefreshTimeout: number | undefined;
+
+  const refreshAndScheduleToday = () => {
+    if (todayRefreshTimeout !== undefined) {
+      window.clearTimeout(todayRefreshTimeout);
+    }
+    setToday(todayIsoDate());
+    todayRefreshTimeout = window.setTimeout(() => {
+      todayRefreshTimeout = undefined;
+      refreshAndScheduleToday();
+    }, millisecondsUntilNextLocalDay());
   };
 
   const handleRemoteError = (error: unknown, retry: SyncErrorState | null = null): boolean => {
@@ -385,8 +405,13 @@ export default function Home() {
   );
 
   createEffect(() => {
-    const interval = window.setInterval(() => setToday(todayIsoDate()), 60000);
-    onCleanup(() => window.clearInterval(interval));
+    refreshAndScheduleToday();
+    onCleanup(() => {
+      if (todayRefreshTimeout !== undefined) {
+        window.clearTimeout(todayRefreshTimeout);
+        todayRefreshTimeout = undefined;
+      }
+    });
   });
 
   createEffect(
@@ -1152,6 +1177,7 @@ export default function Home() {
       await signIn(runtime);
       setAuthenticated(true);
       setAuthReconnectRequired(false);
+      refreshAndScheduleToday();
       const reconnectAction = reconnectSelectedDailyNoteAction(dateBoundEditorState());
       if (reconnectAction?.type === "save-visible") {
         await saveAndSyncSnapshot(reconnectAction.snapshot);
@@ -1246,7 +1272,7 @@ export default function Home() {
             <section class="invalid-date">
               <h1>Invalid date</h1>
               <p>{invalidDate() ?? "The URL does not contain a valid date."}</p>
-              <button type="button" onClick={() => void navigateToDate(todayIsoDate())}>
+              <button type="button" onClick={() => void navigateToDate(today())}>
                 Jump to today
               </button>
             </section>

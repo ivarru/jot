@@ -1,4 +1,11 @@
-import { addDays, dateToFilename, dayOfWeek, parseIsoDate, toIsoDate } from "./dates";
+import {
+  addDays,
+  dateToFilename,
+  dayOfWeek,
+  millisecondsUntilNextLocalDay,
+  parseIsoDate,
+  toIsoDate
+} from "./dates";
 
 describe("date helpers", () => {
   it("formats browser-local dates as ISO dates", () => {
@@ -21,5 +28,11 @@ describe("date helpers", () => {
 
   it("reports the weekday", () => {
     expect(dayOfWeek("2026-05-27", "en-US")).toBe("Wednesday");
+  });
+
+  it("calculates the delay until the next local day", () => {
+    expect(millisecondsUntilNextLocalDay(new Date(2030, 1, 2, 12, 0, 0, 0))).toBe(12 * 60 * 60 * 1000);
+    expect(millisecondsUntilNextLocalDay(new Date(2030, 1, 2, 23, 59, 59, 500))).toBe(500);
+    expect(millisecondsUntilNextLocalDay(new Date(2030, 1, 3, 0, 0, 0, 0))).toBe(24 * 60 * 60 * 1000);
   });
 });
