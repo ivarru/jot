@@ -4,14 +4,17 @@ import { commitImageAttachmentReferenceInsertion } from "~/attachments/imageAtta
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { GoogleAccessTokenUnavailableError, GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
 import { APP_VERSION, ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
+import { DailyNoteUploadConflictDialog } from "~/components/DailyNoteUploadConflictDialog";
 import { MilkdownEditor } from "~/components/MilkdownEditor";
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
 import { findImageAttachmentReferences } from "~/domain/attachmentReferences";
 import {
-  dailyNoteUploadMarkdown,
-  parseDailyNoteUploadFilename,
-  type DailyNoteUploadConflictResolution
+  buildDailyNoteUploadCandidates,
+  createPendingDailyNoteUpload,
+  type DailyNoteUploadConflictResolution,
+  type PendingDailyNoteUpload,
+  type UploadedDailyNoteFile
 } from "~/domain/dailyNoteUpload";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
 import {
@@ -65,6 +68,10 @@ import {
   type RefreshCleanSelectedDailyNoteSessionResult,
   type SaveSelectedDailyNoteSnapshotResult
 } from "~/sync/selectedDailyNoteSession";
+import {
+  buildDailyNoteUploadPlan,
+  saveDailyNoteUploadPlan
+} from "~/sync/dailyNoteUploadSession";
 import { resolveSyncErrorRetry, type SyncErrorState } from "~/sync/syncErrorRetry";
 import {
   nextSyncRetryDelayMs,
@@ -104,18 +111,6 @@ type StorageRuntime =
 
 type ImageAttachmentStatus = "idle" | "starting" | "waiting" | "choosing" | "importing";
 type LocalImageSourceKind = LocalImageAttachmentSource["kind"];
-
-interface DailyNoteUploadPlanItem {
-  readonly date: IsoDate;
-  readonly filename: string;
-  readonly uploadedMarkdown: string;
-  readonly existingMarkdown: string | null;
-}
-
-interface PendingDailyNoteUpload {
-  readonly items: readonly DailyNoteUploadPlanItem[];
-  readonly conflictCount: number;
-}
 
 interface StoredActiveImagePicker {
   readonly date: IsoDate;
@@ -769,13 +764,19 @@ export default function Home() {
     setDailyNoteUploadMessage(null);
     setPendingDailyNoteUpload(null);
     try {
-      const items = await buildDailyNoteUploadPlan(files);
-      const conflictCount = items.filter((item) => item.existingMarkdown !== null).length;
-      if (conflictCount > 0) {
-        setPendingDailyNoteUpload({ items, conflictCount });
+      const uploadedFiles = await readDailyNoteUploadFiles(files);
+      const candidates = buildDailyNoteUploadCandidates(uploadedFiles);
+      const pending = createPendingDailyNoteUpload(await buildDailyNoteUploadPlan({
+        candidates,
+        drafts,
+        remote: runtime.remote,
+        getState: dateBoundEditorState
+      }));
+      if (pending.conflictCount > 0) {
+        setPendingDailyNoteUpload(pending);
         return;
       }
-      await applyDailyNoteUploadPlan({ items, conflictCount: 0 }, "replace");
+      await savePendingDailyNoteUpload(pending, "replace");
     } catch (error: unknown) {
       if (handleRemoteError(error)) {
         setDailyNoteUploadError("Reconnect before uploading daily notes.");
@@ -787,10 +788,17 @@ export default function Home() {
     }
   };
 
+  const readDailyNoteUploadFiles = async (files: readonly File[]): Promise<UploadedDailyNoteFile[]> => {
+    return await Promise.all(files.map(async (file) => ({
+      filename: file.name,
+      markdown: await file.text()
+    })));
+  };
+
   const applyPendingDailyNoteUpload = (resolution: DailyNoteUploadConflictResolution) => {
     const pending = pendingDailyNoteUpload();
     if (pending === null) return;
-    void applyDailyNoteUploadPlan(pending, resolution);
+    void savePendingDailyNoteUpload(pending, resolution);
   };
 
   const cancelPendingDailyNoteUpload = () => {
@@ -798,66 +806,7 @@ export default function Home() {
     setDailyNoteUploadInProgress(false);
   };
 
-  const buildDailyNoteUploadPlan = async (files: readonly File[]): Promise<DailyNoteUploadPlanItem[]> => {
-    const seenDates = new Set<IsoDate>();
-    const invalidFilenames: string[] = [];
-    const duplicateFilenames: string[] = [];
-    const candidates: Array<{
-      readonly date: IsoDate;
-      readonly filename: string;
-      readonly uploadedMarkdown: string;
-    }> = [];
-
-    for (const file of files) {
-      const date = parseDailyNoteUploadFilename(file.name);
-      if (date === null) {
-        invalidFilenames.push(file.name);
-        continue;
-      }
-      if (seenDates.has(date)) {
-        duplicateFilenames.push(file.name);
-        continue;
-      }
-      seenDates.add(date);
-      candidates.push({
-        date,
-        filename: file.name,
-        uploadedMarkdown: await file.text()
-      });
-    }
-
-    if (invalidFilenames.length > 0) {
-      throw new Error(`Daily Note files must be named YYYY-MM-DD.md. Invalid: ${invalidFilenames.join(", ")}`);
-    }
-    if (duplicateFilenames.length > 0) {
-      throw new Error(`Only one uploaded file per Daily Note date is allowed. Duplicates: ${duplicateFilenames.join(", ")}`);
-    }
-
-    const items: DailyNoteUploadPlanItem[] = [];
-    for (const candidate of candidates) {
-      items.push({
-        ...candidate,
-        existingMarkdown: await existingDailyNoteMarkdown(candidate.date)
-      });
-    }
-    return items;
-  };
-
-  const existingDailyNoteMarkdown = async (date: IsoDate): Promise<string | null> => {
-    const visibleSnapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
-    if (visibleSnapshot?.date === date) return visibleSnapshot.markdown.length === 0 ? null : visibleSnapshot.markdown;
-
-    const localDraft = await drafts.load(date);
-    if (localDraft?.dirty) return localDraft.markdown.length === 0 ? null : localDraft.markdown;
-
-    const remoteNote = await runtime.remote.loadDailyNote(date);
-    if (remoteNote !== null) return remoteNote.markdown.length === 0 ? null : remoteNote.markdown;
-
-    if (localDraft !== null) return localDraft.markdown.length === 0 ? null : localDraft.markdown;
-    return null;
-  };
-
-  const applyDailyNoteUploadPlan = async (
+  const savePendingDailyNoteUpload = async (
     pending: PendingDailyNoteUpload,
     resolution: DailyNoteUploadConflictResolution
   ) => {
@@ -866,28 +815,19 @@ export default function Home() {
     setDailyNoteUploadMessage(null);
     setPendingDailyNoteUpload(null);
     try {
-      for (const item of pending.items) {
-        const markdown = item.existingMarkdown === null
-          ? item.uploadedMarkdown
-          : dailyNoteUploadMarkdown({
-              existingMarkdown: item.existingMarkdown,
-              uploadedMarkdown: item.uploadedMarkdown,
-              resolution
-            });
-        const result = await saveSelectedDailyNoteSnapshot({
-          snapshot: {
-            date: item.date,
-            markdown
-          },
-          authReconnectRequired: authReconnectRequired(),
-          drafts,
-          remote: runtime.remote,
-          getState: dateBoundEditorState
-        });
-        applySelectedDailyNoteSaveResult(result);
-        if (result.type === "failed") throw result.error;
+      const result = await saveDailyNoteUploadPlan({
+        pending,
+        resolution,
+        authReconnectRequired,
+        drafts,
+        remote: runtime.remote,
+        getState: dateBoundEditorState
+      });
+      for (const saveResult of result.saveResults) {
+        applySelectedDailyNoteSaveResult(saveResult);
       }
-      setDailyNoteUploadMessage(`Uploaded ${pending.items.length} daily note${pending.items.length === 1 ? "" : "s"}.`);
+      if (result.type === "failed") throw result.error;
+      setDailyNoteUploadMessage(`Uploaded ${result.count} daily note${result.count === 1 ? "" : "s"}.`);
     } catch (error: unknown) {
       if (handleRemoteError(error)) {
         setDailyNoteUploadError("Reconnect before uploading daily notes.");
@@ -1737,57 +1677,12 @@ export default function Home() {
 
           <Show when={pendingDailyNoteUpload()}>
             {(pending) => (
-              <div class="modal-backdrop" role="presentation">
-                <div
-                  class="daily-note-upload-modal"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-labelledby="daily-note-upload-modal-title"
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") cancelPendingDailyNoteUpload();
-                  }}
-                >
-                  <div class="daily-note-upload-modal-header">
-                    <h2 id="daily-note-upload-modal-title">Existing daily notes</h2>
-                    <p>{pending().conflictCount} uploaded file{pending().conflictCount === 1 ? "" : "s"} match existing notes.</p>
-                  </div>
-                  <ul class="daily-note-upload-conflicts">
-                    {pending().items.filter((item) => item.existingMarkdown !== null).map((item) => (
-                      <li>{item.filename}</li>
-                    ))}
-                  </ul>
-                  <div class="modal-actions daily-note-upload-actions">
-                    <button
-                      type="button"
-                      disabled={dailyNoteUploadInProgress()}
-                      onClick={() => applyPendingDailyNoteUpload("prepend")}
-                    >
-                      Prepend
-                    </button>
-                    <button
-                      type="button"
-                      disabled={dailyNoteUploadInProgress()}
-                      onClick={() => applyPendingDailyNoteUpload("append")}
-                    >
-                      Append
-                    </button>
-                    <button
-                      type="button"
-                      disabled={dailyNoteUploadInProgress()}
-                      onClick={() => applyPendingDailyNoteUpload("replace")}
-                    >
-                      Replace
-                    </button>
-                    <button
-                      type="button"
-                      disabled={dailyNoteUploadInProgress()}
-                      onClick={cancelPendingDailyNoteUpload}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <DailyNoteUploadConflictDialog
+                pending={pending()}
+                inProgress={dailyNoteUploadInProgress()}
+                onResolve={applyPendingDailyNoteUpload}
+                onCancel={cancelPendingDailyNoteUpload}
+              />
             )}
           </Show>
 

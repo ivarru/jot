@@ -1,4 +1,6 @@
 import {
+  buildDailyNoteUploadCandidates,
+  createPendingDailyNoteUpload,
   dailyNoteUploadMarkdown,
   parseDailyNoteUploadFilename,
   type DailyNoteUploadConflictResolution
@@ -14,6 +16,70 @@ describe("daily note upload", () => {
     expect(parseDailyNoteUploadFilename("2030-02-30.md")).toBeNull();
     expect(parseDailyNoteUploadFilename("2030-02-02.txt")).toBeNull();
     expect(parseDailyNoteUploadFilename("notes/2030-02-02.md")).toBeNull();
+  });
+
+  it("builds upload candidates from valid uploaded files", () => {
+    expect(buildDailyNoteUploadCandidates([
+      { filename: "2030-02-02.md", markdown: "first" },
+      { filename: "2030-02-03.md", markdown: "second" }
+    ])).toEqual([
+      {
+        date: "2030-02-02",
+        filename: "2030-02-02.md",
+        uploadedMarkdown: "first"
+      },
+      {
+        date: "2030-02-03",
+        filename: "2030-02-03.md",
+        uploadedMarkdown: "second"
+      }
+    ]);
+  });
+
+  it("rejects upload candidates with invalid filenames", () => {
+    expect(() => buildDailyNoteUploadCandidates([
+      { filename: "notes.md", markdown: "content" }
+    ])).toThrow("Daily Note files must be named YYYY-MM-DD.md. Invalid: notes.md");
+  });
+
+  it("rejects duplicate dates in one upload batch", () => {
+    expect(() => buildDailyNoteUploadCandidates([
+      { filename: "2030-02-02.md", markdown: "first" },
+      { filename: "2030-02-02.md", markdown: "second" }
+    ])).toThrow("Only one uploaded file per Daily Note date is allowed. Duplicates: 2030-02-02.md");
+  });
+
+  it("counts pending upload conflicts", () => {
+    expect(createPendingDailyNoteUpload([
+      {
+        date: "2030-02-02",
+        filename: "2030-02-02.md",
+        uploadedMarkdown: "new",
+        existingMarkdown: "existing"
+      },
+      {
+        date: "2030-02-03",
+        filename: "2030-02-03.md",
+        uploadedMarkdown: "new",
+        existingMarkdown: null
+      }
+    ])).toEqual({
+      conflictCount: 1,
+      items: [
+        {
+          date: "2030-02-02",
+          filename: "2030-02-02.md",
+          uploadedMarkdown: "new",
+          existingMarkdown: "existing"
+        },
+        {
+          date: "2030-02-03",
+          filename: "2030-02-03.md",
+          uploadedMarkdown: "new",
+          existingMarkdown: null
+        }
+      ]
+    });
   });
 
   it.each([
