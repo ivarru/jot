@@ -1,12 +1,13 @@
 import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } from "solid-js";
 import { ImageAttachmentFlow, type LocalImageAttachmentSource, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
+import { commitImageAttachmentReferenceInsertion } from "~/attachments/imageAttachmentInsertionSession";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { GoogleAccessTokenUnavailableError, GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
 import { APP_VERSION, ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
 import { MilkdownEditor } from "~/components/MilkdownEditor";
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
-import { appendImageAttachmentReference, findImageAttachmentReferences } from "~/domain/attachmentReferences";
+import { findImageAttachmentReferences } from "~/domain/attachmentReferences";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
 import { addDays, dayOfWeek, isToday, parseIsoDate, todayIsoDate, type IsoDate } from "~/domain/dates";
 import type { ImageAttachmentResolution } from "~/domain/imageAttachments";
@@ -852,10 +853,13 @@ export default function Home() {
 	            altText: imageAttachmentAltText()
 	          });
       if (!canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
-      const nextMarkdown = appendImageAttachmentReference(markdown(), inserted.markdownReference);
-      const result = applyEditorChange(dateBoundEditorState(), date, nextMarkdown);
-      if (result.type !== "current-editor") return;
-      applyDateBoundEditorTransition({ state: result.state, markdownWrite: result.markdownWrite });
+      const insertion = commitImageAttachmentReferenceInsertion({
+        editorState: dateBoundEditorState(),
+        date,
+        markdownReference: inserted.markdownReference
+      });
+      if (insertion === null) return;
+      applyDateBoundEditorTransition(insertion.transition);
       setFocusEditorAtEnd(true);
       setFocusEditorOffset(null);
       setEditorResetKey((key) => key + 1);
@@ -869,7 +873,7 @@ export default function Home() {
       setImageAttachmentAltText("");
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("idle");
-      await saveAndSyncSnapshot(captureDocumentSnapshot(date, nextMarkdown));
+      await saveAndSyncSnapshot(insertion.saveSnapshot);
     } catch (error: unknown) {
       if (selectedDate() !== date || imageAttachmentDate() !== date) return;
       if (handleRemoteError(error)) {
@@ -900,10 +904,13 @@ export default function Home() {
         reusable,
         altText: imageAttachmentAltText()
       });
-      const nextMarkdown = appendImageAttachmentReference(markdown(), inserted.markdownReference);
-      const result = applyEditorChange(dateBoundEditorState(), date, nextMarkdown);
-      if (result.type !== "current-editor") return;
-      applyDateBoundEditorTransition({ state: result.state, markdownWrite: result.markdownWrite });
+      const insertion = commitImageAttachmentReferenceInsertion({
+        editorState: dateBoundEditorState(),
+        date,
+        markdownReference: inserted.markdownReference
+      });
+      if (insertion === null) return;
+      applyDateBoundEditorTransition(insertion.transition);
       setFocusEditorAtEnd(true);
       setFocusEditorOffset(null);
       setEditorResetKey((key) => key + 1);
@@ -917,7 +924,7 @@ export default function Home() {
       setImageAttachmentAltText("");
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("idle");
-      await saveAndSyncSnapshot(captureDocumentSnapshot(date, nextMarkdown));
+      await saveAndSyncSnapshot(insertion.saveSnapshot);
     } catch (error: unknown) {
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("choosing");
