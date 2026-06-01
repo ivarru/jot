@@ -92,8 +92,10 @@ describe("GoogleDriveStorageProvider", () => {
     expect(createAgentsBody).not.toContain("Template modified:");
     expect(createAgentsBody).not.toContain("jot-drive-agents-content");
     expect(String(createAgentsRequest?.init.body)).toContain('"jotType":"agents"');
-    expect(String(createAgentsRequest?.init.body)).toContain('"templateModifiedAt":"2026-05-29T09:25:28.000Z"');
+    expect(String(createAgentsRequest?.init.body)).toContain('"templateModifiedAt":"2026-06-01T14:05:36.000Z"');
     expect(String(createAgentsRequest?.init.body)).toContain("`jot:image:<id>`");
+    expect(createAgentsBody).toContain("Google Drive `drive.file` permission");
+    expect(createAgentsBody).toContain("Upload daily notes");
   });
 
   it("updates Drive AGENTS.md when the bundled template is newer than the Drive file", async () => {

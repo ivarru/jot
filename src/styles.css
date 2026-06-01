@@ -456,7 +456,8 @@ select {
   background: color-mix(in srgb, var(--bg), transparent 28%);
 }
 
-.image-attachment-modal {
+.image-attachment-modal,
+.daily-note-upload-modal {
   display: grid;
   width: min(100%, 560px);
   max-height: min(100%, 680px);
@@ -480,7 +481,8 @@ select {
   box-shadow: var(--shadow);
 }
 
-.image-attachment-modal-header {
+.image-attachment-modal-header,
+.daily-note-upload-modal-header {
   display: grid;
   gap: 4px;
 }
@@ -492,9 +494,29 @@ select {
   gap: 12px;
 }
 
-.image-attachment-modal h2 {
+.image-attachment-modal h2,
+.daily-note-upload-modal h2 {
   margin: 0;
   font-size: 20px;
+}
+
+.daily-note-upload-modal p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.daily-note-upload-conflicts {
+  display: grid;
+  max-height: 180px;
+  gap: 4px;
+  overflow: auto;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.daily-note-upload-actions {
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .about-modal h2 {

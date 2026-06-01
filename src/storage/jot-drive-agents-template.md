@@ -1,5 +1,5 @@
 This is the source template for the automatically managed Google Drive `jot/AGENTS.md` file; it is not repository guidance for coding agents.
-Template modified: 2026-05-29T09:25:28.000Z
+Template modified: 2026-06-01T14:05:36.000Z
 The generated Google Drive file starts after this marker.
 
 --- jot-drive-agents-content ---
@@ -21,6 +21,8 @@ Do not add personal agent directions here. They may be replaced by a future temp
 
 - Daily notes are plain Markdown files.
 - There should be at most one daily note per local date.
+- Jot uses the Google Drive `drive.file` permission, so files manually created or uploaded directly into Drive might not be visible to the app until they are created or explicitly selected through Jot.
+- To add existing notes to Jot, use the app's Upload daily notes menu item with files named `YYYY-MM-DD.md`.
 - Markdown image targets of the form `jot:image:<id>` refer to images in the Google Photos album `jot`.
 - The `<id>` in `jot:image:<id>` maps to `Image Attachments/<id>.json`.
 - Image attachment metadata records the source type, such as Google Photos picker, device upload, camera, or clipboard.

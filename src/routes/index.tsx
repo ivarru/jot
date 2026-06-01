@@ -8,6 +8,11 @@ import { MilkdownEditor } from "~/components/MilkdownEditor";
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
 import { findImageAttachmentReferences } from "~/domain/attachmentReferences";
+import {
+  dailyNoteUploadMarkdown,
+  parseDailyNoteUploadFilename,
+  type DailyNoteUploadConflictResolution
+} from "~/domain/dailyNoteUpload";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
 import {
   addDays,
@@ -100,6 +105,18 @@ type StorageRuntime =
 type ImageAttachmentStatus = "idle" | "starting" | "waiting" | "choosing" | "importing";
 type LocalImageSourceKind = LocalImageAttachmentSource["kind"];
 
+interface DailyNoteUploadPlanItem {
+  readonly date: IsoDate;
+  readonly filename: string;
+  readonly uploadedMarkdown: string;
+  readonly existingMarkdown: string | null;
+}
+
+interface PendingDailyNoteUpload {
+  readonly items: readonly DailyNoteUploadPlanItem[];
+  readonly conflictCount: number;
+}
+
 interface StoredActiveImagePicker {
   readonly date: IsoDate;
   readonly session: GooglePhotosPickingSession;
@@ -112,6 +129,7 @@ export default function Home() {
     ? runtime.tokenProvider.consumeRedirectAccessToken()
     : { type: "none" as const };
   let uploadImageInput: HTMLInputElement | undefined;
+  let dailyNoteUploadInput: HTMLInputElement | undefined;
   let cameraVideo: HTMLVideoElement | undefined;
   let imageAltTextInput: HTMLInputElement | undefined;
   let aboutCloseButton: HTMLButtonElement | undefined;
@@ -142,6 +160,10 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [topMenuOpen, setTopMenuOpen] = createSignal(false);
   const [aboutOpen, setAboutOpen] = createSignal(false);
+  const [dailyNoteUploadInProgress, setDailyNoteUploadInProgress] = createSignal(false);
+  const [dailyNoteUploadError, setDailyNoteUploadError] = createSignal<string | null>(null);
+  const [dailyNoteUploadMessage, setDailyNoteUploadMessage] = createSignal<string | null>(null);
+  const [pendingDailyNoteUpload, setPendingDailyNoteUpload] = createSignal<PendingDailyNoteUpload | null>(null);
   const [editorMode, setEditorMode] = createSignal<EditorMode>("wysiwyg");
   const [insertImageMenuOpen, setInsertImageMenuOpen] = createSignal(false);
   const [editorResetKey, setEditorResetKey] = createSignal(0);
@@ -725,6 +747,156 @@ export default function Home() {
       getState: dateBoundEditorState
     });
     if (result !== null) applySelectedDailyNoteSaveResult(result);
+  };
+
+  const startDailyNoteUpload = () => {
+    setTopMenuOpen(false);
+    setDailyNoteUploadError(null);
+    setDailyNoteUploadMessage(null);
+    if (authReconnectRequired()) {
+      setDailyNoteUploadError("Reconnect before uploading daily notes.");
+      return;
+    }
+    dailyNoteUploadInput?.click();
+  };
+
+  const handleDailyNoteUploadFiles = async (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []);
+    if (files.length === 0) return;
+
+    setDailyNoteUploadInProgress(true);
+    setDailyNoteUploadError(null);
+    setDailyNoteUploadMessage(null);
+    setPendingDailyNoteUpload(null);
+    try {
+      const items = await buildDailyNoteUploadPlan(files);
+      const conflictCount = items.filter((item) => item.existingMarkdown !== null).length;
+      if (conflictCount > 0) {
+        setPendingDailyNoteUpload({ items, conflictCount });
+        return;
+      }
+      await applyDailyNoteUploadPlan({ items, conflictCount: 0 }, "replace");
+    } catch (error: unknown) {
+      if (handleRemoteError(error)) {
+        setDailyNoteUploadError("Reconnect before uploading daily notes.");
+      } else {
+        setDailyNoteUploadError(errorMessage(error));
+      }
+    } finally {
+      setDailyNoteUploadInProgress(false);
+    }
+  };
+
+  const applyPendingDailyNoteUpload = (resolution: DailyNoteUploadConflictResolution) => {
+    const pending = pendingDailyNoteUpload();
+    if (pending === null) return;
+    void applyDailyNoteUploadPlan(pending, resolution);
+  };
+
+  const cancelPendingDailyNoteUpload = () => {
+    setPendingDailyNoteUpload(null);
+    setDailyNoteUploadInProgress(false);
+  };
+
+  const buildDailyNoteUploadPlan = async (files: readonly File[]): Promise<DailyNoteUploadPlanItem[]> => {
+    const seenDates = new Set<IsoDate>();
+    const invalidFilenames: string[] = [];
+    const duplicateFilenames: string[] = [];
+    const candidates: Array<{
+      readonly date: IsoDate;
+      readonly filename: string;
+      readonly uploadedMarkdown: string;
+    }> = [];
+
+    for (const file of files) {
+      const date = parseDailyNoteUploadFilename(file.name);
+      if (date === null) {
+        invalidFilenames.push(file.name);
+        continue;
+      }
+      if (seenDates.has(date)) {
+        duplicateFilenames.push(file.name);
+        continue;
+      }
+      seenDates.add(date);
+      candidates.push({
+        date,
+        filename: file.name,
+        uploadedMarkdown: await file.text()
+      });
+    }
+
+    if (invalidFilenames.length > 0) {
+      throw new Error(`Daily Note files must be named YYYY-MM-DD.md. Invalid: ${invalidFilenames.join(", ")}`);
+    }
+    if (duplicateFilenames.length > 0) {
+      throw new Error(`Only one uploaded file per Daily Note date is allowed. Duplicates: ${duplicateFilenames.join(", ")}`);
+    }
+
+    const items: DailyNoteUploadPlanItem[] = [];
+    for (const candidate of candidates) {
+      items.push({
+        ...candidate,
+        existingMarkdown: await existingDailyNoteMarkdown(candidate.date)
+      });
+    }
+    return items;
+  };
+
+  const existingDailyNoteMarkdown = async (date: IsoDate): Promise<string | null> => {
+    const visibleSnapshot = captureVisibleDailyNoteSnapshot(dateBoundEditorState());
+    if (visibleSnapshot?.date === date) return visibleSnapshot.markdown.length === 0 ? null : visibleSnapshot.markdown;
+
+    const localDraft = await drafts.load(date);
+    if (localDraft?.dirty) return localDraft.markdown.length === 0 ? null : localDraft.markdown;
+
+    const remoteNote = await runtime.remote.loadDailyNote(date);
+    if (remoteNote !== null) return remoteNote.markdown.length === 0 ? null : remoteNote.markdown;
+
+    if (localDraft !== null) return localDraft.markdown.length === 0 ? null : localDraft.markdown;
+    return null;
+  };
+
+  const applyDailyNoteUploadPlan = async (
+    pending: PendingDailyNoteUpload,
+    resolution: DailyNoteUploadConflictResolution
+  ) => {
+    setDailyNoteUploadInProgress(true);
+    setDailyNoteUploadError(null);
+    setDailyNoteUploadMessage(null);
+    setPendingDailyNoteUpload(null);
+    try {
+      for (const item of pending.items) {
+        const markdown = item.existingMarkdown === null
+          ? item.uploadedMarkdown
+          : dailyNoteUploadMarkdown({
+              existingMarkdown: item.existingMarkdown,
+              uploadedMarkdown: item.uploadedMarkdown,
+              resolution
+            });
+        const result = await saveSelectedDailyNoteSnapshot({
+          snapshot: {
+            date: item.date,
+            markdown
+          },
+          authReconnectRequired: authReconnectRequired(),
+          drafts,
+          remote: runtime.remote,
+          getState: dateBoundEditorState
+        });
+        applySelectedDailyNoteSaveResult(result);
+        if (result.type === "failed") throw result.error;
+      }
+      setDailyNoteUploadMessage(`Uploaded ${pending.items.length} daily note${pending.items.length === 1 ? "" : "s"}.`);
+    } catch (error: unknown) {
+      if (handleRemoteError(error)) {
+        setDailyNoteUploadError("Reconnect before uploading daily notes.");
+      } else {
+        setDailyNoteUploadError(errorMessage(error));
+      }
+    } finally {
+      setDailyNoteUploadInProgress(false);
+    }
   };
 
   const retryLastSyncError = () => {
@@ -1324,6 +1496,18 @@ export default function Home() {
               </div>
             </div>
             <div class="toolbar-column toolbar-editor-column">
+              <input
+                ref={dailyNoteUploadInput}
+                class="hidden-file-input"
+                type="file"
+                accept=".md,text/markdown"
+                multiple
+                onChange={(event) => {
+                  const files = event.currentTarget.files;
+                  event.currentTarget.value = "";
+                  void handleDailyNoteUploadFiles(files);
+                }}
+              />
               <Show when={runtime.imageAttachments !== null}>
                 <input
                   ref={uploadImageInput}
@@ -1429,6 +1613,14 @@ export default function Home() {
                     <button
                       type="button"
                       role="menuitem"
+                      disabled={dailyNoteUploadInProgress()}
+                      onClick={startDailyNoteUpload}
+                    >
+                      {dailyNoteUploadInProgress() ? "Uploading daily notes..." : "Upload daily notes"}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
                       onClick={() => {
                         setTopMenuOpen(false);
                         setAboutOpen(true);
@@ -1488,6 +1680,23 @@ export default function Home() {
             </aside>
           </Show>
 
+          <Show when={dailyNoteUploadError()}>
+            {(message) => (
+              <aside class="sync-alert sync-alert-error" aria-live="polite">
+                <strong>Daily note upload failed</strong>
+                <pre>{message()}</pre>
+              </aside>
+            )}
+          </Show>
+
+          <Show when={dailyNoteUploadMessage()}>
+            {(message) => (
+              <aside class="sync-alert" aria-live="polite">
+                <strong>{message()}</strong>
+              </aside>
+            )}
+          </Show>
+
           <Show when={settingsOpen()}>
             <SettingsPanel settings={settings()} onChange={updateSettings} />
           </Show>
@@ -1524,6 +1733,62 @@ export default function Home() {
                 </dl>
               </div>
             </div>
+          </Show>
+
+          <Show when={pendingDailyNoteUpload()}>
+            {(pending) => (
+              <div class="modal-backdrop" role="presentation">
+                <div
+                  class="daily-note-upload-modal"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="daily-note-upload-modal-title"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") cancelPendingDailyNoteUpload();
+                  }}
+                >
+                  <div class="daily-note-upload-modal-header">
+                    <h2 id="daily-note-upload-modal-title">Existing daily notes</h2>
+                    <p>{pending().conflictCount} uploaded file{pending().conflictCount === 1 ? "" : "s"} match existing notes.</p>
+                  </div>
+                  <ul class="daily-note-upload-conflicts">
+                    {pending().items.filter((item) => item.existingMarkdown !== null).map((item) => (
+                      <li>{item.filename}</li>
+                    ))}
+                  </ul>
+                  <div class="modal-actions daily-note-upload-actions">
+                    <button
+                      type="button"
+                      disabled={dailyNoteUploadInProgress()}
+                      onClick={() => applyPendingDailyNoteUpload("prepend")}
+                    >
+                      Prepend
+                    </button>
+                    <button
+                      type="button"
+                      disabled={dailyNoteUploadInProgress()}
+                      onClick={() => applyPendingDailyNoteUpload("append")}
+                    >
+                      Append
+                    </button>
+                    <button
+                      type="button"
+                      disabled={dailyNoteUploadInProgress()}
+                      onClick={() => applyPendingDailyNoteUpload("replace")}
+                    >
+                      Replace
+                    </button>
+                    <button
+                      type="button"
+                      disabled={dailyNoteUploadInProgress()}
+                      onClick={cancelPendingDailyNoteUpload}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </Show>
 
           <Show
