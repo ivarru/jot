@@ -198,6 +198,7 @@ export default function Home() {
   const [existingNoteDatesError, setExistingNoteDatesError] = createSignal<string | null>(null);
   const [suppressLocalPersist, setSuppressLocalPersist] = createSignal(false);
   const [editorChangeEpoch, setEditorChangeEpoch] = createSignal(0);
+  let datePickerRoot: HTMLDivElement | undefined;
 
   const dateBoundEditorState = (): DateBoundEditorState => ({
     selectedDate: selectedDate(),
@@ -333,18 +334,24 @@ export default function Home() {
     }
   };
 
-  const closeDatePicker = () => {
+  const openDatePicker = () => {
+    if (!datePickerOpen()) setDatePickerOpen(true);
+  };
+
+  const closeDatePicker = (options: { blurFocus?: boolean } = {}) => {
     invalidateDatePickerRefresh();
     setDatePickerOpen(false);
     setExistingNoteDatesLoading(false);
+    if (options.blurFocus && datePickerRoot?.contains(document.activeElement)) {
+      (document.activeElement as HTMLElement).blur();
+    }
   };
 
-  const toggleDatePicker = () => {
-    if (datePickerOpen()) {
-      closeDatePicker();
-    } else {
-      setDatePickerOpen(true);
-    }
+  const handleDatePickerFocusOut = (event: FocusEvent & { currentTarget: HTMLDivElement }) => {
+    const root = event.currentTarget;
+    window.setTimeout(() => {
+      if (!root.contains(document.activeElement)) closeDatePicker();
+    }, 0);
   };
 
   const resetDatePickerState = () => {
@@ -461,7 +468,7 @@ export default function Home() {
     const onEscapeKey = (event: KeyboardEvent) => {
       if (!datePickerOpen() || !isEscapeKey(event)) return;
       event.preventDefault();
-      closeDatePicker();
+      closeDatePicker({ blurFocus: true });
     };
 
     window.addEventListener("keydown", onEscapeKey, true);
@@ -1581,45 +1588,41 @@ export default function Home() {
                 <button type="button" aria-label="Previous day" onClick={() => void navigateToDate(addDays(selectedDate()!, -1))}>
                   ‹
                 </button>
-                <input
-                  class="iso-date-input"
-                  type="text"
-                  inputmode="numeric"
-                  pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}"
-                  value={selectedDate() ?? ""}
-                  onChange={(event) => {
-                    const date = parseIsoDate(event.currentTarget.value);
-                    if (date !== null) {
-                      void navigateToDate(date);
-                    } else {
-                      event.currentTarget.value = selectedDate() ?? "";
-                    }
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter") return;
-                    const date = parseIsoDate(event.currentTarget.value);
-                    if (date !== null) void navigateToDate(date);
-                  }}
-                  aria-label="Selected date"
-                />
-                <div class="date-picker">
-                  <button
-                    type="button"
-                    class="date-picker-toggle"
-                    aria-label={datePickerOpen() ? "Close date picker" : "Open date picker"}
+                <div
+                  class="date-picker"
+                  ref={datePickerRoot}
+                  onFocusIn={openDatePicker}
+                  onFocusOut={handleDatePickerFocusOut}
+                >
+                  <input
+                    class="iso-date-input"
+                    type="text"
+                    inputmode="numeric"
+                    pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}"
+                    value={selectedDate() ?? ""}
+                    onFocus={openDatePicker}
+                    onClick={openDatePicker}
+                    onChange={(event) => {
+                      const date = parseIsoDate(event.currentTarget.value);
+                      if (date !== null) {
+                        void navigateToDate(date);
+                      } else {
+                        event.currentTarget.value = selectedDate() ?? "";
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return;
+                      const date = parseIsoDate(event.currentTarget.value);
+                      if (date !== null) void navigateToDate(date);
+                    }}
+                    aria-label="Selected date"
                     aria-haspopup="dialog"
                     aria-expanded={datePickerOpen()}
-                    onClick={toggleDatePicker}
-                    onKeyDown={(event) => {
-                      if (!isEscapeKey(event) || !datePickerOpen()) return;
-                      event.preventDefault();
-                      closeDatePicker();
-                    }}
-                  >
-                    ▦
-                  </button>
+                    aria-controls={datePickerOpen() ? "date-picker-popover" : undefined}
+                  />
                   <Show when={datePickerOpen()}>
                     <div
+                      id="date-picker-popover"
                       class="date-picker-popover"
                       role="dialog"
                       aria-label="Date picker"

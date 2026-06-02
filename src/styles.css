@@ -200,28 +200,14 @@ select {
 .date-picker {
   position: relative;
   display: inline-flex;
-}
-
-.date-picker-toggle {
-  width: 32px;
-  min-width: 32px;
-  min-height: 32px;
-  height: 32px;
-  padding: 0;
-  font-size: 17px;
-  line-height: 1;
-}
-
-.date-picker-toggle[aria-expanded="true"] {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+  align-items: center;
 }
 
 .date-picker-popover {
   position: absolute;
   z-index: 40;
   top: calc(100% + 6px);
-  left: 50%;
+  left: 0;
   display: grid;
   width: 286px;
   gap: 7px;
@@ -230,7 +216,6 @@ select {
   border-radius: 8px;
   background: var(--panel);
   box-shadow: 0 10px 24px rgb(0 0 0 / 18%);
-  transform: translateX(-50%);
 }
 
 .date-picker-header,
@@ -1045,20 +1030,11 @@ select {
     padding: 0 5px;
   }
 
-  .date-picker-toggle {
-    width: 30px;
-    min-width: 30px;
-    min-height: 30px;
-    height: 30px;
-    font-size: 16px;
-  }
-
   .date-picker-popover {
     position: fixed;
     top: 88px;
     left: 8px;
     width: min(300px, calc(100vw - 16px));
-    transform: none;
   }
 
   .today-jump-button,
