@@ -171,7 +171,7 @@ describe("date-bound editor session", () => {
     ).toBeNull();
   });
 
-  it("applies current sync markdown only from the captured snapshot, except conflicts", () => {
+  it("applies current sync markdown only from the captured snapshot", () => {
     expect(
       applySyncResult(
         state({
@@ -219,6 +219,18 @@ describe("date-bound editor session", () => {
           selectedDate: "2030-02-02",
           loadedDate: "2030-02-02",
           markdown: "newer local edit"
+        }),
+        { date: "2030-02-02", markdown: "old snapshot" },
+        session("<<<<<<< conflict", "conflict")
+      )
+    ).toBeNull();
+
+    expect(
+      applySyncResult(
+        state({
+          selectedDate: "2030-02-02",
+          loadedDate: "2030-02-02",
+          markdown: "old snapshot"
         }),
         { date: "2030-02-02", markdown: "old snapshot" },
         session("<<<<<<< conflict", "conflict")

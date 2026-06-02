@@ -177,8 +177,9 @@ export function applySyncResult(
   session: DailyNoteSessionResult
 ): DateBoundEditorTransition | null {
   if (!canEditDailyNoteDate(snapshot.date, state)) return null;
+  if (session.status === "conflict" && state.markdown !== snapshot.markdown) return null;
 
-  const shouldApplyMarkdown = state.markdown === snapshot.markdown || session.status === "conflict";
+  const shouldApplyMarkdown = state.markdown === snapshot.markdown;
   const nextMarkdown = shouldApplyMarkdown ? session.markdown : state.markdown;
   const next = {
     ...state,

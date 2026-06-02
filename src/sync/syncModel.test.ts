@@ -1,5 +1,6 @@
 import { createDraft } from "~/storage/localDraftStore";
 import type { IsoDate } from "~/domain/dates";
+import type { DateBoundEditorState } from "~/editor/dateBoundEditor";
 import type { JotSettings } from "~/domain/settings";
 import type {
   LocalDraft,
@@ -17,6 +18,7 @@ import {
   syncDailyNote,
   type CleanDailyNoteRefresh
 } from "./syncDailyNote";
+import { saveSelectedDailyNoteSnapshot } from "./selectedDailyNoteSession";
 
 const DATE: IsoDate = "2030-02-02";
 
@@ -301,6 +303,46 @@ describe("daily note sync model", () => {
     });
   });
 
+  it("does not apply a stale self conflict after the visible typo is fixed again", async () => {
+    const client = new MemoryDraftStore();
+    const remote = new ModelRemoteStorageProvider();
+    const original = "before\noriginal\nsame\nafter\n";
+    const fixed = "before\nfixed\nsame\nafter\n";
+    const typo = "before\ntypo\nsame\nafter\n";
+    const originalNote = remote.replace(DATE, original);
+    remote.replace(DATE, fixed);
+    await client.save(createDraft(DATE, typo, original, originalNote.revisionId, true));
+    let currentState = editorState({
+      selectedDate: DATE,
+      loadedDate: DATE,
+      markdown: typo,
+      cleanMarkdown: null,
+      editorChangeEpoch: 2
+    });
+
+    const result = await saveSelectedDailyNoteSnapshot({
+      snapshot: { date: DATE, markdown: typo },
+      authReconnectRequired: false,
+      drafts: client,
+      remote,
+      getState: () => currentState,
+      beforeApply: () => {
+        currentState = editorState({
+          selectedDate: DATE,
+          loadedDate: DATE,
+          markdown: fixed,
+          cleanMarkdown: null,
+          editorChangeEpoch: 3
+        });
+      }
+    });
+
+    expect(result.type).toBe("saved");
+    if (result.type !== "saved") return;
+    expect(result.session.status).toBe("conflict");
+    expect(result.transition).toBeNull();
+  });
+
   it("does not create a remote note for a single client's unchanged empty snapshot", async () => {
     const client = new MemoryDraftStore();
     const remote = new ModelRemoteStorageProvider();
@@ -473,6 +515,17 @@ function createModelClient(): ModelClient {
     cleanMarkdown: null,
     pendingCleanRefresh: null,
     pendingCleanRefreshCommit: null
+  };
+}
+
+function editorState(overrides: Partial<DateBoundEditorState>): DateBoundEditorState {
+  return {
+    selectedDate: null,
+    loadedDate: null,
+    markdown: "",
+    cleanMarkdown: null,
+    editorChangeEpoch: 0,
+    ...overrides
   };
 }
 
