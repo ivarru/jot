@@ -1005,7 +1005,7 @@ select {
 
 @media (max-width: 720px) {
   :root {
-    --editor-default-height: min(65vh, calc(100svh - 132px));
+    --editor-default-height: 50dvh;
     --editor-padding: 16px;
     --editor-vertical-padding: 32px;
   }

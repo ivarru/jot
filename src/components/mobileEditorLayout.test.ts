@@ -7,8 +7,8 @@ describe("mobile editor layout styles", () => {
     styles = await readFile("src/styles.css", "utf8");
   });
 
-  it("reduces the default editor height to the remaining small-screen viewport", () => {
-    expect(mobileStyles()).toContain("--editor-default-height: min(65vh, calc(100svh - 132px));");
+  it("uses a smaller dynamic mobile default editor height", () => {
+    expect(mobileStyles()).toContain("--editor-default-height: 50dvh;");
   });
 
   it("keeps the page as the only scroll container for oversized Markdown", () => {
