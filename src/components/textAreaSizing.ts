@@ -1,7 +1,9 @@
 export function resizeTextAreaToContents(element: HTMLTextAreaElement): void {
   const currentHeight = numericPixelValue(element.style.height);
-  if (currentHeight !== null && element.scrollHeight > currentHeight) {
-    element.style.height = `${element.scrollHeight}px`;
+  if (currentHeight !== null && element.scrollHeight >= currentHeight) {
+    if (element.scrollHeight > currentHeight) {
+      element.style.height = `${element.scrollHeight}px`;
+    }
     return;
   }
 

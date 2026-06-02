@@ -14,6 +14,19 @@ describe("textarea autosizing", () => {
     expect(assignments).toEqual(["120px"]);
   });
 
+  it("does not collapse a textarea that already fits its contents", () => {
+    const assignments: string[] = [];
+    const textarea = fakeTextarea({
+      currentHeight: "120px",
+      scrollHeight: 120,
+      assignments
+    });
+
+    resizeTextAreaToContents(textarea);
+
+    expect(assignments).toEqual([]);
+  });
+
   it("measures from auto when content may have shrunk", () => {
     const assignments: string[] = [];
     const textarea = fakeTextarea({

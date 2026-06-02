@@ -997,6 +997,7 @@ select {
   border: 0;
   overflow: hidden;
   resize: none;
+  outline: none;
   padding: var(--editor-padding);
   background: transparent;
   color: var(--text);
