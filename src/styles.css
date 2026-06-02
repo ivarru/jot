@@ -9,6 +9,9 @@
   --accent-contrast: #ffffff;
   --danger: #a13f35;
   --shadow: 0 1px 2px rgb(0 0 0 / 8%);
+  --editor-default-height: 65vh;
+  --editor-padding: 24px;
+  --editor-vertical-padding: 48px;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -35,6 +38,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  min-height: 100svh;
   background: var(--bg);
   color: var(--text);
 }
@@ -71,6 +75,7 @@ select {
 .app {
   width: min(980px, 100%);
   min-height: 100vh;
+  min-height: 100svh;
   margin: 0 auto;
   padding: 18px;
 }
@@ -78,6 +83,7 @@ select {
 .auth-screen,
 .invalid-date {
   min-height: 100vh;
+  min-height: 100svh;
   display: grid;
   align-content: center;
   justify-items: start;
@@ -646,7 +652,7 @@ select {
 }
 
 .editor-shell {
-  min-height: 65vh;
+  min-height: var(--editor-default-height);
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
@@ -655,7 +661,7 @@ select {
 
 .editor-loading {
   display: grid;
-  min-height: 65vh;
+  min-height: var(--editor-default-height);
   place-items: center;
   margin-top: 12px;
   border: 1px solid var(--border);
@@ -691,8 +697,8 @@ select {
 }
 
 .milkdown-root {
-  min-height: 65vh;
-  padding: 24px;
+  min-height: var(--editor-default-height);
+  padding: var(--editor-padding);
   overflow: visible;
 }
 
@@ -702,7 +708,7 @@ select {
 }
 
 .milkdown-root .ProseMirror {
-  min-height: calc(65vh - 48px);
+  min-height: calc(var(--editor-default-height) - var(--editor-vertical-padding));
   outline: none;
   overflow: visible;
 }
@@ -853,17 +859,23 @@ select {
 .plain-text-editor {
   display: block;
   width: 100%;
-  min-height: 65vh;
+  min-height: var(--editor-default-height);
   border: 0;
   overflow: hidden;
   resize: none;
-  padding: 24px;
+  padding: var(--editor-padding);
   background: transparent;
   color: var(--text);
   font: 16px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 @media (max-width: 720px) {
+  :root {
+    --editor-default-height: min(65vh, calc(100svh - 132px));
+    --editor-padding: 16px;
+    --editor-vertical-padding: 32px;
+  }
+
   .app {
     padding: 10px 8px 12px;
   }
@@ -934,11 +946,6 @@ select {
     gap: 3px;
   }
 
-  .milkdown-root,
-  .fallback-editor,
-  .plain-text-editor {
-    padding: 16px;
-  }
 }
 
 @media (max-width: 560px) {
