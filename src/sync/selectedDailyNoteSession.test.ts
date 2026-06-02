@@ -11,10 +11,12 @@ import type {
 } from "~/storage/types";
 import {
   captureSaveRetrySnapshot,
+  loadSelectedDailyNoteLocalSession,
   loadSelectedDailyNoteSession,
   reconnectSelectedDailyNoteAction,
   refreshCleanSelectedDailyNoteSession,
   saveSelectedDailyNoteSnapshot,
+  selectedDailyNoteRemoteLoadAction,
   selectedDailyNotePollingAction,
   saveVisibleDailyNoteSnapshot
 } from "./selectedDailyNoteSession";
@@ -162,6 +164,79 @@ describe("selected Daily Note session async save seam", () => {
         }
       }
     });
+  });
+
+  it("loads a clean cached Daily Note locally without waiting for remote storage", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    await drafts.save(createDraft("2030-02-02", "cached", "cached", "revision-1", false));
+
+    const result = await loadSelectedDailyNoteLocalSession({
+      date: "2030-02-02",
+      drafts,
+      getState: () => editorState({ selectedDate: "2030-02-02", loadedDate: null })
+    });
+
+    expect(result).toMatchObject({
+      type: "loaded",
+      session: {
+        markdown: "cached",
+        status: "synced"
+      },
+      transition: {
+        state: {
+          selectedDate: "2030-02-02",
+          loadedDate: "2030-02-02",
+          markdown: "cached",
+          cleanMarkdown: "cached"
+        }
+      }
+    });
+    expect(remote.loadInputs).toEqual([]);
+    expect(selectedDailyNoteRemoteLoadAction("2030-02-02", result.type === "loaded" ? result.session : null)).toEqual({
+      type: "refresh-clean",
+      date: "2030-02-02"
+    });
+  });
+
+  it("defers to a debounced remote load when no cached Daily Note exists", async () => {
+    const drafts = new MemoryDraftStore();
+
+    const result = await loadSelectedDailyNoteLocalSession({
+      date: "2030-02-02",
+      drafts,
+      getState: () => editorState({ selectedDate: "2030-02-02", loadedDate: null })
+    });
+
+    expect(result).toEqual({
+      type: "empty",
+      date: "2030-02-02",
+      applyToSelectedDate: true
+    });
+    expect(selectedDailyNoteRemoteLoadAction("2030-02-02", null)).toEqual({
+      type: "load-selected",
+      date: "2030-02-02"
+    });
+  });
+
+  it("does not schedule a remote load for dirty cached Daily Notes", async () => {
+    const drafts = new MemoryDraftStore();
+    await drafts.save(createDraft("2030-02-02", "dirty", "clean", "revision-1", true));
+
+    const result = await loadSelectedDailyNoteLocalSession({
+      date: "2030-02-02",
+      drafts,
+      getState: () => editorState({ selectedDate: "2030-02-02", loadedDate: null })
+    });
+
+    expect(result).toMatchObject({
+      type: "loaded",
+      session: {
+        markdown: "dirty",
+        status: "saved-locally"
+      }
+    });
+    expect(selectedDailyNoteRemoteLoadAction("2030-02-02", result.type === "loaded" ? result.session : null)).toBeNull();
   });
 
   it("refreshes a clean selected Daily Note and commits the visible draft", async () => {
@@ -349,10 +424,12 @@ class MemoryDraftStore implements LocalDraftStore {
 }
 
 class RecordingRemoteStorageProvider implements RemoteStorageProvider {
+  readonly loadInputs: IsoDate[] = [];
   readonly savedInputs: SaveDailyNoteInput[] = [];
   note: RemoteDailyNote | null = null;
 
   async loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null> {
+    this.loadInputs.push(date);
     return this.note?.date === date ? this.note : null;
   }
 

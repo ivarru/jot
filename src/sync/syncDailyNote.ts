@@ -51,6 +51,16 @@ export async function loadDailyNoteSession(
   };
 }
 
+export async function loadLocalDailyNoteSession(
+  date: IsoDate,
+  drafts: LocalDraftStore
+): Promise<DailyNoteSession | null> {
+  const localDraft = await drafts.load(date);
+  if (localDraft === null) return null;
+
+  return draftToSession(localDraft);
+}
+
 export async function loadCleanDailyNoteRefresh(
   date: IsoDate,
   drafts: LocalDraftStore,

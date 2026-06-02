@@ -15,6 +15,7 @@ import {
   commitVisibleCleanDailyNoteRefresh,
   loadCleanDailyNoteRefresh,
   loadDailyNoteSession,
+  loadLocalDailyNoteSession,
   persistLocalDraft,
   saveAndSyncDailyNoteSnapshot,
   type CleanDailyNoteRefresh,
@@ -68,6 +69,24 @@ export type LoadSelectedDailyNoteSessionResult =
       readonly applyToSelectedDate: boolean;
     };
 
+export type LoadSelectedDailyNoteLocalSessionResult =
+  | {
+      readonly type: "loaded";
+      readonly session: DailyNoteSession;
+      readonly transition: DateBoundEditorTransition | null;
+    }
+  | {
+      readonly type: "empty";
+      readonly date: IsoDate;
+      readonly applyToSelectedDate: boolean;
+    }
+  | {
+      readonly type: "failed";
+      readonly date: IsoDate;
+      readonly error: unknown;
+      readonly applyToSelectedDate: boolean;
+    };
+
 export type RefreshCleanSelectedDailyNoteSessionResult =
   | {
       readonly type: "skipped";
@@ -107,10 +126,26 @@ export type ReconnectSelectedDailyNoteAction =
       readonly date: IsoDate;
     };
 
+export type SelectedDailyNoteRemoteLoadAction =
+  | {
+      readonly type: "load-selected";
+      readonly date: IsoDate;
+    }
+  | {
+      readonly type: "refresh-clean";
+      readonly date: IsoDate;
+    };
+
 export interface LoadSelectedDailyNoteSessionInput {
   readonly date: IsoDate;
   readonly drafts: LocalDraftStore;
   readonly remote: RemoteStorageProvider;
+  readonly getState: () => DateBoundEditorState;
+}
+
+export interface LoadSelectedDailyNoteLocalSessionInput {
+  readonly date: IsoDate;
+  readonly drafts: LocalDraftStore;
   readonly getState: () => DateBoundEditorState;
 }
 
@@ -140,6 +175,43 @@ export async function loadSelectedDailyNoteSession(
       applyToSelectedDate: selectedDateStillRequested(input.getState(), input.date)
     };
   }
+}
+
+export async function loadSelectedDailyNoteLocalSession(
+  input: LoadSelectedDailyNoteLocalSessionInput
+): Promise<LoadSelectedDailyNoteLocalSessionResult> {
+  try {
+    const session = await loadLocalDailyNoteSession(input.date, input.drafts);
+    if (session === null) {
+      return {
+        type: "empty",
+        date: input.date,
+        applyToSelectedDate: selectedDateStillRequested(input.getState(), input.date)
+      };
+    }
+
+    return {
+      type: "loaded",
+      session,
+      transition: applyLoadedDailyNoteResult(input.getState(), input.date, session)
+    };
+  } catch (error) {
+    return {
+      type: "failed",
+      date: input.date,
+      error,
+      applyToSelectedDate: selectedDateStillRequested(input.getState(), input.date)
+    };
+  }
+}
+
+export function selectedDailyNoteRemoteLoadAction(
+  date: IsoDate,
+  localSession: DailyNoteSession | null
+): SelectedDailyNoteRemoteLoadAction | null {
+  if (localSession === null) return { type: "load-selected", date };
+  if (localSession.status === "saved-locally") return null;
+  return { type: "refresh-clean", date };
 }
 
 export async function refreshCleanSelectedDailyNoteSession(

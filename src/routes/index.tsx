@@ -59,12 +59,15 @@ import {
 } from "~/sync/syncDailyNote";
 import {
   captureSaveRetrySnapshot,
+  loadSelectedDailyNoteLocalSession,
   loadSelectedDailyNoteSession,
   reconnectSelectedDailyNoteAction,
   refreshCleanSelectedDailyNoteSession,
   saveSelectedDailyNoteSnapshot,
   saveVisibleDailyNoteSnapshot,
+  selectedDailyNoteRemoteLoadAction,
   selectedDailyNotePollingAction,
+  type LoadSelectedDailyNoteLocalSessionResult,
   type LoadSelectedDailyNoteSessionResult,
   type RefreshCleanSelectedDailyNoteSessionResult,
   type SaveSelectedDailyNoteSnapshotResult
@@ -95,6 +98,7 @@ import { FakePhotosAttachmentProvider } from "~/photos/fakePhotosAttachments";
 const drafts = new IndexedDbLocalDraftStore();
 const ACTIVE_IMAGE_PICKER_STORAGE_KEY = "jot.googlePhotosActivePicker";
 const ACTIVE_IMAGE_PICKER_TTL_MS = 10 * 60 * 1000;
+const SELECTED_DATE_REMOTE_LOAD_DEBOUNCE_MS = 200;
 
 type StorageRuntime =
   | {
@@ -313,21 +317,38 @@ export default function Home() {
       ([isAuthenticated, date]) => {
         if (!isAuthenticated || date === null) return;
 
-	        applyDateBoundEditorTransition(resetSelectedDailyNoteSession(dateBoundEditorState(), date));
-	        setLoadError(null);
-	        setLastSyncError(null);
-	        setImageAttachmentStatus("idle");
-	        setImageAttachmentError(null);
-	        setImageAttachmentDate(null);
-	        setImagePickingSession(null);
-	        setPickedImage(null);
-	        setLocalImageSource(null);
-	        clearCameraStream();
-	        setReusableImageAttachment(null);
-	        setImageAttachmentAltText("");
-	        setImportingImageResolutionName(null);
-	        setImageAttachmentDisplays({});
-	        void loadSelectedDate(date);
+        applyDateBoundEditorTransition(resetSelectedDailyNoteSession(dateBoundEditorState(), date));
+        setLoadError(null);
+        setLastSyncError(null);
+        setImageAttachmentStatus("idle");
+        setImageAttachmentError(null);
+        setImageAttachmentDate(null);
+        setImagePickingSession(null);
+        setPickedImage(null);
+        setLocalImageSource(null);
+        clearCameraStream();
+        setReusableImageAttachment(null);
+        setImageAttachmentAltText("");
+        setImportingImageResolutionName(null);
+        setImageAttachmentDisplays({});
+
+        let cancelled = false;
+        let remoteLoadTimeout: number | undefined;
+        void loadSelectedDateFromLocalDraft(date).then((action) => {
+          if (cancelled || action === null) return;
+          remoteLoadTimeout = window.setTimeout(() => {
+            if (action.type === "load-selected") {
+              void loadSelectedDate(action.date);
+            } else {
+              void refreshCleanSelectedDate(action.date);
+            }
+          }, SELECTED_DATE_REMOTE_LOAD_DEBOUNCE_MS);
+        });
+
+        onCleanup(() => {
+          cancelled = true;
+          if (remoteLoadTimeout !== undefined) window.clearTimeout(remoteLoadTimeout);
+        });
       },
       { defer: false }
     )
@@ -638,6 +659,15 @@ export default function Home() {
     applySelectedDailyNoteLoadResult(result);
   };
 
+  const loadSelectedDateFromLocalDraft = async (date: IsoDate) => {
+    const result = await loadSelectedDailyNoteLocalSession({
+      date,
+      drafts,
+      getState: dateBoundEditorState
+    });
+    return applySelectedDailyNoteLocalLoadResult(result);
+  };
+
   const refreshCleanSelectedDate = async (date: IsoDate) => {
     const result = await refreshCleanSelectedDailyNoteSession({
       date,
@@ -646,6 +676,35 @@ export default function Home() {
       getState: dateBoundEditorState
     });
     applySelectedDailyNoteRefreshResult(result);
+  };
+
+  const applySelectedDailyNoteLocalLoadResult = (result: LoadSelectedDailyNoteLocalSessionResult) => {
+    switch (result.type) {
+      case "loaded":
+        if (result.transition === null) return null;
+        applyDateBoundEditorTransition(result.transition);
+        setSyncStatus(result.session.status);
+        if (result.session.status !== "conflict") setLastSyncError(null);
+        return result.transition.state.loadedDate === null
+          ? null
+          : selectedDailyNoteRemoteLoadAction(result.transition.state.loadedDate, result.session);
+      case "empty":
+        return result.applyToSelectedDate ? selectedDailyNoteRemoteLoadAction(result.date, null) : null;
+      case "failed":
+        if (!result.applyToSelectedDate) return null;
+        if (handleRemoteError(result.error, {
+          message: errorMessage(result.error),
+          retry: "load-selected-note",
+          date: result.date
+        })) return null;
+        {
+          const message = errorMessage(result.error);
+          setLoadError(message);
+          setLastSyncError({ message, retry: "load-selected-note", date: result.date });
+          setSyncStatus("error");
+        }
+        return null;
+    }
   };
 
   const applySelectedDailyNoteLoadResult = (result: LoadSelectedDailyNoteSessionResult) => {
