@@ -29,10 +29,7 @@ export function mergeDailyNote(input: MergeInput): MergeResult {
     return { merged, conflicted: false };
   }
 
-  return {
-    merged: createConflictMarkdown(input.local, input.remote),
-    conflicted: true
-  };
+  return mergeLineChanges(input);
 }
 
 export function createConflictMarkdown(local: string, remote: string): string {
@@ -47,6 +44,196 @@ function tryAppendOnlyMerge(input: MergeInput): string | null {
   const localTail = input.local.slice(input.baseline.length);
   const remoteTail = input.remote.slice(input.baseline.length);
   return `${input.baseline}${localTail}${remoteTail}`;
+}
+
+interface LineHunk {
+  readonly start: number;
+  readonly end: number;
+  readonly replacement: readonly string[];
+}
+
+function mergeLineChanges(input: MergeInput): MergeResult {
+  const baselineLines = splitLines(input.baseline);
+  const localHunks = lineHunks(input.baseline, input.local);
+  const remoteHunks = lineHunks(input.baseline, input.remote);
+  let localIndex = 0;
+  let remoteIndex = 0;
+  let baselineIndex = 0;
+  let merged = "";
+  let conflicted = false;
+
+  while (localIndex < localHunks.length || remoteIndex < remoteHunks.length) {
+    const localHunk = localHunks[localIndex];
+    const remoteHunk = remoteHunks[remoteIndex];
+
+    if (remoteHunk === undefined || (localHunk !== undefined && hunkComesBefore(localHunk, remoteHunk))) {
+      const hunk = localHunk!;
+      merged += baselineLines.slice(baselineIndex, hunk.start).join("");
+      merged += hunk.replacement.join("");
+      baselineIndex = hunk.end;
+      localIndex += 1;
+      continue;
+    }
+
+    if (localHunk === undefined || hunkComesBefore(remoteHunk, localHunk)) {
+      merged += baselineLines.slice(baselineIndex, remoteHunk.start).join("");
+      merged += remoteHunk.replacement.join("");
+      baselineIndex = remoteHunk.end;
+      remoteIndex += 1;
+      continue;
+    }
+
+    const group = collectOverlappingHunks(localHunks, remoteHunks, localIndex, remoteIndex);
+    localIndex = group.nextLocalIndex;
+    remoteIndex = group.nextRemoteIndex;
+    merged += baselineLines.slice(baselineIndex, group.start).join("");
+
+    const localValue = applyHunksToRange(baselineLines, group.start, group.end, group.localHunks);
+    const remoteValue = applyHunksToRange(baselineLines, group.start, group.end, group.remoteHunks);
+    if (localValue === remoteValue) {
+      merged += localValue;
+    } else {
+      conflicted = true;
+      merged += conflictHunk(localValue, remoteValue);
+    }
+    baselineIndex = group.end;
+  }
+
+  merged += baselineLines.slice(baselineIndex).join("");
+  return { merged, conflicted };
+}
+
+function lineHunks(from: string, to: string): LineHunk[] {
+  const baselineLines = splitLines(from);
+  const hunks: LineHunk[] = [];
+  let baselineIndex = 0;
+  let pending: { start: number; end: number; replacement: string[] } | null = null;
+
+  const flushPending = () => {
+    if (pending === null) return;
+    const replacedLineCount = pending.end - pending.start;
+    if (replacedLineCount === pending.replacement.length) {
+      for (let index = 0; index < replacedLineCount; index += 1) {
+        const replacement = pending.replacement[index]!;
+        if (baselineLines[pending.start + index] === replacement) continue;
+        hunks.push({
+          start: pending.start + index,
+          end: pending.start + index + 1,
+          replacement: [replacement]
+        });
+      }
+    } else {
+      hunks.push(pending);
+    }
+    pending = null;
+  };
+
+  for (const change of diffLines(from, to)) {
+    const lines = splitLines(change.value);
+    if (!change.added && !change.removed) {
+      flushPending();
+      baselineIndex += lines.length;
+      continue;
+    }
+
+    pending ??= { start: baselineIndex, end: baselineIndex, replacement: [] };
+    if (change.removed) {
+      pending.end += lines.length;
+      baselineIndex += lines.length;
+    } else if (change.added) {
+      pending.replacement.push(...lines);
+    }
+  }
+
+  flushPending();
+  return hunks;
+}
+
+function collectOverlappingHunks(
+  localHunks: readonly LineHunk[],
+  remoteHunks: readonly LineHunk[],
+  localIndex: number,
+  remoteIndex: number
+): {
+  readonly start: number;
+  readonly end: number;
+  readonly localHunks: readonly LineHunk[];
+  readonly remoteHunks: readonly LineHunk[];
+  readonly nextLocalIndex: number;
+  readonly nextRemoteIndex: number;
+} {
+  let start = Math.min(localHunks[localIndex]!.start, remoteHunks[remoteIndex]!.start);
+  let end = Math.max(localHunks[localIndex]!.end, remoteHunks[remoteIndex]!.end);
+  const localGroup: LineHunk[] = [];
+  const remoteGroup: LineHunk[] = [];
+  let nextLocalIndex = localIndex;
+  let nextRemoteIndex = remoteIndex;
+  let added = true;
+
+  while (added) {
+    added = false;
+    while (nextLocalIndex < localHunks.length && hunkOverlapsRange(localHunks[nextLocalIndex]!, start, end)) {
+      const hunk = localHunks[nextLocalIndex]!;
+      localGroup.push(hunk);
+      start = Math.min(start, hunk.start);
+      end = Math.max(end, hunk.end);
+      nextLocalIndex += 1;
+      added = true;
+    }
+
+    while (nextRemoteIndex < remoteHunks.length && hunkOverlapsRange(remoteHunks[nextRemoteIndex]!, start, end)) {
+      const hunk = remoteHunks[nextRemoteIndex]!;
+      remoteGroup.push(hunk);
+      start = Math.min(start, hunk.start);
+      end = Math.max(end, hunk.end);
+      nextRemoteIndex += 1;
+      added = true;
+    }
+  }
+
+  return {
+    start,
+    end,
+    localHunks: localGroup,
+    remoteHunks: remoteGroup,
+    nextLocalIndex,
+    nextRemoteIndex
+  };
+}
+
+function applyHunksToRange(
+  baselineLines: readonly string[],
+  start: number,
+  end: number,
+  hunks: readonly LineHunk[]
+): string {
+  let value = "";
+  let baselineIndex = start;
+  for (const hunk of hunks) {
+    value += baselineLines.slice(baselineIndex, hunk.start).join("");
+    value += hunk.replacement.join("");
+    baselineIndex = hunk.end;
+  }
+  value += baselineLines.slice(baselineIndex, end).join("");
+  return value;
+}
+
+function hunkComesBefore(left: LineHunk, right: LineHunk): boolean {
+  if (left.end < right.start) return true;
+  if (left.end > right.start) return false;
+  return !(left.start === left.end && right.start === right.end && left.start === right.start);
+}
+
+function hunkOverlapsRange(hunk: LineHunk, start: number, end: number): boolean {
+  if (hunk.start === hunk.end) {
+    if (start === end) return hunk.start === start;
+    return hunk.start > start && hunk.start < end;
+  }
+  return hunk.start < end && hunk.end > start;
+}
+
+function splitLines(value: string): string[] {
+  return value.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 }
 
 function ensureTrailingNewline(value: string): string {
@@ -80,5 +267,9 @@ function conflictHunksFromLineDiff(changes: readonly Change[]): string {
 
 function flushConflictHunk(local: string, remote: string): string {
   if (local === "" && remote === "") return "";
+  return conflictHunk(local, remote);
+}
+
+function conflictHunk(local: string, remote: string): string {
   return `<<<<<<< Local Draft\n${ensureTrailingNewline(local)}=======\n${ensureTrailingNewline(remote)}>>>>>>> Google Drive\n`;
 }

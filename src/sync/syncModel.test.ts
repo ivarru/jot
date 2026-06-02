@@ -258,6 +258,27 @@ describe("daily note sync model", () => {
     });
   });
 
+  it("merges a stale clean client's new edit with newer remote changes", async () => {
+    const remote = new ModelRemoteStorageProvider();
+    const clientA = new MemoryDraftStore();
+    const staleClient = new MemoryDraftStore();
+    const oldMarkdown = "Title old\nbody\n";
+    const newerRemoteMarkdown = "Title new\nbody\n";
+    const staleWithNewEdit = "Title old\nbody \n";
+
+    await saveAndSyncDailyNoteSnapshot(DATE, oldMarkdown, clientA, remote);
+    await expect(loadDailyNoteSession(DATE, staleClient, remote)).resolves.toEqual({
+      markdown: oldMarkdown,
+      status: "synced"
+    });
+    await saveAndSyncDailyNoteSnapshot(DATE, newerRemoteMarkdown, clientA, remote);
+
+    await expect(saveAndSyncDailyNoteSnapshot(DATE, staleWithNewEdit, staleClient, remote)).resolves.toEqual({
+      markdown: "Title new\nbody \n",
+      status: "saved-locally"
+    });
+  });
+
   it("preserves a single client's dirty draft across a transient save failure and retry", async () => {
     const client = new MemoryDraftStore();
     const remote = new ModelRemoteStorageProvider();

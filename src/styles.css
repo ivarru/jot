@@ -348,6 +348,11 @@ select {
   cursor: default;
 }
 
+.sync-status:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
 .sync-conflict,
 .sync-error {
   color: var(--danger);

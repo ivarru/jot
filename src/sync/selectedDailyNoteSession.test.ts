@@ -14,6 +14,7 @@ import {
   loadSelectedDailyNoteLocalSession,
   loadSelectedDailyNoteSession,
   reconnectSelectedDailyNoteAction,
+  selectedDailyNoteManualSyncAction,
   refreshCleanSelectedDailyNoteSession,
   saveSelectedDailyNoteSnapshot,
   selectedDailyNoteRemoteLoadAction,
@@ -199,7 +200,7 @@ describe("selected Daily Note session async save seam", () => {
     });
   });
 
-  it("defers to a debounced remote load when no cached Daily Note exists", async () => {
+  it("requests a remote load when no cached Daily Note exists", async () => {
     const drafts = new MemoryDraftStore();
 
     const result = await loadSelectedDailyNoteLocalSession({
@@ -376,6 +377,53 @@ describe("selected Daily Note session async save seam", () => {
       date: "2030-02-02"
     });
     expect(reconnectSelectedDailyNoteAction(editorState({ selectedDate: null, loadedDate: null }))).toBeNull();
+  });
+
+  it("chooses manual sync actions from selected Daily Note visibility", () => {
+    const cleanState = editorState({
+      selectedDate: "2030-02-02",
+      loadedDate: "2030-02-02",
+      markdown: "clean",
+      cleanMarkdown: "clean"
+    });
+    const dirtyState = editorState({
+      selectedDate: "2030-02-02",
+      loadedDate: "2030-02-02",
+      markdown: "dirty"
+    });
+
+    expect(selectedDailyNoteManualSyncAction(cleanState, "synced")).toEqual({
+      type: "refresh-clean",
+      date: "2030-02-02"
+    });
+    expect(selectedDailyNoteManualSyncAction(cleanState, "local-only")).toEqual({
+      type: "refresh-clean",
+      date: "2030-02-02"
+    });
+    expect(selectedDailyNoteManualSyncAction(cleanState, "error")).toEqual({
+      type: "refresh-clean",
+      date: "2030-02-02"
+    });
+    expect(selectedDailyNoteManualSyncAction(dirtyState, "saved-locally")).toEqual({
+      type: "save-visible",
+      snapshot: {
+        date: "2030-02-02",
+        markdown: "dirty"
+      }
+    });
+    expect(selectedDailyNoteManualSyncAction(dirtyState, "synced")).toEqual({
+      type: "save-visible",
+      snapshot: {
+        date: "2030-02-02",
+        markdown: "dirty"
+      }
+    });
+    expect(selectedDailyNoteManualSyncAction(editorState({ selectedDate: "2030-02-02", loadedDate: null }), "synced")).toEqual({
+      type: "load-selected",
+      date: "2030-02-02"
+    });
+    expect(selectedDailyNoteManualSyncAction(cleanState, "auth-required")).toBeNull();
+    expect(selectedDailyNoteManualSyncAction(cleanState, "syncing")).toBeNull();
   });
 });
 

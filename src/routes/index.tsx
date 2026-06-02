@@ -73,6 +73,7 @@ import {
   refreshCleanSelectedDailyNoteSession,
   saveSelectedDailyNoteSnapshot,
   saveVisibleDailyNoteSnapshot,
+  selectedDailyNoteManualSyncAction,
   selectedDailyNoteRemoteLoadAction,
   selectedDailyNotePollingAction,
   type LoadSelectedDailyNoteLocalSessionResult,
@@ -106,7 +107,6 @@ import { FakePhotosAttachmentProvider } from "~/photos/fakePhotosAttachments";
 const drafts = new IndexedDbLocalDraftStore();
 const ACTIVE_IMAGE_PICKER_STORAGE_KEY = "jot.googlePhotosActivePicker";
 const ACTIVE_IMAGE_PICKER_TTL_MS = 10 * 60 * 1000;
-const SELECTED_DATE_REMOTE_LOAD_DEBOUNCE_MS = 200;
 
 type StorageRuntime =
   | {
@@ -423,21 +423,17 @@ export default function Home() {
         setImageAttachmentDisplays({});
 
         let cancelled = false;
-        let remoteLoadTimeout: number | undefined;
         void loadSelectedDateFromLocalDraft(date).then((action) => {
           if (cancelled || action === null) return;
-          remoteLoadTimeout = window.setTimeout(() => {
-            if (action.type === "load-selected") {
-              void loadSelectedDate(action.date);
-            } else {
-              void refreshCleanSelectedDate(action.date);
-            }
-          }, SELECTED_DATE_REMOTE_LOAD_DEBOUNCE_MS);
+          if (action.type === "load-selected") {
+            void loadSelectedDate(action.date);
+          } else {
+            void refreshCleanSelectedDate(action.date);
+          }
         });
 
         onCleanup(() => {
           cancelled = true;
-          if (remoteLoadTimeout !== undefined) window.clearTimeout(remoteLoadTimeout);
         });
       },
       { defer: false }
@@ -640,12 +636,29 @@ export default function Home() {
 
   createEffect(() => {
     const onVisibilityChange = () => {
-      if (document.visibilityState !== "hidden") return;
-      clearCameraStream();
-      void saveCurrentEditorSnapshot();
+      if (document.visibilityState === "hidden") {
+        clearCameraStream();
+        void saveCurrentEditorSnapshot();
+        return;
+      }
+
+      void syncSelectedDateOnDemand();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     onCleanup(() => document.removeEventListener("visibilitychange", onVisibilityChange));
+  });
+
+  createEffect(() => {
+    const onFocus = () => {
+      if (document.visibilityState === "hidden") return;
+      void syncSelectedDateOnDemand();
+    };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("pageshow", onFocus);
+    onCleanup(() => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("pageshow", onFocus);
+    });
   });
 
   createEffect(() => {
@@ -933,6 +946,24 @@ export default function Home() {
       getState: dateBoundEditorState
     });
     if (result !== null) applySelectedDailyNoteSaveResult(result);
+  };
+
+  const syncSelectedDateOnDemand = async () => {
+    if (!authenticated() || authReconnectRequired()) return;
+    const action = selectedDailyNoteManualSyncAction(dateBoundEditorState(), syncStatus());
+    if (action === null) return;
+
+    switch (action.type) {
+      case "load-selected":
+        await loadSelectedDate(action.date);
+        return;
+      case "refresh-clean":
+        await refreshCleanSelectedDate(action.date);
+        return;
+      case "save-visible":
+        await saveAndSyncSnapshot(action.snapshot);
+        return;
+    }
   };
 
   const startDailyNoteUpload = () => {
@@ -1789,7 +1820,16 @@ export default function Home() {
               </Show>
             </div>
             <div class="toolbar-column toolbar-status-column">
-              <span class={`sync-status sync-${syncStatus()}`}>{syncStatusLabel(syncStatus())}</span>
+              <button
+                type="button"
+                class={`sync-status sync-${syncStatus()}`}
+                aria-label="Force synchronization"
+                title="Force synchronization"
+                disabled={!authenticated() || authReconnectRequired() || selectedDailyNoteManualSyncAction(dateBoundEditorState(), syncStatus()) === null}
+                onClick={() => void syncSelectedDateOnDemand()}
+              >
+                {syncStatusLabel(syncStatus())}
+              </button>
               <Show when={syncDelayed()}>
                 <span
                   class="sync-delay-warning"

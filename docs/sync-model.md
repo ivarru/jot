@@ -46,6 +46,7 @@ The model currently checks these properties:
 - A clean client must refresh when another client creates or updates the remote note.
 - Dirty local drafts remain authoritative while loading or refreshing.
 - A stale client must not silently overwrite a newer remote revision.
+- A stale clean client that receives a new local edit must merge that edit with newer remote changes from the shared baseline, instead of diffing the whole stale document against the remote document.
 - A save must not use a remote revision as its baseline unless that revision was visible in the editor.
 - A late save must not mark a newer local edit clean.
 - An unchanged empty note must not create a remote file.

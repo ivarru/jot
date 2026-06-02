@@ -28,6 +28,32 @@ describe("daily note merge", () => {
     });
   });
 
+  it("merges non-overlapping local edits and remote edits from the same baseline", () => {
+    expect(
+      mergeDailyNote({
+        baseline: "Title old\nbody\n",
+        local: "Title old\nbody \n",
+        remote: "Title new\nbody\n"
+      })
+    ).toEqual({
+      merged: "Title new\nbody \n",
+      conflicted: false
+    });
+  });
+
+  it("limits conflicts to overlapping local and remote edits", () => {
+    expect(
+      mergeDailyNote({
+        baseline: "before\nold\nsame\nafter\n",
+        local: "before\nlocal\nsame \nafter\n",
+        remote: "before\nremote\nsame\nafter\n"
+      })
+    ).toEqual({
+      merged: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame \nafter\n",
+      conflicted: true
+    });
+  });
+
   it("uses a line diff for multiple separated conflict hunks", () => {
     expect(
       createConflictMarkdown(

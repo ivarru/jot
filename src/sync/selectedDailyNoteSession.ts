@@ -126,6 +126,20 @@ export type ReconnectSelectedDailyNoteAction =
       readonly date: IsoDate;
     };
 
+export type SelectedDailyNoteManualSyncAction =
+  | {
+      readonly type: "save-visible";
+      readonly snapshot: VisibleDailyNoteSnapshot;
+    }
+  | {
+      readonly type: "refresh-clean";
+      readonly date: IsoDate;
+    }
+  | {
+      readonly type: "load-selected";
+      readonly date: IsoDate;
+    };
+
 export type SelectedDailyNoteRemoteLoadAction =
   | {
       readonly type: "load-selected";
@@ -307,6 +321,36 @@ export function reconnectSelectedDailyNoteAction(state: DateBoundEditorState): R
     : {
         type: "load-selected",
         date: state.selectedDate
+      };
+}
+
+export function selectedDailyNoteManualSyncAction(
+  state: DateBoundEditorState,
+  status: SyncStatus
+): SelectedDailyNoteManualSyncAction | null {
+  if (state.selectedDate === null) return null;
+  if (status === "auth-required" || status === "syncing") return null;
+
+  if (state.loadedDate !== state.selectedDate) {
+    return {
+      type: "load-selected",
+      date: state.selectedDate
+    };
+  }
+
+  if (state.cleanMarkdown !== null && state.markdown === state.cleanMarkdown) {
+    return {
+      type: "refresh-clean",
+      date: state.selectedDate
+    };
+  }
+
+  const snapshot = captureVisibleDailyNoteSnapshot(state);
+  return snapshot === null
+    ? null
+    : {
+        type: "save-visible",
+        snapshot
       };
 }
 
