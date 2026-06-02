@@ -8,6 +8,9 @@
   --accent: #2f5d50;
   --accent-contrast: #ffffff;
   --danger: #a13f35;
+  --reconnect-bg: #b45309;
+  --reconnect-border: #92400e;
+  --reconnect-text: #fff7ed;
   --shadow: 0 1px 2px rgb(0 0 0 / 8%);
   --editor-default-height: 65vh;
   --editor-padding: 24px;
@@ -26,6 +29,9 @@
     --accent: #8fc7b6;
     --accent-contrast: #10201b;
     --danger: #e08378;
+    --reconnect-bg: #f59e0b;
+    --reconnect-border: #fbbf24;
+    --reconnect-text: #2b1700;
     --shadow: 0 1px 2px rgb(0 0 0 / 30%);
   }
 }
@@ -597,10 +603,16 @@ select {
 .toolbar-reconnect-button {
   min-height: 32px;
   padding: 0 10px;
-  border-color: color-mix(in srgb, var(--accent), transparent 35%);
-  background: var(--accent);
-  color: var(--accent-contrast);
+  border-color: var(--reconnect-border);
+  background: var(--reconnect-bg);
+  color: var(--reconnect-text);
   font-weight: 600;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--reconnect-border), transparent 55%);
+}
+
+.toolbar-reconnect-button:hover:not(:disabled) {
+  border-color: var(--reconnect-border);
+  filter: brightness(1.06);
 }
 
 .raw-mode-toggle::after {
