@@ -73,6 +73,7 @@ import {
   refreshCleanSelectedDailyNoteSession,
   saveSelectedDailyNoteSnapshot,
   saveVisibleDailyNoteSnapshot,
+  selectedDailyNoteBlurSaveAction,
   selectedDailyNoteManualSyncAction,
   selectedDailyNoteRemoteLoadAction,
   selectedDailyNotePollingAction,
@@ -1127,7 +1128,8 @@ export default function Home() {
   const handleEditorBlur = (documentKey: string, value: string) => {
     const date = parseIsoDate(documentKey);
     if (date === null) return;
-    void saveAndSyncSnapshot(captureDocumentSnapshot(date, value));
+    const snapshot = selectedDailyNoteBlurSaveAction(dateBoundEditorState(), captureDocumentSnapshot(date, value));
+    if (snapshot !== null) void saveAndSyncSnapshot(snapshot);
   };
 
   const startGooglePhotosImagePick = async () => {

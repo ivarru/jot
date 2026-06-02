@@ -2,6 +2,7 @@ import {
   applyCleanDailyNoteRefreshResult,
   applyLoadedDailyNoteResult,
   applySyncResult,
+  canEditDailyNoteDate,
   captureVisibleDailyNoteSnapshot,
   createCleanDailyNoteRefreshRequest,
   type DateBoundEditorState,
@@ -352,6 +353,15 @@ export function selectedDailyNoteManualSyncAction(
         type: "save-visible",
         snapshot
       };
+}
+
+export function selectedDailyNoteBlurSaveAction(
+  state: DateBoundEditorState,
+  snapshot: VisibleDailyNoteSnapshot
+): VisibleDailyNoteSnapshot | null {
+  if (!canEditDailyNoteDate(snapshot.date, state)) return null;
+  if (state.cleanMarkdown !== null && snapshot.markdown === state.cleanMarkdown) return null;
+  return snapshot;
 }
 
 export async function saveVisibleDailyNoteSnapshot(

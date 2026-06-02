@@ -11,6 +11,7 @@ import type {
 } from "~/storage/types";
 import {
   captureSaveRetrySnapshot,
+  selectedDailyNoteBlurSaveAction,
   loadSelectedDailyNoteLocalSession,
   loadSelectedDailyNoteSession,
   reconnectSelectedDailyNoteAction,
@@ -424,6 +425,28 @@ describe("selected Daily Note session async save seam", () => {
     });
     expect(selectedDailyNoteManualSyncAction(cleanState, "auth-required")).toBeNull();
     expect(selectedDailyNoteManualSyncAction(cleanState, "syncing")).toBeNull();
+  });
+
+  it("does not save a clean visible Daily Note on blur", () => {
+    const cleanState = editorState({
+      selectedDate: "2030-02-02",
+      loadedDate: "2030-02-02",
+      markdown: "stale cached",
+      cleanMarkdown: "stale cached"
+    });
+    const dirtyState = editorState({
+      selectedDate: "2030-02-02",
+      loadedDate: "2030-02-02",
+      markdown: "local edit",
+      cleanMarkdown: null
+    });
+
+    expect(selectedDailyNoteBlurSaveAction(cleanState, { date: "2030-02-02", markdown: "stale cached" })).toBeNull();
+    expect(selectedDailyNoteBlurSaveAction(dirtyState, { date: "2030-02-02", markdown: "local edit" })).toEqual({
+      date: "2030-02-02",
+      markdown: "local edit"
+    });
+    expect(selectedDailyNoteBlurSaveAction(cleanState, { date: "2030-02-01", markdown: "background edit" })).toBeNull();
   });
 });
 

@@ -55,4 +55,4 @@ The strongest practical rule is: a local edit may only sync against a baseline r
 
 ## Scope
 
-The current model covers Daily Note text sync. It does not model image attachment imports, Google Photos album behavior, OAuth expiry, or Drive folder setup. Those flows should have focused tests of their own, and may later be incorporated into the model if their state interactions become sync-critical.
+The current model covers Daily Note text sync. It does not model image attachment imports, Google Photos album behavior, OAuth expiry, Drive folder setup, or route/editor lifecycle events such as a previous date's editor blur firing after date navigation. Those flows should have focused tests of their own, and may later be incorporated into the model if their state interactions become sync-critical.
