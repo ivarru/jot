@@ -138,6 +138,35 @@ describe("GoogleDriveStorageProvider", () => {
     expect(fetch.requests.at(-1)?.url).toBe("https://www.googleapis.com/drive/v3/files/note-file?alt=media");
   });
 
+  it("lists existing Daily Note dates from paginated Drive metadata", async () => {
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({
+        files: [
+          file("note-a", "2030-02-01.md", "text/markdown", "1"),
+          file("note-b", "not-a-note.md", "text/markdown", "1"),
+          file("note-c", "2030-02-01.md", "text/markdown", "2")
+        ],
+        nextPageToken: "next-page"
+      }),
+      json({ files: [file("note-d", "2030-02-03.md", "text/markdown", "1")] })
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+    await expect(provider.listDailyNoteDates()).resolves.toEqual(["2030-02-01", "2030-02-03"]);
+
+    const firstListRequest = fetch.requests.at(-2);
+    const secondListRequest = fetch.requests.at(-1);
+    expect(decodedUrl(firstListRequest?.url)).toContain("'daily-folder' in parents");
+    expect(decodedUrl(firstListRequest?.url)).toContain("mimeType = 'text/markdown'");
+    expect(decodedUrl(firstListRequest?.url)).toContain("pageSize=100");
+    expect(decodedUrl(firstListRequest?.url)).toContain("fields=nextPageToken,files(");
+    expect(decodedUrl(secondListRequest?.url)).toContain("pageToken=next-page");
+    expect(fetch.requests).toHaveLength(5);
+  });
+
   it("returns a conflict instead of overwriting when Drive version changed", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),

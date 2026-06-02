@@ -7,6 +7,11 @@ export class IndexedDbLocalDraftStore implements LocalDraftStore {
     return (await withStore<LocalDraft | undefined>("drafts", "readonly", (store) => store.get(date))) ?? null;
   }
 
+  async listExistingDailyNoteDates(): Promise<IsoDate[]> {
+    const drafts = await withStore<LocalDraft[]>("drafts", "readonly", (store) => store.getAll());
+    return drafts.filter(isExistingDailyNoteDraft).map((draft) => draft.date).sort();
+  }
+
   async listDirty(): Promise<LocalDraft[]> {
     const drafts = await withStore<LocalDraft[]>("drafts", "readonly", (store) => store.getAll());
     return drafts.filter((draft) => draft.dirty);
@@ -33,6 +38,10 @@ export class IndexedDbLocalDraftStore implements LocalDraftStore {
   async clearAll(): Promise<void> {
     await withStore<undefined>("drafts", "readwrite", (store) => store.clear());
   }
+}
+
+export function isExistingDailyNoteDraft(draft: LocalDraft): boolean {
+  return draft.dirty || draft.markdown.length > 0 || draft.baselineRevisionId !== null;
 }
 
 function idbRequestToPromise<T>(request: IDBRequest<T>): Promise<T> {

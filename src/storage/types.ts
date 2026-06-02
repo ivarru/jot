@@ -36,6 +36,7 @@ export type SaveDailyNoteResult =
 
 export interface RemoteStorageProvider {
   loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null>;
+  listDailyNoteDates?(): Promise<IsoDate[]>;
   saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult>;
   loadSettings(): Promise<JotSettings | null>;
   saveSettings(settings: JotSettings): Promise<JotSettings>;
@@ -52,6 +53,7 @@ export interface LocalDraft {
 
 export interface LocalDraftStore {
   load(date: IsoDate): Promise<LocalDraft | null>;
+  listExistingDailyNoteDates?(): Promise<IsoDate[]>;
   listDirty(): Promise<LocalDraft[]>;
   save(draft: LocalDraft): Promise<void>;
   saveIfUnchanged(date: IsoDate, expected: LocalDraft | null, draft: LocalDraft): Promise<boolean>;

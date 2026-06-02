@@ -19,6 +19,11 @@ export class FakeRemoteStorageProvider implements RemoteStorageProvider {
     return (await withStore<RemoteDailyNote | undefined>("fakeRemoteNotes", "readonly", (store) => store.get(date))) ?? null;
   }
 
+  async listDailyNoteDates(): Promise<IsoDate[]> {
+    const notes = await withStore<RemoteDailyNote[]>("fakeRemoteNotes", "readonly", (store) => store.getAll());
+    return notes.map((note) => note.date).sort();
+  }
+
   async saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {
     const existing = await this.loadDailyNote(input.date);
 

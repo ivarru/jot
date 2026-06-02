@@ -1,5 +1,5 @@
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
-import { dateToFilename, type IsoDate } from "~/domain/dates";
+import { dateToFilename, parseIsoDate, type IsoDate } from "~/domain/dates";
 import {
   imageAttachmentMetadataFilename,
   type ImageAttachmentMetadata,
@@ -40,6 +40,7 @@ interface DriveFile {
 
 interface DriveListResponse {
   readonly files?: DriveFile[];
+  readonly nextPageToken?: string;
 }
 
 interface JotDriveFolders {
@@ -85,6 +86,15 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
 
     const markdown = await this.downloadText(file.id);
     return driveFileToDailyNote(date, file, markdown);
+  }
+
+  async listDailyNoteDates(): Promise<IsoDate[]> {
+    const { dailyNotesFolderId } = await this.ensureFolders();
+    const files = await this.listFilesByQuery({
+      parentId: dailyNotesFolderId,
+      mimeType: MARKDOWN_MIME_TYPE
+    });
+    return Array.from(new Set(files.map((file) => filenameToDailyNoteDate(file.name)).filter((date) => date !== null))).sort();
   }
 
   async saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {
@@ -450,12 +460,21 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     const params = new URLSearchParams({
       spaces: "drive",
       pageSize: input.name === undefined ? "100" : "10",
-      fields: `files(${FILE_FIELDS})`,
+      fields: `nextPageToken,files(${FILE_FIELDS})`,
       q: query
     });
 
-    const response = await this.requestJson<DriveListResponse>(`${DRIVE_API_BASE}/files?${params}`);
-    return response.files ?? [];
+    const files: DriveFile[] = [];
+    let pageToken: string | undefined;
+    do {
+      const response = await this.requestJson<DriveListResponse>(
+        `${DRIVE_API_BASE}/files?${params}${pageToken === undefined ? "" : `&${new URLSearchParams({ pageToken })}`}`
+      );
+      files.push(...(response.files ?? []));
+      pageToken = response.nextPageToken;
+    } while (pageToken !== undefined);
+
+    return files;
   }
 
   private async downloadText(fileId: string): Promise<string> {
@@ -554,6 +573,11 @@ function driveFileToDailyNote(date: IsoDate, file: DriveFile, markdown: string):
     revisionId: driveRevisionId(file),
     updatedAt: file.modifiedTime ?? new Date().toISOString()
   };
+}
+
+function filenameToDailyNoteDate(filename: string): IsoDate | null {
+  if (!filename.endsWith(".md")) return null;
+  return parseIsoDate(filename.slice(0, -3));
 }
 
 function driveRevisionId(file: DriveFile): string {
