@@ -4,6 +4,7 @@ import type { ImageAttachmentDisplayMap } from "./milkdownImages";
 import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
 import { createListTightnessPlugin } from "./milkdownListTightness";
 import { renderMilkdownListItemLabel } from "./milkdownListItems";
+import { insertTextAreaTabIndent, shouldInsertTextAreaTabIndent } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 import {
   markdownSourceOffsetToRenderedOffset,
@@ -57,6 +58,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { commonmark, imageSchema },
           { gfm },
           { history },
+          { indent, indentConfig },
           { listener, listenerCtx },
           { listItemBlockComponent, listItemBlockConfig },
           { Plugin, TextSelection },
@@ -67,6 +69,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             import("@milkdown/kit/preset/commonmark"),
             import("@milkdown/kit/preset/gfm"),
             import("@milkdown/kit/plugin/history"),
+            import("@milkdown/kit/plugin/indent"),
             import("@milkdown/kit/plugin/listener"),
             import("@milkdown/kit/component/list-item-block"),
             import("@milkdown/kit/prose/state"),
@@ -97,6 +100,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .config((ctx) => {
             ctx.set(rootCtx, root);
             ctx.set(defaultValueCtx, props.value);
+            ctx.set<import("@milkdown/kit/plugin/indent").IndentConfigOptions, "indentConfig">(
+              indentConfig.key,
+              { type: "space", size: 2 }
+            );
             ctx.update(listItemBlockConfig.key, (config) => ({
               ...config,
               renderLabel: renderMilkdownListItemLabel
@@ -120,6 +127,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(listItemBlockComponent)
           .use(preserveListTightness)
           .use(history)
+          .use(indent)
           .use(listener)
           .create()
           .catch((reason: unknown) => {
@@ -187,6 +195,17 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             resizeTextAreaToContents(event.currentTarget);
             props.onCursorChange?.(event.currentTarget.selectionStart);
             props.onChange(props.documentKey, event.currentTarget.value);
+          }}
+          onKeyDown={(event) => {
+            if (!shouldInsertTextAreaTabIndent(event)) return;
+
+            event.preventDefault();
+            insertTextAreaTabIndent(
+              event.currentTarget,
+              (markdown) => props.onChange(props.documentKey, markdown),
+              props.onCursorChange
+            );
+            resizeTextAreaToContents(event.currentTarget);
           }}
           onKeyUp={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
           onSelect={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}

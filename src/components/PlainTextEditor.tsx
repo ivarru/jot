@@ -1,4 +1,5 @@
 import { createEffect, on } from "solid-js";
+import { insertTextAreaTabIndent, shouldInsertTextAreaTabIndent } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 
 interface PlainTextEditorProps {
@@ -40,6 +41,17 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
           resizeTextAreaToContents(event.currentTarget);
           props.onCursorChange?.(event.currentTarget.selectionStart);
           props.onChange(props.documentKey, event.currentTarget.value);
+        }}
+        onKeyDown={(event) => {
+          if (!shouldInsertTextAreaTabIndent(event)) return;
+
+          event.preventDefault();
+          insertTextAreaTabIndent(
+            event.currentTarget,
+            (markdown) => props.onChange(props.documentKey, markdown),
+            props.onCursorChange
+          );
+          resizeTextAreaToContents(event.currentTarget);
         }}
         onKeyUp={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
         onSelect={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
