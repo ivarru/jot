@@ -2,7 +2,13 @@
 
 ## Versioning
 
-This app is deployed continuously. Every commit that changes app behavior, UI, storage or sync semantics, dependencies, or deployment artifacts must bump the `version` in `package.json` and `package-lock.json` before committing. Choose the SemVer part pragmatically: patch for fixes and small polish, minor for user-visible improvements, and major for breaking or migration-heavy changes.
+This app is deployed continuously. Every commit that changes app behavior, UI, storage or sync semantics, dependencies, or deployment artifacts must bump the `version` in `package.json` and `package-lock.json` before committing.
+
+Choose the SemVer part pragmatically:
+
+- Patch for bug fixes, defensive hardening, regression fixes, and small polish that preserves the existing user workflow.
+- Minor for new or meaningfully expanded user-visible capabilities, including new workflows, navigation surfaces, import/export paths, settings, storage/sync behaviors, or UI that lets users do something they could not previously do.
+- Major for breaking changes, destructive migrations, or behavior changes that require user/operator coordination.
 
 Pure repository documentation changes that do not affect shipped app behavior do not require a version bump.
 
