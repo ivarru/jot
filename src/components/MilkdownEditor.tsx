@@ -10,6 +10,7 @@ import {
   markdownSourceOffsetToRenderedOffset,
   renderedOffsetToMarkdownSourceOffset
 } from "~/editor/markdownCursor";
+import type { Editor as MilkdownEditorInstance } from "@milkdown/kit/core";
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import type { Selection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
@@ -28,12 +29,63 @@ interface MilkdownEditorProps {
   readonly onPasteImage?: (documentKey: string, file: File) => void;
 }
 
+interface MilkdownEditorSession {
+  readonly applyExternalMarkdown: (markdown: string) => void;
+  readonly getMarkdown: () => string;
+}
+
+export interface MilkdownMarkdownSyncState {
+  currentMarkdown: string;
+  lastSerializedMarkdown: string | null;
+  pendingExternalMarkdown: string | null;
+}
+
+export function createMilkdownMarkdownSyncState(markdown: string): MilkdownMarkdownSyncState {
+  return {
+    currentMarkdown: markdown,
+    lastSerializedMarkdown: null,
+    pendingExternalMarkdown: null
+  };
+}
+
+export function trackMilkdownSerializedMarkdown(
+  state: MilkdownMarkdownSyncState,
+  serializedMarkdown: string
+): void {
+  state.lastSerializedMarkdown = serializedMarkdown;
+}
+
+export function trackMilkdownExternalMarkdown(
+  state: MilkdownMarkdownSyncState,
+  markdown: string,
+  serializedMarkdown: string
+): void {
+  state.currentMarkdown = markdown;
+  state.lastSerializedMarkdown = serializedMarkdown;
+  state.pendingExternalMarkdown = serializedMarkdown;
+}
+
+export function applyMilkdownUpdatedMarkdown(state: MilkdownMarkdownSyncState, markdown: string): boolean {
+  if (state.pendingExternalMarkdown !== null) {
+    const matchesPendingExternalMarkdown = state.pendingExternalMarkdown === markdown;
+    state.pendingExternalMarkdown = null;
+    if (matchesPendingExternalMarkdown) return false;
+  }
+
+  if (state.lastSerializedMarkdown === markdown) return false;
+
+  state.lastSerializedMarkdown = markdown;
+  state.currentMarkdown = markdown;
+  return true;
+}
+
 export function MilkdownEditor(props: MilkdownEditorProps) {
   let root!: HTMLDivElement;
   let fallbackTextarea: HTMLTextAreaElement | undefined;
   const [error, setError] = createSignal<string | null>(null);
   let imageAttachmentDisplays: ImageAttachmentDisplayMap = {};
   const imageAttachmentDisplayListeners = new Set<() => void>();
+  let activeSession: MilkdownEditorSession | null = null;
 
   createEffect(() => {
     imageAttachmentDisplays = props.imageAttachmentDisplays ?? {};
@@ -49,12 +101,25 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         const documentKey = props.documentKey;
         const focusAtEnd = props.focusAtEnd === true;
         const focusOffset = props.focusOffset;
-        let currentMarkdown = props.value;
+        const markdownState = createMilkdownMarkdownSyncState(props.value);
+        let disposed = false;
+        let editor: MilkdownEditorInstance | null = null;
+        let session: MilkdownEditorSession | null = null;
+        let removeRootListeners: (() => void) | null = null;
+        onCleanup(() => {
+          disposed = true;
+          removeRootListeners?.();
+          if (activeSession === session) {
+            activeSession = null;
+          }
+          void editor?.destroy();
+        });
+
         setError(null);
         root.replaceChildren();
 
         const [
-          { Editor, rootCtx, defaultValueCtx, editorViewCtx },
+          { Editor, rootCtx, defaultValueCtx, editorViewCtx, serializerCtx },
           { commonmark, imageSchema },
           { gfm },
           { history },
@@ -62,7 +127,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { listener, listenerCtx },
           { listItemBlockComponent, listItemBlockConfig },
           { Plugin, TextSelection },
-          { $prose, $view }
+          { $prose, $view, replaceAll }
         ] =
           await Promise.all([
             import("@milkdown/kit/core"),
@@ -75,6 +140,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             import("@milkdown/kit/prose/state"),
             import("@milkdown/kit/utils")
           ]);
+        if (disposed) return;
         const preserveListTightness = $prose(() => createListTightnessPlugin(Plugin));
         const jotImageView = $view(imageSchema.node, () => (node) => {
           let attrs = node.attrs;
@@ -96,7 +162,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           };
         });
 
-        const editor = await Editor.make()
+        editor = await Editor.make()
           .config((ctx) => {
             ctx.set(rootCtx, root);
             ctx.set(defaultValueCtx, props.value);
@@ -108,15 +174,19 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               ...config,
               renderLabel: renderMilkdownListItemLabel
             }));
-            ctx.get(listenerCtx).markdownUpdated((_ctx, markdown, previousMarkdown) => {
-              if (markdown !== previousMarkdown) {
-                currentMarkdown = markdown;
-                props.onChange(documentKey, markdown);
-              }
+            ctx.get(listenerCtx).updated((ctx, doc) => {
+              if (disposed || activeSession !== session) return;
+
+              const serializer = ctx.get(serializerCtx);
+              const markdown = serializer(doc);
+              if (!applyMilkdownUpdatedMarkdown(markdownState, markdown)) return;
+
+              props.onChange(documentKey, markdown);
             });
             ctx.get(listenerCtx).selectionUpdated((_ctx, selection) => {
+              if (disposed || activeSession !== session) return;
               props.onCursorChange?.(renderedOffsetToMarkdownSourceOffset(
-                currentMarkdown,
+                markdownState.currentMarkdown,
                 selectionToRenderedTextOffset(selection)
               ));
             });
@@ -136,7 +206,31 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           });
 
         if (editor !== null) {
+          if (disposed) {
+            void editor.destroy();
+            return;
+          }
+          session = {
+            applyExternalMarkdown: (markdown) => {
+              if (disposed || activeSession !== session || editor === null) return;
+
+              let replacedMarkdown = markdown;
+              editor.action((ctx) => {
+                replaceAll(markdown)(ctx);
+                const view = ctx.get(editorViewCtx);
+                const serializer = ctx.get(serializerCtx);
+                replacedMarkdown = serializer(view.state.doc);
+              });
+              trackMilkdownExternalMarkdown(markdownState, markdown, replacedMarkdown);
+            },
+            getMarkdown: () => markdownState.currentMarkdown
+          };
+          activeSession = session;
+          if (props.value !== markdownState.currentMarkdown) {
+            session.applyExternalMarkdown(props.value);
+          }
           const view = editor.ctx.get(editorViewCtx);
+          trackMilkdownSerializedMarkdown(markdownState, editor.ctx.get(serializerCtx)(view.state.doc));
           focusEditable(
             root,
             focusPlacement(focusAtEnd, focusOffset),
@@ -147,7 +241,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           );
         }
 
-        const blurListener = () => props.onBlur(documentKey, currentMarkdown);
+        const blurListener = () => props.onBlur(documentKey, markdownState.currentMarkdown);
         const pasteListener = (event: ClipboardEvent) => {
           if (props.onPasteImage === undefined) return;
           const file = firstClipboardImageFile(event.clipboardData?.items);
@@ -159,16 +253,22 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         };
         root.addEventListener("focusout", blurListener);
         root.addEventListener("paste", pasteListener, { capture: true });
-
-        onCleanup(() => {
+        removeRootListeners = () => {
           root.removeEventListener("focusout", blurListener);
           root.removeEventListener("paste", pasteListener, { capture: true });
-          void editor?.destroy();
-        });
+        };
       },
       { defer: false }
     )
   );
+
+  createEffect(() => {
+    const markdown = props.value;
+    const session = activeSession;
+    if (session === null || markdown === session.getMarkdown()) return;
+
+    session.applyExternalMarkdown(markdown);
+  });
 
   createEffect(() => {
     props.value;
