@@ -168,7 +168,7 @@ describe("PlainTextEditor", () => {
     dispose();
   });
 
-  it("increases and decreases heading depth with tab and shift-tab", () => {
+  it("decreases and increases heading depth with tab and shift-tab", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const changes: Array<readonly [string, string]> = [];
@@ -188,7 +188,7 @@ describe("PlainTextEditor", () => {
     textarea!.setSelectionRange("# Heading".length, "# Heading".length);
 
     textarea!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" }));
-    expect(textarea!.value).toBe("## Heading");
+    expect(textarea!.value).toBe("Heading");
 
     textarea!.dispatchEvent(
       new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey: true })
@@ -198,12 +198,12 @@ describe("PlainTextEditor", () => {
     textarea!.dispatchEvent(
       new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey: true })
     );
-    expect(textarea!.value).toBe("Heading");
+    expect(textarea!.value).toBe("## Heading");
 
     expect(changes).toEqual([
-      ["2030-02-01", "## Heading"],
+      ["2030-02-01", "Heading"],
       ["2030-02-01", "# Heading"],
-      ["2030-02-01", "Heading"]
+      ["2030-02-01", "## Heading"]
     ]);
 
     dispose();
@@ -284,7 +284,7 @@ describe("PlainTextEditor", () => {
     dispose();
   });
 
-  it("consumes shift-tab on plain text without changing content", () => {
+  it("turns plain text into a heading when pressing shift-tab", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const changes: Array<readonly [string, string]> = [];
@@ -312,10 +312,10 @@ describe("PlainTextEditor", () => {
     textarea!.dispatchEvent(tabEvent);
 
     expect(tabEvent.defaultPrevented).toBe(true);
-    expect(textarea!.value).toBe("before");
-    expect(textarea!.selectionStart).toBe("before".length);
-    expect(textarea!.selectionEnd).toBe("before".length);
-    expect(changes).toEqual([]);
+    expect(textarea!.value).toBe("# before");
+    expect(textarea!.selectionStart).toBe("# before".length);
+    expect(textarea!.selectionEnd).toBe("# before".length);
+    expect(changes).toEqual([["2030-02-01", "# before"]]);
 
     dispose();
   });

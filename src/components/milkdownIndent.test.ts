@@ -33,7 +33,7 @@ describe("milkdown structural tab editing", () => {
     }
   });
 
-  it("consumes shift-tab in ordinary paragraphs without changing markdown", async () => {
+  it("turns an ordinary paragraph into a heading when shift-tab is pressed", async () => {
     const editor = await createEditor("beforeafter");
 
     try {
@@ -41,7 +41,7 @@ describe("milkdown structural tab editing", () => {
       selectTextEnd(view, "before");
 
       expect(pressTab(view, true)).toBe(true);
-      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("beforeafter\n");
+      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("# beforeafter\n");
     } finally {
       await editor.destroy();
     }
@@ -81,7 +81,7 @@ describe("milkdown structural tab editing", () => {
     }
   });
 
-  it("increases and decreases heading depth with tab and shift-tab", async () => {
+  it("decreases and increases heading depth with tab and shift-tab", async () => {
     const editor = await createEditor("# Heading\n");
 
     try {
@@ -89,13 +89,13 @@ describe("milkdown structural tab editing", () => {
       selectTextEnd(view, "Heading");
 
       expect(pressTab(view)).toBe(true);
-      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("## Heading\n");
+      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("Heading\n");
 
       expect(pressTab(view, true)).toBe(true);
       expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("# Heading\n");
 
       expect(pressTab(view, true)).toBe(true);
-      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("Heading\n");
+      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("## Heading\n");
     } finally {
       await editor.destroy();
     }

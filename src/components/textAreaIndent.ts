@@ -83,27 +83,27 @@ export function textAreaStructuralTabAction(
   const heading = headingPrefix(lineText);
   if (heading !== null) {
     if (shiftKey) {
-      if (heading.depth === 1) {
-        const end = heading.markerStart + heading.markers.length + heading.separator.length;
-        return replace(line.start + heading.markerStart, line.start + end, "", selectionStart, selectionEnd);
-      }
-
-      return replace(
-        line.start + heading.markerStart,
-        line.start + heading.markerStart + 1,
-        "",
-        selectionStart,
-        selectionEnd
-      );
+      if (heading.depth >= 6) return { type: "noop" };
+      return replace(line.start + heading.markerStart, line.start + heading.markerStart, "#", selectionStart, selectionEnd);
     }
 
-    if (heading.depth >= 6) return { type: "noop" };
-    return replace(line.start + heading.markerStart, line.start + heading.markerStart, "#", selectionStart, selectionEnd);
+    if (heading.depth === 1) {
+      const end = heading.markerStart + heading.markers.length + heading.separator.length;
+      return replace(line.start + heading.markerStart, line.start + end, "", selectionStart, selectionEnd);
+    }
+
+    return replace(
+      line.start + heading.markerStart,
+      line.start + heading.markerStart + 1,
+      "",
+      selectionStart,
+      selectionEnd
+    );
   }
 
-  if (shiftKey) return { type: "noop" };
-
   const insertionOffset = line.start + Math.min(leadingSpaceCount(lineText), 3);
+  if (shiftKey) return replace(insertionOffset, insertionOffset, "# ", selectionStart, selectionEnd);
+
   return replace(insertionOffset, insertionOffset, "* ", selectionStart, selectionEnd);
 }
 

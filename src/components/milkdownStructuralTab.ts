@@ -99,6 +99,15 @@ function createStructuralTabCommand(deps: StructuralTabCommandDependencies): Com
       return true;
     }
 
+    if (deps.shiftKey && currentBlock.type === deps.paragraphType) {
+      dispatch?.(
+        state.tr
+          .setBlockType(state.selection.from, state.selection.to, deps.headingType, { level: 1 })
+          .scrollIntoView()
+      );
+      return true;
+    }
+
     return true;
   };
 }
@@ -140,7 +149,7 @@ function updateHeadingDepth(
   const heading = state.selection.$from.parent;
   const level = Number(heading.attrs.level ?? 1);
 
-  if (!deps.shiftKey) {
+  if (deps.shiftKey) {
     const nextLevel = Math.min(6, level + 1);
     if (nextLevel === level) return true;
     dispatch?.(
