@@ -1,5 +1,5 @@
 import { createEffect, on } from "solid-js";
-import { insertTextAreaTabIndent, shouldInsertTextAreaTabIndent } from "./textAreaIndent";
+import { applyTextAreaStructuralTab, shouldHandleTextAreaStructuralTab } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 
 interface PlainTextEditorProps {
@@ -43,11 +43,12 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
           props.onChange(props.documentKey, event.currentTarget.value);
         }}
         onKeyDown={(event) => {
-          if (!shouldInsertTextAreaTabIndent(event)) return;
+          if (!shouldHandleTextAreaStructuralTab(event)) return;
 
           event.preventDefault();
-          insertTextAreaTabIndent(
+          applyTextAreaStructuralTab(
             event.currentTarget,
+            event.shiftKey,
             (markdown) => props.onChange(props.documentKey, markdown),
             props.onCursorChange
           );

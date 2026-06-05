@@ -4,7 +4,8 @@ import type { ImageAttachmentDisplayMap } from "./milkdownImages";
 import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
 import { createListTightnessPlugin } from "./milkdownListTightness";
 import { renderMilkdownListItemLabel } from "./milkdownListItems";
-import { insertTextAreaTabIndent, shouldInsertTextAreaTabIndent } from "./textAreaIndent";
+import { createMilkdownStructuralTabKeymap } from "./milkdownStructuralTab";
+import { applyTextAreaStructuralTab, shouldHandleTextAreaStructuralTab } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 import {
   markdownSourceOffsetToRenderedOffset,
@@ -120,28 +121,45 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 
         const [
           { Editor, rootCtx, defaultValueCtx, editorViewCtx, serializerCtx },
-          { commonmark, imageSchema },
+          { bulletListSchema, codeBlockSchema, commonmark, headingSchema, imageSchema, listItemSchema, paragraphSchema },
           { gfm },
           { history },
-          { indent, indentConfig },
           { listener, listenerCtx },
           { listItemBlockComponent, listItemBlockConfig },
           { Plugin, TextSelection },
-          { $prose, $view, replaceAll }
+          { isInTable },
+          { liftListItem, sinkListItem },
+          { wrapIn },
+          { $prose, $useKeymap, $view, replaceAll }
         ] =
           await Promise.all([
             import("@milkdown/kit/core"),
             import("@milkdown/kit/preset/commonmark"),
             import("@milkdown/kit/preset/gfm"),
             import("@milkdown/kit/plugin/history"),
-            import("@milkdown/kit/plugin/indent"),
             import("@milkdown/kit/plugin/listener"),
             import("@milkdown/kit/component/list-item-block"),
             import("@milkdown/kit/prose/state"),
+            import("@milkdown/kit/prose/tables"),
+            import("@milkdown/kit/prose/schema-list"),
+            import("@milkdown/kit/prose/commands"),
             import("@milkdown/kit/utils")
           ]);
         if (disposed) return;
         const preserveListTightness = $prose(() => createListTightnessPlugin(Plugin));
+        const structuralTabKeymap = createMilkdownStructuralTabKeymap({
+          useKeymap: $useKeymap,
+          isInTable,
+          sinkListItem,
+          liftListItem,
+          wrapIn,
+          TextSelection,
+          listItemSchema,
+          bulletListSchema,
+          codeBlockSchema,
+          headingSchema,
+          paragraphSchema
+        });
         const jotImageView = $view(imageSchema.node, () => (node) => {
           let attrs = node.attrs;
           const dom = createMilkdownImageViewDom(attrs, imageAttachmentDisplays);
@@ -166,10 +184,6 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .config((ctx) => {
             ctx.set(rootCtx, root);
             ctx.set(defaultValueCtx, props.value);
-            ctx.set<import("@milkdown/kit/plugin/indent").IndentConfigOptions, "indentConfig">(
-              indentConfig.key,
-              { type: "space", size: 2 }
-            );
             ctx.update(listItemBlockConfig.key, (config) => ({
               ...config,
               renderLabel: renderMilkdownListItemLabel
@@ -194,10 +208,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(commonmark)
           .use(jotImageView)
           .use(gfm)
+          .use(structuralTabKeymap)
           .use(listItemBlockComponent)
           .use(preserveListTightness)
           .use(history)
-          .use(indent)
           .use(listener)
           .create()
           .catch((reason: unknown) => {
@@ -297,11 +311,12 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             props.onChange(props.documentKey, event.currentTarget.value);
           }}
           onKeyDown={(event) => {
-            if (!shouldInsertTextAreaTabIndent(event)) return;
+            if (!shouldHandleTextAreaStructuralTab(event)) return;
 
             event.preventDefault();
-            insertTextAreaTabIndent(
+            applyTextAreaStructuralTab(
               event.currentTarget,
+              event.shiftKey,
               (markdown) => props.onChange(props.documentKey, markdown),
               props.onCursorChange
             );

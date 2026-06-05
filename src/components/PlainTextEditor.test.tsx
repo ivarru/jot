@@ -34,7 +34,7 @@ describe("PlainTextEditor", () => {
     dispose();
   });
 
-  it("inserts two spaces at the cursor when pressing tab", () => {
+  it("turns the current plain text line into a list item when pressing tab", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const changes: Array<readonly [string, string]> = [];
@@ -42,7 +42,7 @@ describe("PlainTextEditor", () => {
     const dispose = render(
       () => PlainTextEditor({
         documentKey: "2030-02-01",
-        value: "beforeafter",
+        value: "before",
         onChange: (documentKey, markdown) => changes.push([documentKey, markdown]),
         onBlur: () => undefined
       }),
@@ -57,15 +57,15 @@ describe("PlainTextEditor", () => {
     textarea!.dispatchEvent(tabEvent);
 
     expect(tabEvent.defaultPrevented).toBe(true);
-    expect(textarea!.value).toBe("before  after");
-    expect(textarea!.selectionStart).toBe("before  ".length);
-    expect(textarea!.selectionEnd).toBe("before  ".length);
-    expect(changes).toEqual([["2030-02-01", "before  after"]]);
+    expect(textarea!.value).toBe("* before");
+    expect(textarea!.selectionStart).toBe("* before".length);
+    expect(textarea!.selectionEnd).toBe("* before".length);
+    expect(changes).toEqual([["2030-02-01", "* before"]]);
 
     dispose();
   });
 
-  it("inserts tab spaces at the selection end without deleting selected text", () => {
+  it("indents the current list item when pressing tab", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const changes: Array<readonly [string, string]> = [];
@@ -73,7 +73,7 @@ describe("PlainTextEditor", () => {
     const dispose = render(
       () => PlainTextEditor({
         documentKey: "2030-02-01",
-        value: "beforeselectedafter",
+        value: "* first\n* second",
         onChange: (documentKey, markdown) => changes.push([documentKey, markdown]),
         onBlur: () => undefined
       }),
@@ -82,24 +82,169 @@ describe("PlainTextEditor", () => {
 
     const textarea = host.querySelector("textarea");
     expect(textarea).not.toBeNull();
-    const selectionStart = "before".length;
-    const selectionEnd = "beforeselected".length;
-    textarea!.setSelectionRange(selectionStart, selectionEnd);
+    textarea!.setSelectionRange("* first\n".length, "* first\n".length);
     const tabEvent = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" });
 
     textarea!.dispatchEvent(tabEvent);
 
     expect(tabEvent.defaultPrevented).toBe(true);
-    expect(textarea!.value).toBe("beforeselected  after");
-    expect(textarea!.selectionStart).toBe("beforeselected  ".length);
-    expect(textarea!.selectionEnd).toBe("beforeselected  ".length);
-    expect(changes).toEqual([["2030-02-01", "beforeselected  after"]]);
+    expect(textarea!.value).toBe("* first\n  * second");
+    expect(textarea!.selectionStart).toBe("* first\n  ".length);
+    expect(textarea!.selectionEnd).toBe("* first\n  ".length);
+    expect(changes).toEqual([["2030-02-01", "* first\n  * second"]]);
+
+    dispose();
+  });
+
+  it("dedents the current list item when pressing shift-tab", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: Array<readonly [string, string]> = [];
+
+    const dispose = render(
+      () => PlainTextEditor({
+        documentKey: "2030-02-01",
+        value: "* first\n  * second",
+        onChange: (documentKey, markdown) => changes.push([documentKey, markdown]),
+        onBlur: () => undefined
+      }),
+      host
+    );
+
+    const textarea = host.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    textarea!.setSelectionRange("* first\n  ".length, "* first\n  ".length);
+    const tabEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Tab",
+      shiftKey: true
+    });
+
+    textarea!.dispatchEvent(tabEvent);
+
+    expect(tabEvent.defaultPrevented).toBe(true);
+    expect(textarea!.value).toBe("* first\n* second");
+    expect(textarea!.selectionStart).toBe("* first\n".length);
+    expect(textarea!.selectionEnd).toBe("* first\n".length);
+    expect(changes).toEqual([["2030-02-01", "* first\n* second"]]);
+
+    dispose();
+  });
+
+  it("lifts a top-level list item to plain text when pressing shift-tab", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: Array<readonly [string, string]> = [];
+
+    const dispose = render(
+      () => PlainTextEditor({
+        documentKey: "2030-02-01",
+        value: "* item",
+        onChange: (documentKey, markdown) => changes.push([documentKey, markdown]),
+        onBlur: () => undefined
+      }),
+      host
+    );
+
+    const textarea = host.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    textarea!.setSelectionRange("* item".length, "* item".length);
+    const tabEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Tab",
+      shiftKey: true
+    });
+
+    textarea!.dispatchEvent(tabEvent);
+
+    expect(tabEvent.defaultPrevented).toBe(true);
+    expect(textarea!.value).toBe("item");
+    expect(textarea!.selectionStart).toBe("item".length);
+    expect(textarea!.selectionEnd).toBe("item".length);
+    expect(changes).toEqual([["2030-02-01", "item"]]);
+
+    dispose();
+  });
+
+  it("increases and decreases heading depth with tab and shift-tab", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: Array<readonly [string, string]> = [];
+
+    const dispose = render(
+      () => PlainTextEditor({
+        documentKey: "2030-02-01",
+        value: "# Heading",
+        onChange: (documentKey, markdown) => changes.push([documentKey, markdown]),
+        onBlur: () => undefined
+      }),
+      host
+    );
+
+    const textarea = host.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    textarea!.setSelectionRange("# Heading".length, "# Heading".length);
+
+    textarea!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" }));
+    expect(textarea!.value).toBe("## Heading");
+
+    textarea!.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey: true })
+    );
+    expect(textarea!.value).toBe("# Heading");
+
+    textarea!.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey: true })
+    );
+    expect(textarea!.value).toBe("Heading");
+
+    expect(changes).toEqual([
+      ["2030-02-01", "## Heading"],
+      ["2030-02-01", "# Heading"],
+      ["2030-02-01", "Heading"]
+    ]);
+
+    dispose();
+  });
+
+  it("indents and dedents the current fenced code block line", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: Array<readonly [string, string]> = [];
+
+    const dispose = render(
+      () => PlainTextEditor({
+        documentKey: "2030-02-01",
+        value: "```\ncode\n```",
+        onChange: (documentKey, markdown) => changes.push([documentKey, markdown]),
+        onBlur: () => undefined
+      }),
+      host
+    );
+
+    const textarea = host.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    textarea!.setSelectionRange("```\ncode".length, "```\ncode".length);
+
+    textarea!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" }));
+    expect(textarea!.value).toBe("```\n  code\n```");
+
+    textarea!.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey: true })
+    );
+    expect(textarea!.value).toBe("```\ncode\n```");
+
+    expect(changes).toEqual([
+      ["2030-02-01", "```\n  code\n```"],
+      ["2030-02-01", "```\ncode\n```"]
+    ]);
 
     dispose();
   });
 
   it.each([
-    ["Shift+Tab", { shiftKey: true }],
     ["Ctrl+Tab", { ctrlKey: true }],
     ["Alt+Tab", { altKey: true }],
     ["Meta+Tab", { metaKey: true }]
@@ -132,6 +277,42 @@ describe("PlainTextEditor", () => {
 
     expect(tabEvent.defaultPrevented).toBe(false);
     expect(textarea!.value).toBe("beforeafter");
+    expect(textarea!.selectionStart).toBe("before".length);
+    expect(textarea!.selectionEnd).toBe("before".length);
+    expect(changes).toEqual([]);
+
+    dispose();
+  });
+
+  it("consumes shift-tab on plain text without changing content", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: Array<readonly [string, string]> = [];
+
+    const dispose = render(
+      () => PlainTextEditor({
+        documentKey: "2030-02-01",
+        value: "before",
+        onChange: (documentKey, markdown) => changes.push([documentKey, markdown]),
+        onBlur: () => undefined
+      }),
+      host
+    );
+
+    const textarea = host.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    textarea!.setSelectionRange("before".length, "before".length);
+    const tabEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Tab",
+      shiftKey: true
+    });
+
+    textarea!.dispatchEvent(tabEvent);
+
+    expect(tabEvent.defaultPrevented).toBe(true);
+    expect(textarea!.value).toBe("before");
     expect(textarea!.selectionStart).toBe("before".length);
     expect(textarea!.selectionEnd).toBe("before".length);
     expect(changes).toEqual([]);

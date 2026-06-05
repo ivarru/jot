@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.5.3",
+  "version": "0.5.5",
   "type": "module",
   "private": true,
   "scripts": {
@@ -11,6 +11,7 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173 --outDir .output/public",
     "smoke:pages": "node scripts/smoke-pages.mjs",
     "smoke:preview": "node scripts/smoke-preview.mjs",
+    "smoke:raw-keyboard": "node scripts/smoke-raw-keyboard.mjs",
     "smoke:fake-daily-note-upload": "node scripts/smoke-fake-daily-note-upload.mjs",
     "smoke:fake-image": "node scripts/smoke-fake-image.mjs",
     "start": "vinxi start",
