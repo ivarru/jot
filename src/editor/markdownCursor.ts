@@ -169,7 +169,7 @@ function buildMarkdownCursorMapping(markdown: string): MarkdownCursorMapping {
   const showList = (node: List) => {
     let previousEnd = positionRange(node)?.start ?? 0;
     node.children.forEach((item, index) => {
-      if (index > 0) showRenderedText("\n", previousEnd);
+      if (index > 0) showRenderedText("\n\n", previousEnd);
       showListItem(item);
       previousEnd = positionRange(item)?.end ?? previousEnd;
     });

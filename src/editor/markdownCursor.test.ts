@@ -14,8 +14,22 @@ describe("markdown cursor mapping", () => {
   it("maps list item source offsets to rendered text offsets", () => {
     const markdown = "- first\n- second";
 
-    expect(markdownSourceOffsetToRenderedOffset(markdown, markdown.indexOf("second"))).toBe("first\n".length);
-    expect(renderedOffsetToMarkdownSourceOffset(markdown, "first\nsecond".length)).toBe(markdown.length);
+    expect(markdownSourceOffsetToRenderedOffset(markdown, markdown.indexOf("second"))).toBe("first\n\n".length);
+    expect(renderedOffsetToMarkdownSourceOffset(markdown, "first\n\nsecond".length)).toBe(markdown.length);
+  });
+
+  it("does not accumulate list item cursor drift across long lists", () => {
+    const items = Array.from({ length: 12 }, (_item, index) => `- item ${index + 1}`);
+    const markdown = items.join("\n");
+    const renderedBeforeLastItem = Array.from({ length: 11 }, (_item, index) => `item ${index + 1}`).join("\n\n");
+    const lastItemSourceOffset = markdown.indexOf("item 12");
+
+    expect(markdownSourceOffsetToRenderedOffset(markdown, lastItemSourceOffset)).toBe(
+      `${renderedBeforeLastItem}\n\n`.length
+    );
+    expect(renderedOffsetToMarkdownSourceOffset(markdown, `${renderedBeforeLastItem}\n\nitem 12`.length)).toBe(
+      markdown.length
+    );
   });
 
   it("maps link destinations as hidden syntax", () => {
