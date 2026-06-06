@@ -333,7 +333,14 @@ async function mergeRemoteConflict(
   });
 
   if (merged.unresolvedHunks.length === 0) {
-    await drafts.save(createDraft(date, merged.mergedMarkdown, remoteNote.markdown, remoteNote.revisionId, true));
+    const dirty = merged.mergedMarkdown !== remoteNote.markdown;
+    await drafts.save(createDraft(date, merged.mergedMarkdown, remoteNote.markdown, remoteNote.revisionId, dirty));
+    if (!dirty) {
+      return {
+        markdown: merged.mergedMarkdown,
+        status: "synced"
+      };
+    }
     if (resolvedSyncRemote !== null) return await syncDailyNote(date, drafts, resolvedSyncRemote);
     return {
       markdown: merged.mergedMarkdown,

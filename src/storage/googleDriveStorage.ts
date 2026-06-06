@@ -1,5 +1,6 @@
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { dateToFilename, parseIsoDate, type IsoDate } from "~/domain/dates";
+import { createConflictMarkdown } from "~/domain/merge";
 import {
   imageAttachmentMetadataFilename,
   type ImageAttachmentMetadata,
@@ -48,6 +49,17 @@ interface JotDriveFolders {
   readonly dailyNotesFolderId: string;
 }
 
+interface DailyNoteFileResolution {
+  readonly file: DriveFile;
+  readonly markdown: string | null;
+  readonly equivalentRevisionIds: ReadonlySet<string>;
+}
+
+interface DailyNoteFileContent {
+  readonly file: DriveFile;
+  readonly markdown: string;
+}
+
 export class DuplicateDriveFileError extends Error {
   constructor(message: string) {
     super(message);
@@ -67,6 +79,7 @@ export class GoogleDriveRequestError extends Error {
 
 export class GoogleDriveStorageProvider implements RemoteStorageProvider {
   private foldersPromise: Promise<JotDriveFolders> | null = null;
+  private readonly dailyNoteSaveLocks = new Map<IsoDate, Promise<void>>();
 
   constructor(
     private readonly tokenProvider: AccessTokenProvider,
@@ -74,18 +87,20 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
   ) {}
 
   async loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null> {
+    return await this.withDailyNoteSaveLock(date, async () => await this.loadDailyNoteUnlocked(date));
+  }
+
+  private async loadDailyNoteUnlocked(date: IsoDate): Promise<RemoteDailyNote | null> {
     const { dailyNotesFolderId } = await this.ensureFolders();
-    const file = await this.findSingleFile({
+    const resolution = await this.resolveDailyNoteFile({
       parentId: dailyNotesFolderId,
-      name: dateToFilename(date),
-      mimeType: MARKDOWN_MIME_TYPE,
-      description: `Daily Note ${date}`
+      date
     });
 
-    if (file === null) return null;
+    if (resolution === null) return null;
 
-    const markdown = await this.downloadText(file.id);
-    return driveFileToDailyNote(date, file, markdown);
+    const markdown = resolution.markdown ?? await this.downloadText(resolution.file.id);
+    return driveFileToDailyNote(date, resolution.file, markdown);
   }
 
   async listDailyNoteDates(): Promise<IsoDate[]> {
@@ -98,20 +113,33 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
   }
 
   async saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {
+    return await this.withDailyNoteSaveLock(input.date, async () => await this.saveDailyNoteUnlocked(input));
+  }
+
+  private async saveDailyNoteUnlocked(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {
     const { dailyNotesFolderId } = await this.ensureFolders();
     const name = dateToFilename(input.date);
-    const existing = await this.findSingleFile({
+    const existing = await this.resolveDailyNoteFile({
       parentId: dailyNotesFolderId,
-      name,
-      mimeType: MARKDOWN_MIME_TYPE,
-      description: `Daily Note ${input.date}`
+      date: input.date
     });
 
-    if (existing !== null && driveRevisionId(existing) !== input.expectedRevisionId) {
-      const remoteMarkdown = await this.downloadText(existing.id);
+    if (
+      existing !== null &&
+      !existing.equivalentRevisionIds.has(input.expectedRevisionId ?? "")
+    ) {
+      const remoteMarkdown = existing.markdown ?? await this.downloadText(existing.file.id);
+      const remoteNote = driveFileToDailyNote(input.date, existing.file, remoteMarkdown);
+      if (remoteMarkdown === input.markdown) {
+        return {
+          type: "saved",
+          note: remoteNote
+        };
+      }
+
       return {
         type: "conflict",
-        remote: driveFileToDailyNote(input.date, existing, remoteMarkdown)
+        remote: remoteNote
       };
     }
 
@@ -130,12 +158,32 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
             content: input.markdown,
             contentType: MARKDOWN_MIME_TYPE
           })
-        : await this.updateMediaFile(existing.id, input.markdown, MARKDOWN_MIME_TYPE);
+        : await this.updateMediaFile(existing.file.id, input.markdown, MARKDOWN_MIME_TYPE);
 
     return {
       type: "saved",
       note: driveFileToDailyNote(input.date, saved, input.markdown)
     };
+  }
+
+  private async withDailyNoteSaveLock<T>(date: IsoDate, operation: () => Promise<T>): Promise<T> {
+    const previous = this.dailyNoteSaveLocks.get(date) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lock = previous.catch(() => undefined).then(() => current);
+    this.dailyNoteSaveLocks.set(date, lock);
+
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.dailyNoteSaveLocks.get(date) === lock) {
+        this.dailyNoteSaveLocks.delete(date);
+      }
+    }
   }
 
   async loadSettings(): Promise<JotSettings | null> {
@@ -418,6 +466,54 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     return files[0] ?? null;
   }
 
+  private async resolveDailyNoteFile(input: {
+    readonly parentId: string;
+    readonly date: IsoDate;
+  }): Promise<DailyNoteFileResolution | null> {
+    const files = await this.listFiles(input.parentId, dateToFilename(input.date), MARKDOWN_MIME_TYPE);
+    if (files.length === 0) return null;
+    if (files.length === 1) {
+      const file = files[0]!;
+      return {
+        file,
+        markdown: null,
+        equivalentRevisionIds: new Set([driveRevisionId(file)])
+      };
+    }
+
+    return await this.mergeDuplicateDailyNoteFiles(files);
+  }
+
+  private async mergeDuplicateDailyNoteFiles(files: readonly DriveFile[]): Promise<DailyNoteFileResolution> {
+    const canonical = newestDriveFile(files);
+    const contents = await Promise.all(
+      files.map(async (file) => ({
+        file,
+        markdown: await this.downloadText(file.id)
+      }))
+    );
+    const mergedMarkdown = mergeDuplicateDailyNoteMarkdown(contents);
+    const canonicalContent = contents.find((content) => content.file.id === canonical.id)!;
+    const mergedFile = canonicalContent.markdown === mergedMarkdown
+      ? canonical
+      : await this.updateMediaFile(canonical.id, mergedMarkdown, MARKDOWN_MIME_TYPE);
+
+    for (const file of files) {
+      if (file.id !== canonical.id) await this.trashDriveFile(file.id);
+    }
+
+    return {
+      file: mergedFile,
+      markdown: mergedMarkdown,
+      equivalentRevisionIds: new Set([
+        driveRevisionId(mergedFile),
+        ...contents
+          .filter((content) => content.markdown === mergedMarkdown)
+          .map((content) => driveRevisionId(content.file))
+      ])
+    };
+  }
+
   private async findSingleFileByQuery(input: {
     readonly parentId: string;
     readonly mimeType: string;
@@ -517,6 +613,16 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     });
   }
 
+  private async trashDriveFile(fileId: string): Promise<void> {
+    await this.requestJson<DriveFile>(`${DRIVE_API_BASE}/files/${encodeURIComponent(fileId)}?${new URLSearchParams({ fields: FILE_FIELDS })}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json; charset=UTF-8"
+      },
+      body: JSON.stringify({ trashed: true })
+    });
+  }
+
   private async requestJson<T>(url: string, init: RequestInit = {}): Promise<T> {
     const response = await this.request(url, init);
     return (await response.json()) as T;
@@ -582,6 +688,46 @@ function filenameToDailyNoteDate(filename: string): IsoDate | null {
 
 function driveRevisionId(file: DriveFile): string {
   return file.version ?? file.modifiedTime ?? file.id;
+}
+
+function newestDriveFile(files: readonly DriveFile[]): DriveFile {
+  return [...files].sort(compareDriveFilesNewestFirst)[0]!;
+}
+
+function compareDriveFilesNewestFirst(left: DriveFile, right: DriveFile): number {
+  const modifiedTimeDiff = driveFileModifiedTimeMs(right) - driveFileModifiedTimeMs(left);
+  if (modifiedTimeDiff !== 0) return modifiedTimeDiff;
+
+  const versionDiff = driveFileVersionNumber(right) - driveFileVersionNumber(left);
+  if (versionDiff !== 0) return versionDiff;
+
+  return right.id.localeCompare(left.id);
+}
+
+function driveFileModifiedTimeMs(file: DriveFile): number {
+  const modifiedTimeMs = Date.parse(file.modifiedTime ?? "");
+  return Number.isFinite(modifiedTimeMs) ? modifiedTimeMs : Number.NEGATIVE_INFINITY;
+}
+
+function driveFileVersionNumber(file: DriveFile): number {
+  const version = Number(file.version);
+  return Number.isFinite(version) ? version : Number.NEGATIVE_INFINITY;
+}
+
+function mergeDuplicateDailyNoteMarkdown(contents: readonly DailyNoteFileContent[]): string {
+  const sorted = [...contents].sort((left, right) => compareDriveFilesOldestFirst(left.file, right.file));
+  let merged = sorted[0]!.markdown;
+
+  for (const content of sorted.slice(1)) {
+    if (content.markdown === merged) continue;
+    merged = createConflictMarkdown(merged, content.markdown);
+  }
+
+  return merged;
+}
+
+function compareDriveFilesOldestFirst(left: DriveFile, right: DriveFile): number {
+  return compareDriveFilesNewestFirst(right, left);
 }
 
 function parseDriveAgentsTemplate(content: string): { readonly modifiedAt: string; readonly content: string } {

@@ -138,6 +138,39 @@ describe("GoogleDriveStorageProvider", () => {
     expect(fetch.requests.at(-1)?.url).toBe("https://www.googleapis.com/drive/v3/files/note-file?alt=media");
   });
 
+  it("consolidates identical duplicate Daily Note files on load", async () => {
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({
+        files: [
+          file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"),
+          file("newer-note", "2030-02-01.md", "text/markdown", "8", "2030-01-02T00:00:00.000Z")
+        ]
+      }),
+      text("# Newer"),
+      text("# Newer"),
+      json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"))
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+    await expect(provider.loadDailyNote("2030-02-01")).resolves.toEqual({
+      date: "2030-02-01",
+      markdown: "# Newer",
+      revisionId: "8",
+      updatedAt: "2030-01-02T00:00:00.000Z"
+    });
+    expect(fetch.requests.map((request) => request.url).filter((url) => url.endsWith("?alt=media"))).toEqual([
+      "https://www.googleapis.com/drive/v3/files/older-note?alt=media",
+      "https://www.googleapis.com/drive/v3/files/newer-note?alt=media"
+    ]);
+    const trashRequest = fetch.requests.at(-1);
+    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v3/files/older-note?");
+    expect(trashRequest?.init.method).toBe("PATCH");
+    expect(trashRequest?.init.body).toBe('{"trashed":true}');
+  });
+
   it("lists existing Daily Note dates from paginated Drive metadata", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
@@ -223,6 +256,200 @@ describe("GoogleDriveStorageProvider", () => {
     expect(fetch.requests.at(-1)?.url).toBe("https://www.googleapis.com/drive/v3/files/note-file?alt=media");
   });
 
+  it("preserves divergent duplicate Daily Note files as canonical conflict markers", async () => {
+    const mergedDuplicateMarkdown = "<<<<<<< Local Draft\n# Older\n=======\n# Newer\n>>>>>>> Google Drive\n";
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({
+        files: [
+          file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"),
+          file("newer-note", "2030-02-01.md", "text/markdown", "8", "2030-01-02T00:00:00.000Z")
+        ]
+      }),
+      text("# Older"),
+      text("# Newer"),
+      json(file("newer-note", "2030-02-01.md", "text/markdown", "9", "2030-01-03T00:00:00.000Z")),
+      json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"))
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+    await expect(
+      provider.saveDailyNote({
+        date: "2030-02-01",
+        markdown: "# Local",
+        expectedRevisionId: null
+      })
+    ).resolves.toEqual({
+      type: "conflict",
+      remote: {
+        date: "2030-02-01",
+        markdown: mergedDuplicateMarkdown,
+        revisionId: "9",
+        updatedAt: "2030-01-03T00:00:00.000Z"
+      }
+    });
+    const mergeUpdateRequest = fetch.requests.find((request) =>
+      request.url.includes("https://www.googleapis.com/upload/drive/v3/files/newer-note?")
+    );
+    expect(mergeUpdateRequest?.init.method).toBe("PATCH");
+    expect(mergeUpdateRequest?.init.body).toBe(mergedDuplicateMarkdown);
+    const trashRequest = fetch.requests.at(-1);
+    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v3/files/older-note?");
+    expect(trashRequest?.init.body).toBe('{"trashed":true}');
+  });
+
+  it("does not auto-merge prefix duplicate Daily Note content", async () => {
+    const mergedDuplicateMarkdown = "# Day\n<<<<<<< Local Draft\nlaptop\n=======\n\n>>>>>>> Google Drive\n";
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({
+        files: [
+          file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"),
+          file("newer-note", "2030-02-01.md", "text/markdown", "8", "2030-01-02T00:00:00.000Z")
+        ]
+      }),
+      text("# Day\nlaptop\n"),
+      text("# Day\n"),
+      json(file("newer-note", "2030-02-01.md", "text/markdown", "9", "2030-01-03T00:00:00.000Z")),
+      json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"))
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+    await expect(provider.loadDailyNote("2030-02-01")).resolves.toEqual({
+      date: "2030-02-01",
+      markdown: mergedDuplicateMarkdown,
+      revisionId: "9",
+      updatedAt: "2030-01-03T00:00:00.000Z"
+    });
+    const mergeUpdateRequest = fetch.requests.find((request) =>
+      request.url.includes("https://www.googleapis.com/upload/drive/v3/files/newer-note?")
+    );
+    expect(mergeUpdateRequest?.init.method).toBe("PATCH");
+    expect(mergeUpdateRequest?.init.body).toBe(mergedDuplicateMarkdown);
+    const trashRequest = fetch.requests.at(-1);
+    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v3/files/older-note?");
+    expect(trashRequest?.init.body).toBe('{"trashed":true}');
+  });
+
+  it("treats identical duplicate Daily Note content as saved instead of conflicted", async () => {
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({
+        files: [
+          file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"),
+          file("newer-note", "2030-02-01.md", "text/markdown", "8", "2030-01-02T00:00:00.000Z")
+        ]
+      }),
+      text("# Laptop"),
+      text("# Laptop"),
+      json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"))
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+    await expect(
+      provider.saveDailyNote({
+        date: "2030-02-01",
+        markdown: "# Laptop",
+        expectedRevisionId: null
+      })
+    ).resolves.toEqual({
+      type: "saved",
+      note: {
+        date: "2030-02-01",
+        markdown: "# Laptop",
+        revisionId: "8",
+        updatedAt: "2030-01-02T00:00:00.000Z"
+      }
+    });
+    expect(fetch.requests.some((request) => request.url.includes("https://www.googleapis.com/upload/drive/v3/files/newer-note?"))).toBe(false);
+    const trashRequest = fetch.requests.at(-1);
+    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v3/files/older-note?");
+    expect(trashRequest?.init.body).toBe('{"trashed":true}');
+  });
+
+  it("serializes concurrent Daily Note creates for the same date", async () => {
+    const firstCreateStarted = deferred<void>();
+    const releaseFirstCreate = deferred<void>();
+    const requests: CapturedRequest[] = [];
+    let storedNote: object | null = null;
+    let createCount = 0;
+    const fetchMock = vi.fn(async (url: RequestInfo | URL, init: RequestInit = {}) => {
+      const request = { url: String(url), init };
+      requests.push(request);
+      const decoded = decodedUrl(request.url);
+
+      if (request.url.includes("https://www.googleapis.com/upload/drive/v3/files?")) {
+        createCount += 1;
+        if (createCount === 1) {
+          firstCreateStarted.resolve();
+          await releaseFirstCreate.promise;
+        }
+        storedNote = file(
+          `note-file-${createCount}`,
+          "2030-02-01.md",
+          "text/markdown",
+          String(createCount),
+          `2030-01-0${createCount}T00:00:00.000Z`
+        );
+        return json(storedNote);
+      }
+
+      if (request.url.includes("?alt=media")) return text("# Laptop");
+      if (decoded.includes("name = 'jot'")) return json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] });
+      if (decoded.includes("name = 'AGENTS.md'")) return json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] });
+      if (decoded.includes("name = 'Daily Notes'")) {
+        return json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] });
+      }
+      if (decoded.includes("name = '2030-02-01.md'")) return json({ files: storedNote === null ? [] : [storedNote] });
+
+      throw new Error(`Unexpected request to ${request.url}`);
+    }) as unknown as typeof fetch;
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetchMock);
+
+    const first = provider.saveDailyNote({
+      date: "2030-02-01",
+      markdown: "# Laptop",
+      expectedRevisionId: null
+    });
+    await firstCreateStarted.promise;
+    const second = provider.saveDailyNote({
+      date: "2030-02-01",
+      markdown: "# Laptop",
+      expectedRevisionId: null
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    releaseFirstCreate.resolve();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      {
+        type: "saved",
+        note: {
+          date: "2030-02-01",
+          markdown: "# Laptop",
+          revisionId: "1",
+          updatedAt: "2030-01-01T00:00:00.000Z"
+        }
+      },
+      {
+        type: "saved",
+        note: {
+          date: "2030-02-01",
+          markdown: "# Laptop",
+          revisionId: "1",
+          updatedAt: "2030-01-01T00:00:00.000Z"
+        }
+      }
+    ]);
+    expect(createCount).toBe(1);
+    expect(requests.filter((request) => request.url.includes("https://www.googleapis.com/upload/drive/v3/files?"))).toHaveLength(1);
+  });
+
   it("updates an existing Daily Note when the expected revision matches", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
@@ -245,6 +472,42 @@ describe("GoogleDriveStorageProvider", () => {
     expect(updateRequest?.url).toContain("uploadType=media");
     expect(updateRequest?.init.method).toBe("PATCH");
     expect(updateRequest?.init.body).toBe("# Updated");
+  });
+
+  it("updates the canonical duplicate file when an identical older duplicate matches the expected revision", async () => {
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({
+        files: [
+          file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"),
+          file("newer-note", "2030-02-01.md", "text/markdown", "8", "2030-01-02T00:00:00.000Z")
+        ]
+      }),
+      text("# Base"),
+      text("# Base"),
+      json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z")),
+      json(file("newer-note", "2030-02-01.md", "text/markdown", "9", "2030-01-03T00:00:00.000Z"))
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+
+    const result = await provider.saveDailyNote({
+      date: "2030-02-01",
+      markdown: "# Updated",
+      expectedRevisionId: "7"
+    });
+
+    expect(result).toEqual({
+      type: "saved",
+      note: {
+        date: "2030-02-01",
+        markdown: "# Updated",
+        revisionId: "9",
+        updatedAt: "2030-01-03T00:00:00.000Z"
+      }
+    });
+    expect(fetch.requests.at(-1)?.url).toContain("https://www.googleapis.com/upload/drive/v3/files/newer-note?");
   });
 
   it("loads and saves settings as JSON in the Jot Folder", async () => {
@@ -555,4 +818,13 @@ function file(
 
 function decodedUrl(url: string | undefined): string {
   return decodeURIComponent(url ?? "").replaceAll("+", " ");
+}
+
+function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void };
+function deferred<T = void>(): { readonly promise: Promise<T>; readonly resolve: (value?: T) => void } {
+  let resolve!: (value?: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve as (value?: T) => void;
+  });
+  return { promise, resolve };
 }

@@ -14,6 +14,7 @@ import {
   commitVisibleCleanDailyNoteRefresh,
   loadCleanDailyNoteRefresh,
   loadDailyNoteSession,
+  rebaseAndSyncDailyNoteSnapshot,
   saveAndSyncDailyNoteSnapshot,
   syncDirtyDailyNoteDrafts
 } from "./syncDailyNote";
@@ -207,6 +208,28 @@ describe("daily note sync", () => {
       baselineMarkdown: "first",
       baselineRevisionId: "revision-1",
       dirty: true
+    });
+  });
+
+  it("marks a rebased dirty draft clean when it already matches the newer remote text", async () => {
+    const remote = new SharedRemoteStorageProvider();
+    const clientA = new MemoryDraftStore();
+    const clientB = new MemoryDraftStore();
+
+    await saveAndSyncDailyNoteSnapshot("2030-02-02", "old", clientA, remote);
+    await loadDailyNoteSession("2030-02-02", clientB, remote);
+    await saveAndSyncDailyNoteSnapshot("2030-02-02", "laptop", clientA, remote);
+
+    await expect(rebaseAndSyncDailyNoteSnapshot("2030-02-02", "laptop", clientB, remote)).resolves.toEqual({
+      markdown: "laptop",
+      status: "synced"
+    });
+    expect(remote.savedInputs).toHaveLength(2);
+    await expect(clientB.load("2030-02-02")).resolves.toMatchObject({
+      markdown: "laptop",
+      baselineMarkdown: "laptop",
+      baselineRevisionId: "revision-2",
+      dirty: false
     });
   });
 
