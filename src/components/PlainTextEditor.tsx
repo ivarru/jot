@@ -10,6 +10,7 @@ interface PlainTextEditorProps {
   readonly onFocusApplied?: () => void;
   readonly onCursorChange?: (offset: number) => void;
   readonly value: string;
+  readonly readOnly?: boolean;
   readonly onChange: (documentKey: string, markdown: string) => void;
   readonly onBlur: (documentKey: string, markdown: string) => void;
 }
@@ -36,13 +37,16 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
         ref={textarea}
         class="plain-text-editor"
         value={props.value}
+        readOnly={props.readOnly === true}
         onClick={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
         onInput={(event) => {
+          if (props.readOnly === true) return;
           resizeTextAreaToContents(event.currentTarget);
           props.onCursorChange?.(event.currentTarget.selectionStart);
           props.onChange(props.documentKey, event.currentTarget.value);
         }}
         onKeyDown={(event) => {
+          if (props.readOnly === true) return;
           if (!shouldHandleTextAreaStructuralTab(event)) return;
 
           event.preventDefault();

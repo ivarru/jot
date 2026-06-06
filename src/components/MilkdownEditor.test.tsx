@@ -160,6 +160,73 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("updates the editor editable state when read-only changes", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    let setReadOnly!: (readOnly: boolean) => void;
+
+    const dispose = render(
+      () => {
+        const [readOnly, innerSetReadOnly] = createSignal(true);
+        setReadOnly = innerSetReadOnly;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value="locked"
+            readOnly={readOnly()}
+            onChange={() => undefined}
+            onBlur={() => undefined}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForMilkdownReadOnly(host, "true");
+
+      setReadOnly(false);
+      await waitForMilkdownReadOnly(host, "false");
+
+    } finally {
+      dispose();
+    }
+  });
+
+  it("applies a read-only change that happens before async editor creation finishes", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    let setReadOnly!: (readOnly: boolean) => void;
+
+    const dispose = render(
+      () => {
+        const [readOnly, innerSetReadOnly] = createSignal(false);
+        setReadOnly = innerSetReadOnly;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value="pending lock"
+            readOnly={readOnly()}
+            onChange={() => undefined}
+            onBlur={() => undefined}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      setReadOnly(true);
+
+      await waitForContentEditable(host, "false");
+
+    } finally {
+      dispose();
+    }
+  });
+
   it("clears a pending external marker when a debounced user edit does not match it", () => {
     const state = createMilkdownMarkdownSyncState("old");
     trackMilkdownExternalMarkdown(state, "remote", "remote\n");
@@ -193,13 +260,27 @@ describe("MilkdownEditor", () => {
 });
 
 async function waitForEditable(host: HTMLElement): Promise<HTMLElement> {
+  return await waitForContentEditable(host, "true");
+}
+
+async function waitForContentEditable(host: HTMLElement, value: "true" | "false"): Promise<HTMLElement> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < 5000) {
-    const editor = host.querySelector<HTMLElement>("[contenteditable='true']");
+    const editor = host.querySelector<HTMLElement>(`[contenteditable='${value}']`);
     if (editor !== null) return editor;
     await animationFrame();
   }
   throw new Error("Milkdown editor did not render.");
+}
+
+async function waitForMilkdownReadOnly(host: HTMLElement, value: "true" | "false"): Promise<HTMLElement> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 5000) {
+    const editor = host.querySelector<HTMLElement>(`.milkdown-root[aria-readonly='${value}']`);
+    if (editor !== null) return editor;
+    await animationFrame();
+  }
+  throw new Error("Milkdown editor read-only state did not update.");
 }
 
 function animationFrame(): Promise<void> {

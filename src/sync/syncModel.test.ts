@@ -279,6 +279,27 @@ describe("daily note sync model", () => {
     });
   });
 
+  it("does not turn a stale client's blank-line insertion into conflicts for newer remote edits", async () => {
+    const remote = new ModelRemoteStorageProvider();
+    const staleDeviceA = new MemoryDraftStore();
+    const deviceB = new MemoryDraftStore();
+    const original = "breakfast\nlunch\ndinner\n";
+    const editedOnB = "breakfast done\nsnack\nlunch done\ndinner done\n";
+    const staleWithNewlineFromA = "breakfast\n\nlunch\ndinner\n";
+
+    await saveAndSyncDailyNoteSnapshot(DATE, original, staleDeviceA, remote);
+    await expect(loadDailyNoteSession(DATE, deviceB, remote)).resolves.toEqual({
+      markdown: original,
+      status: "synced"
+    });
+    await saveAndSyncDailyNoteSnapshot(DATE, editedOnB, deviceB, remote);
+
+    await expect(saveAndSyncDailyNoteSnapshot(DATE, staleWithNewlineFromA, staleDeviceA, remote)).resolves.toEqual({
+      markdown: "breakfast done\n\nsnack\nlunch done\ndinner done\n",
+      status: "saved-locally"
+    });
+  });
+
   it("preserves a single client's dirty draft across a transient save failure and retry", async () => {
     const client = new MemoryDraftStore();
     const remote = new ModelRemoteStorageProvider();

@@ -2,14 +2,18 @@ import { createConflictMarkdown, mergeDailyNote } from "./merge";
 
 describe("daily note merge", () => {
   it("keeps local when remote did not change", () => {
-    expect(mergeDailyNote({ baseline: "a", local: "ab", remote: "a" })).toEqual({
+    expect(mergeDailyNote({ baseline: "a", local: "ab", remote: "a" })).toMatchObject({
+      mergedMarkdown: "ab",
+      unresolvedHunks: [],
       merged: "ab",
       conflicted: false
     });
   });
 
   it("keeps remote when local did not change", () => {
-    expect(mergeDailyNote({ baseline: "a", local: "a", remote: "ac" })).toEqual({
+    expect(mergeDailyNote({ baseline: "a", local: "a", remote: "ac" })).toMatchObject({
+      mergedMarkdown: "ac",
+      unresolvedHunks: [],
       merged: "ac",
       conflicted: false
     });
@@ -22,7 +26,19 @@ describe("daily note merge", () => {
         local: "before\nlocal\nsame\nafter\n",
         remote: "before\nremote\nsame\nafter\n"
       })
-    ).toEqual({
+    ).toMatchObject({
+      mergedMarkdown: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame\nafter\n",
+      unresolvedHunks: [
+        {
+          localMarkdown: "local\n",
+          remoteMarkdown: "remote\n"
+        }
+      ],
+      choices: {
+        thisDeviceForUnresolved: null,
+        googleDriveForUnresolved: null
+      },
+      manualConflictMarkdown: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame\nafter\n",
       merged: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame\nafter\n",
       conflicted: true
     });
@@ -35,8 +51,24 @@ describe("daily note merge", () => {
         local: "Title old\nbody \n",
         remote: "Title new\nbody\n"
       })
-    ).toEqual({
+    ).toMatchObject({
+      mergedMarkdown: "Title new\nbody \n",
+      unresolvedHunks: [],
       merged: "Title new\nbody \n",
+      conflicted: false
+    });
+  });
+
+  it("rebases a stale client's blank-line insertion into a wider remote replacement", () => {
+    expect(
+      mergeDailyNote({
+        baseline: "breakfast\nlunch\ndinner\n",
+        local: "breakfast\n\nlunch\ndinner\n",
+        remote: "breakfast done\nsnack\nlunch done\ndinner done\n"
+      })
+    ).toMatchObject({
+      mergedMarkdown: "breakfast done\n\nsnack\nlunch done\ndinner done\n",
+      unresolvedHunks: [],
       conflicted: false
     });
   });
@@ -48,9 +80,44 @@ describe("daily note merge", () => {
         local: "before\nlocal\nsame \nafter\n",
         remote: "before\nremote\nsame\nafter\n"
       })
-    ).toEqual({
+    ).toMatchObject({
+      mergedMarkdown: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame \nafter\n",
+      unresolvedHunks: [
+        {
+          localMarkdown: "local\n",
+          remoteMarkdown: "remote\n"
+        }
+      ],
+      choices: {
+        thisDeviceForUnresolved: null,
+        googleDriveForUnresolved: "before\nremote\nsame \nafter\n"
+      },
+      manualConflictMarkdown: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame \nafter\n",
       merged: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame \nafter\n",
       conflicted: true
+    });
+  });
+
+  it("provides unresolved-only choices when they differ from whole-document choices", () => {
+    expect(
+      mergeDailyNote({
+        baseline: "before\nold\nsame\nafter\n",
+        local: "before\nlocal\nsame local\nafter\n",
+        remote: "before\nremote\nsame\nafter remote\n"
+      })
+    ).toMatchObject({
+      unresolvedHunks: [
+        {
+          localMarkdown: "local\n",
+          remoteMarkdown: "remote\n"
+        }
+      ],
+      choices: {
+        thisDevice: "before\nlocal\nsame local\nafter\n",
+        googleDrive: "before\nremote\nsame\nafter remote\n",
+        thisDeviceForUnresolved: "before\nlocal\nsame local\nafter remote\n",
+        googleDriveForUnresolved: "before\nremote\nsame local\nafter remote\n"
+      }
     });
   });
 

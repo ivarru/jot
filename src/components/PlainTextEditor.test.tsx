@@ -34,6 +34,33 @@ describe("PlainTextEditor", () => {
     dispose();
   });
 
+  it("marks the textarea read-only and suppresses input callbacks", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+
+    const dispose = render(
+      () => PlainTextEditor({
+        documentKey: "2030-02-01",
+        value: "# Initial",
+        readOnly: true,
+        onChange: (_documentKey, markdown) => changes.push(markdown),
+        onBlur: () => undefined
+      }),
+      host
+    );
+
+    const textarea = host.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    expect(textarea!.readOnly).toBe(true);
+    textarea!.value = "# Changed";
+    textarea!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+
+    expect(changes).toEqual([]);
+
+    dispose();
+  });
+
   it("turns the current plain text line into a list item when pressing tab", () => {
     const host = document.createElement("div");
     document.body.append(host);

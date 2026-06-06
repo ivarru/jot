@@ -25,6 +25,7 @@ interface MilkdownEditorProps {
   readonly onCursorChange?: (offset: number) => void;
   readonly imageAttachmentDisplays?: ImageAttachmentDisplayMap;
   readonly value: string;
+  readonly readOnly?: boolean;
   readonly onChange: (documentKey: string, markdown: string) => void;
   readonly onBlur: (documentKey: string, markdown: string) => void;
   readonly onPasteImage?: (documentKey: string, file: File) => void;
@@ -33,6 +34,7 @@ interface MilkdownEditorProps {
 interface MilkdownEditorSession {
   readonly applyExternalMarkdown: (markdown: string) => void;
   readonly getMarkdown: () => string;
+  readonly setReadOnly: (readOnly: boolean) => void;
 }
 
 export interface MilkdownMarkdownSyncState {
@@ -103,6 +105,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         const focusAtEnd = props.focusAtEnd === true;
         const focusOffset = props.focusOffset;
         const markdownState = createMilkdownMarkdownSyncState(props.value);
+        let currentReadOnly = props.readOnly === true;
         let disposed = false;
         let editor: MilkdownEditorInstance | null = null;
         let session: MilkdownEditorSession | null = null;
@@ -120,7 +123,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         root.replaceChildren();
 
         const [
-          { Editor, rootCtx, defaultValueCtx, editorViewCtx, serializerCtx },
+          { Editor, rootCtx, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, serializerCtx },
           { bulletListSchema, codeBlockSchema, commonmark, headingSchema, imageSchema, listItemSchema, paragraphSchema },
           { gfm },
           { clipboard },
@@ -186,6 +189,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .config((ctx) => {
             ctx.set(rootCtx, root);
             ctx.set(defaultValueCtx, props.value);
+            ctx.update(editorViewOptionsCtx, (options) => ({
+              ...options,
+              editable: () => !currentReadOnly
+            }));
             ctx.update(listItemBlockConfig.key, (config) => ({
               ...config,
               renderLabel: renderMilkdownListItemLabel
@@ -240,9 +247,20 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               });
               trackMilkdownExternalMarkdown(markdownState, markdown, replacedMarkdown);
             },
-            getMarkdown: () => markdownState.currentMarkdown
+            getMarkdown: () => markdownState.currentMarkdown,
+            setReadOnly: (readOnly) => {
+              if (disposed || activeSession !== session || editor === null) return;
+              currentReadOnly = readOnly;
+              const view = editor.ctx.get(editorViewCtx);
+              view.setProps({
+                editable: () => !currentReadOnly
+              });
+              view.dom.setAttribute("contenteditable", currentReadOnly ? "false" : "true");
+              view.dom.setAttribute("aria-readonly", currentReadOnly ? "true" : "false");
+            }
           };
           activeSession = session;
+          session.setReadOnly(props.readOnly === true);
           if (props.value !== markdownState.currentMarkdown) {
             session.applyExternalMarkdown(props.value);
           }
@@ -288,6 +306,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
   });
 
   createEffect(() => {
+    activeSession?.setReadOnly(props.readOnly === true);
+  });
+
+  createEffect(() => {
     props.value;
     if (error() === null || fallbackTextarea === undefined) return;
     requestAnimationFrame(() => {
@@ -297,11 +319,12 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 
   return (
     <div class="editor-shell">
-      <div ref={root} class="milkdown-root" />
+      <div ref={root} class="milkdown-root" aria-readonly={props.readOnly === true ? "true" : "false"} />
       <Show when={error() !== null}>
         <textarea
           class="fallback-editor"
           value={props.value}
+          readOnly={props.readOnly === true}
           ref={(element) => {
             fallbackTextarea = element;
             resizeTextAreaToContents(element);
@@ -309,11 +332,13 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           }}
           onClick={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
           onInput={(event) => {
+            if (props.readOnly === true) return;
             resizeTextAreaToContents(event.currentTarget);
             props.onCursorChange?.(event.currentTarget.selectionStart);
             props.onChange(props.documentKey, event.currentTarget.value);
           }}
           onKeyDown={(event) => {
+            if (props.readOnly === true) return;
             if (!shouldHandleTextAreaStructuralTab(event)) return;
 
             event.preventDefault();

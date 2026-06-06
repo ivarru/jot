@@ -600,7 +600,9 @@ select {
 }
 
 .image-attachment-modal,
-.daily-note-upload-modal {
+.daily-note-upload-modal,
+.reconnect-modal,
+.sync-conflict-resolution-modal {
   display: grid;
   width: min(100%, 560px);
   max-height: min(100%, 680px);
@@ -625,7 +627,9 @@ select {
 }
 
 .image-attachment-modal-header,
-.daily-note-upload-modal-header {
+.daily-note-upload-modal-header,
+.reconnect-modal-header,
+.sync-conflict-resolution-header {
   display: grid;
   gap: 4px;
 }
@@ -638,14 +642,25 @@ select {
 }
 
 .image-attachment-modal h2,
-.daily-note-upload-modal h2 {
+.daily-note-upload-modal h2,
+.reconnect-modal h2,
+.sync-conflict-resolution-modal h2 {
   margin: 0;
   font-size: 20px;
 }
 
-.daily-note-upload-modal p {
+.daily-note-upload-modal p,
+.reconnect-modal p,
+.sync-conflict-resolution-modal p {
   margin: 0;
   color: var(--muted);
+}
+
+.sync-conflict-resolution-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .daily-note-upload-conflicts {
@@ -689,6 +704,7 @@ select {
 
 .modal-actions {
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
 }
 

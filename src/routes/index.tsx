@@ -35,6 +35,7 @@ import {
   type YearMonth
 } from "~/domain/calendarMonth";
 import type { ImageAttachmentResolution } from "~/domain/imageAttachments";
+import { containsDailyNoteConflictMarkers } from "~/domain/merge";
 import { DEFAULT_JOT_SETTINGS, normalizeJotSettings, type JotSettings } from "~/domain/settings";
 import {
   applyEditorChange,
@@ -71,6 +72,7 @@ import {
   loadSelectedDailyNoteSession,
   reconnectSelectedDailyNoteAction,
   refreshCleanSelectedDailyNoteSession,
+  resolveSelectedDailyNoteConflict,
   saveSelectedDailyNoteSnapshot,
   saveVisibleDailyNoteSnapshot,
   selectedDailyNoteBlurSaveAction,
@@ -82,6 +84,7 @@ import {
   type RefreshCleanSelectedDailyNoteSessionResult,
   type SaveSelectedDailyNoteSnapshotResult
 } from "~/sync/selectedDailyNoteSession";
+import type { DailyNoteConflictResolution, DailyNoteSyncConflict } from "~/sync/syncDailyNote";
 import {
   buildDailyNoteUploadPlan,
   saveDailyNoteUploadPlan
@@ -154,6 +157,7 @@ export default function Home() {
   const [preparingAuth, setPreparingAuth] = createSignal(runtime.kind === "google");
   const [authReconnectRequired, setAuthReconnectRequired] = createSignal(false);
   const [reconnectingAuth, setReconnectingAuth] = createSignal(false);
+  const [reconnectPromptDismissed, setReconnectPromptDismissed] = createSignal(false);
   const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(dateFromHash());
   const [invalidDate, setInvalidDate] = createSignal<string | null>(invalidDateFromHash());
   const [markdown, setMarkdown] = createSignal("");
@@ -162,6 +166,8 @@ export default function Home() {
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [syncStatus, setSyncStatus] = createSignal<SyncStatus>("local-only");
   const [lastSyncError, setLastSyncError] = createSignal<SyncErrorState | null>(null);
+  const [pendingSyncConflict, setPendingSyncConflict] = createSignal<DailyNoteSyncConflict | null>(null);
+  const [resolvingSyncConflict, setResolvingSyncConflict] = createSignal(false);
   const [syncRetryAttempt, setSyncRetryAttempt] = createSignal(0);
   const [unsyncedSinceMs, setUnsyncedSinceMs] = createSignal<number | null>(null);
   const [syncWarningTick, setSyncWarningTick] = createSignal(0);
@@ -220,6 +226,10 @@ export default function Home() {
   const datePickerCalendar = createMemo(() => calendarMonth(datePickerMonth()));
   const datePickerMonthLabel = createMemo(() => monthLabel(datePickerMonth()));
   const selectedDateCanEdit = createMemo(() => canEditSelectedDate(dateBoundEditorState()));
+  const manualConflictMarkersPresent = createMemo(() => containsDailyNoteConflictMarkers(markdown()));
+  const editorReadOnly = createMemo(() => reconnectingAuth() || resolvingSyncConflict() || pendingSyncConflict() !== null);
+  const selectedDateCanWrite = createMemo(() => selectedDateCanEdit() && !editorReadOnly());
+  const reconnectPromptOpen = createMemo(() => authReconnectRequired() && !reconnectPromptDismissed());
   const imageAttachmentResolutionChoices = createMemo(() => {
     const local = localImageSource();
     if (local !== null && runtime.imageAttachments !== null) {
@@ -627,6 +637,19 @@ export default function Home() {
   });
 
   createEffect(() => {
+    if (!authReconnectRequired()) setReconnectPromptDismissed(false);
+  });
+
+  createEffect(() => {
+    if (manualConflictMarkersPresent() && editorMode() === "wysiwyg") setEditorMode("text");
+  });
+
+  createEffect(() => {
+    const conflict = pendingSyncConflict();
+    if (conflict !== null && conflict.date !== selectedDate()) setPendingSyncConflict(null);
+  });
+
+  createEffect(() => {
     const onHashChange = () => {
       setSelectedDate(dateFromHash());
       setInvalidDate(invalidDateFromHash());
@@ -665,7 +688,7 @@ export default function Home() {
   createEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!isEditorModeToggleShortcut(event)) return;
-      if (!authenticated() || !canEditSelectedDate(dateBoundEditorState())) return;
+      if (!authenticated() || !selectedDateCanWrite() || manualConflictMarkersPresent()) return;
 
       event.preventDefault();
       updateEditorMode(nextEditorMode(editorMode()));
@@ -902,14 +925,20 @@ export default function Home() {
     await saveAndSyncSnapshot(snapshot);
   };
 
-  const saveAndSyncSnapshot = async (snapshot: VisibleDailyNoteSnapshot) => {
+  const saveAndSyncSnapshot = async (
+    snapshot: VisibleDailyNoteSnapshot,
+    options: { readonly refreshRemoteBeforeSave?: boolean } = {}
+  ) => {
     if (!authReconnectRequired() && canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) setSyncStatus("syncing");
     const result = await saveSelectedDailyNoteSnapshot({
       snapshot,
       authReconnectRequired: authReconnectRequired(),
       drafts,
       remote: runtime.remote,
-      getState: dateBoundEditorState
+      getState: dateBoundEditorState,
+      ...(options.refreshRemoteBeforeSave === undefined
+        ? {}
+        : { refreshRemoteBeforeSave: options.refreshRemoteBeforeSave })
     });
     applySelectedDailyNoteSaveResult(result);
   };
@@ -924,6 +953,11 @@ export default function Home() {
         applyDateBoundEditorTransition(result.transition);
         if (result.transition.state.loadedDate !== null) markExistingNoteDate(result.transition.state.loadedDate);
         setSyncStatus(result.session.status);
+        if (result.session.conflict !== undefined) {
+          setPendingSyncConflict(result.session.conflict);
+        } else {
+          setPendingSyncConflict(null);
+        }
         if (result.session.status !== "conflict") setLastSyncError(null);
         return;
       case "failed":
@@ -1062,6 +1096,28 @@ export default function Home() {
     }
   };
 
+  const resolvePendingSyncConflict = async (resolution: DailyNoteConflictResolution) => {
+    const conflict = pendingSyncConflict();
+    if (conflict === null || resolvingSyncConflict()) return;
+
+    setResolvingSyncConflict(true);
+    setLastSyncError(null);
+    if (resolution !== "manual") setSyncStatus("syncing");
+    try {
+      const result = await resolveSelectedDailyNoteConflict({
+        conflict,
+        resolution,
+        drafts,
+        remote: runtime.remote,
+        getState: dateBoundEditorState
+      });
+      if (resolution === "manual") setEditorMode("text");
+      applySelectedDailyNoteSaveResult(result);
+    } finally {
+      setResolvingSyncConflict(false);
+    }
+  };
+
   const retryLastSyncError = () => {
     const error = lastSyncError();
     if (error === null) return;
@@ -1112,6 +1168,7 @@ export default function Home() {
   };
 
   const handleEditorChange = (documentKey: string, value: string) => {
+    if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
     const result = applyEditorChange(dateBoundEditorState(), date, value);
@@ -1126,6 +1183,7 @@ export default function Home() {
   };
 
   const handleEditorBlur = (documentKey: string, value: string) => {
+    if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
     const snapshot = selectedDailyNoteBlurSaveAction(dateBoundEditorState(), captureDocumentSnapshot(date, value));
@@ -1135,7 +1193,7 @@ export default function Home() {
   const startGooglePhotosImagePick = async () => {
     if (runtime.imageAttachments === null) return;
     const date = selectedDate();
-    if (!canEditDailyNoteDate(date, dateBoundEditorState())) return;
+    if (editorReadOnly() || !canEditDailyNoteDate(date, dateBoundEditorState())) return;
 
     setImageAttachmentStatus("starting");
     setInsertImageMenuOpen(false);
@@ -1220,6 +1278,7 @@ export default function Home() {
     if (
       runtime.imageAttachments === null ||
       (picked === null && local === null) ||
+      editorReadOnly() ||
       !canEditDailyNoteDate(date, dateBoundEditorState())
     ) return;
 
@@ -1279,6 +1338,7 @@ export default function Home() {
     if (
       runtime.imageAttachments === null ||
       reusable === null ||
+      editorReadOnly() ||
       !canEditDailyNoteDate(date, dateBoundEditorState())
     ) return;
 
@@ -1343,7 +1403,7 @@ export default function Home() {
   const handleLocalImageFile = async (file: File | undefined, kind: LocalImageSourceKind) => {
     if (runtime.imageAttachments === null || file === undefined) return;
     const date = imageAttachmentDate();
-    if (!canEditDailyNoteDate(date, dateBoundEditorState())) return;
+    if (editorReadOnly() || !canEditDailyNoteDate(date, dateBoundEditorState())) return;
 
     setImageAttachmentStatus("idle");
     setInsertImageMenuOpen(false);
@@ -1374,7 +1434,7 @@ export default function Home() {
   const startLocalImageFilePick = () => {
     if (runtime.imageAttachments === null) return;
     const date = selectedDate();
-    if (!canEditDailyNoteDate(date, dateBoundEditorState())) return;
+    if (editorReadOnly() || !canEditDailyNoteDate(date, dateBoundEditorState())) return;
 
     setImageAttachmentStatus("idle");
     setInsertImageMenuOpen(false);
@@ -1394,7 +1454,7 @@ export default function Home() {
   const startCameraCapture = async () => {
     if (runtime.imageAttachments === null) return;
     const date = selectedDate();
-    if (!canEditDailyNoteDate(date, dateBoundEditorState())) return;
+    if (editorReadOnly() || !canEditDailyNoteDate(date, dateBoundEditorState())) return;
 
     setImageAttachmentStatus("starting");
     setInsertImageMenuOpen(false);
@@ -1434,7 +1494,7 @@ export default function Home() {
   const captureCameraImage = async () => {
     const date = imageAttachmentDate();
     if (runtime.imageAttachments === null || cameraVideo === undefined) return;
-    if (!canEditDailyNoteDate(date, dateBoundEditorState())) return;
+    if (editorReadOnly() || !canEditDailyNoteDate(date, dateBoundEditorState())) return;
 
     try {
       const blob = await captureVideoFrame(cameraVideo);
@@ -1458,6 +1518,7 @@ export default function Home() {
   };
 
   const handleEditorImagePaste = (documentKey: string, file: File) => {
+    if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null || imageAttachmentStatus() === "importing") return;
     void preparePastedImageForDate(file, date);
@@ -1465,7 +1526,7 @@ export default function Home() {
 
   const preparePastedImageForDate = async (file: File, date: IsoDate) => {
     if (runtime.imageAttachments === null) return;
-    if (!canEditDailyNoteDate(date, dateBoundEditorState())) {
+    if (editorReadOnly() || !canEditDailyNoteDate(date, dateBoundEditorState())) {
       setImageAttachmentStatus("idle");
       return;
     }
@@ -1516,11 +1577,11 @@ export default function Home() {
       refreshAndScheduleToday();
       const reconnectAction = reconnectSelectedDailyNoteAction(dateBoundEditorState());
       if (reconnectAction?.type === "save-visible") {
-        await saveAndSyncSnapshot(reconnectAction.snapshot);
+        await saveAndSyncSnapshot(reconnectAction.snapshot, { refreshRemoteBeforeSave: true });
       } else if (reconnectAction?.type === "load-selected") {
         await loadSelectedDate(reconnectAction.date);
         const loadedAction = reconnectSelectedDailyNoteAction(dateBoundEditorState());
-        if (loadedAction?.type === "save-visible") await saveAndSyncSnapshot(loadedAction.snapshot);
+        if (loadedAction?.type === "save-visible") await saveAndSyncSnapshot(loadedAction.snapshot, { refreshRemoteBeforeSave: true });
       }
       await syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate));
       const date = selectedDate();
@@ -1765,7 +1826,7 @@ export default function Home() {
                       aria-label="Insert image"
                       aria-haspopup="menu"
                       aria-expanded={insertImageMenuOpen()}
-                      disabled={!selectedDateCanEdit() || imageAttachmentFlowActive()}
+                      disabled={!selectedDateCanWrite() || imageAttachmentFlowActive()}
                       onClick={() => setInsertImageMenuOpen((open) => !open)}
                     >
                       <InsertImageIcon />
@@ -1806,6 +1867,7 @@ export default function Home() {
                   type="checkbox"
                   checked={editorMode() === "text"}
                   aria-keyshortcuts={EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS}
+                  disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                   onChange={(event) => updateEditorMode(event.currentTarget.checked ? "text" : "wysiwyg")}
                 />
                 <span>Raw</span>
@@ -1900,7 +1962,101 @@ export default function Home() {
             </div>
           </header>
 
-          <Show when={syncStatus() === "conflict"}>
+          <Show when={reconnectPromptOpen()}>
+            <div class="modal-backdrop" role="presentation">
+              <div
+                class="reconnect-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="reconnect-modal-title"
+              >
+                <div class="reconnect-modal-header">
+                  <h2 id="reconnect-modal-title">Reconnect to sync</h2>
+                  <p>Jot is keeping edits on this device until Google access is refreshed.</p>
+                </div>
+                <Show when={authError()}>
+                  {(message) => <p class="auth-error">{message()}</p>}
+                </Show>
+                <div class="modal-actions reconnect-actions">
+                  <button
+                    type="button"
+                    disabled={reconnectingAuth()}
+                    onClick={() => setReconnectPromptDismissed(true)}
+                  >
+                    Not now
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reconnectingAuth()}
+                    onClick={() => void reconnectGoogle()}
+                  >
+                    {reconnectingAuth() ? "Reconnecting..." : "Reconnect"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Show>
+
+          <Show when={pendingSyncConflict()}>
+            {(conflict) => (
+              <div class="modal-backdrop" role="presentation">
+                <div
+                  class="sync-conflict-resolution-modal"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="sync-conflict-resolution-title"
+                >
+                  <div class="sync-conflict-resolution-header">
+                    <h2 id="sync-conflict-resolution-title">Sync conflict</h2>
+                    <p>Some edits could not be combined automatically.</p>
+                  </div>
+                  <div class="sync-conflict-resolution-actions">
+                    <button
+                      type="button"
+                      disabled={resolvingSyncConflict()}
+                      onClick={() => void resolvePendingSyncConflict("this-device")}
+                    >
+                      Keep this device
+                    </button>
+                    <button
+                      type="button"
+                      disabled={resolvingSyncConflict()}
+                      onClick={() => void resolvePendingSyncConflict("google-drive")}
+                    >
+                      Keep Google Drive
+                    </button>
+                    <Show when={conflict().merge.choices.thisDeviceForUnresolved !== null}>
+                      <button
+                        type="button"
+                        disabled={resolvingSyncConflict()}
+                        onClick={() => void resolvePendingSyncConflict("this-device-unresolved")}
+                      >
+                        Keep this device for unresolved parts
+                      </button>
+                    </Show>
+                    <Show when={conflict().merge.choices.googleDriveForUnresolved !== null}>
+                      <button
+                        type="button"
+                        disabled={resolvingSyncConflict()}
+                        onClick={() => void resolvePendingSyncConflict("google-drive-unresolved")}
+                      >
+                        Keep Google Drive for unresolved parts
+                      </button>
+                    </Show>
+                    <button
+                      type="button"
+                      disabled={resolvingSyncConflict()}
+                      onClick={() => void resolvePendingSyncConflict("manual")}
+                    >
+                      Resolve manually
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Show>
+
+          <Show when={syncStatus() === "conflict" && manualConflictMarkersPresent()}>
             <aside class="sync-alert sync-alert-conflict" aria-live="polite">
               Conflict markers were inserted. Resolve them in the note and save again.
             </aside>
@@ -2144,6 +2300,7 @@ export default function Home() {
                     }}
                     onCursorChange={setLastEditorCursorOffset}
                     value={markdown()}
+                    readOnly={editorReadOnly()}
                     onChange={handleEditorChange}
                     onBlur={handleEditorBlur}
                   />
@@ -2161,6 +2318,7 @@ export default function Home() {
                   onCursorChange={setLastEditorCursorOffset}
                   imageAttachmentDisplays={imageAttachmentDisplays()}
                   value={markdown()}
+                  readOnly={editorReadOnly()}
                   onChange={handleEditorChange}
                   onBlur={handleEditorBlur}
                   onPasteImage={handleEditorImagePaste}

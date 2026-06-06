@@ -9,6 +9,7 @@ import type {
   SaveDailyNoteInput,
   SaveDailyNoteResult
 } from "~/storage/types";
+import { mergeDailyNote } from "~/domain/merge";
 import {
   captureSaveRetrySnapshot,
   selectedDailyNoteBlurSaveAction,
@@ -17,11 +18,13 @@ import {
   reconnectSelectedDailyNoteAction,
   selectedDailyNoteManualSyncAction,
   refreshCleanSelectedDailyNoteSession,
+  resolveSelectedDailyNoteConflict,
   saveSelectedDailyNoteSnapshot,
   selectedDailyNoteRemoteLoadAction,
   selectedDailyNotePollingAction,
   saveVisibleDailyNoteSnapshot
 } from "./selectedDailyNoteSession";
+import type { DailyNoteConflictResolution, DailyNoteSyncConflict } from "./syncDailyNote";
 
 describe("selected Daily Note session async save seam", () => {
   it("persists a Local Draft without remote sync when auth reconnect is required", async () => {
@@ -83,13 +86,142 @@ describe("selected Daily Note session async save seam", () => {
       }
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       type: "saved",
       session: {
-        markdown: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame\nafter\n",
-        status: "conflict"
+        markdown: "before\nlocal\nsame\nafter\n",
+        status: "conflict",
+        conflict: {
+          localMarkdown: "before\nlocal\nsame\nafter\n",
+          remoteMarkdown: "before\nremote\nsame\nafter\n",
+          remoteRevisionId: "remote-revision",
+          merge: {
+            manualConflictMarkdown: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame\nafter\n"
+          }
+        }
       },
       transition: null
+    });
+  });
+
+  it("returns unresolved conflicts as pending decisions without inserting marker text", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new ConflictRemoteStorageProvider();
+    const state = editorState({
+      selectedDate: "2030-02-02",
+      loadedDate: "2030-02-02",
+      markdown: "before\nlocal\nsame\nafter\n"
+    });
+    await drafts.save(createDraft(
+      "2030-02-02",
+      "before\nlocal\nsame\nafter\n",
+      "before\nold\nsame\nafter\n",
+      "baseline-revision",
+      true
+    ));
+
+    const result = await saveSelectedDailyNoteSnapshot({
+      snapshot: { date: "2030-02-02", markdown: "before\nlocal\nsame\nafter\n" },
+      authReconnectRequired: false,
+      drafts,
+      remote,
+      getState: () => state
+    });
+
+    expect(result.type).toBe("saved");
+    if (result.type !== "saved") return;
+    expect(result.session).toMatchObject({
+      markdown: "before\nlocal\nsame\nafter\n",
+      status: "conflict",
+      conflict: {
+        merge: {
+          manualConflictMarkdown: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame\nafter\n"
+        }
+      }
+    });
+    expect(result.transition).toMatchObject({
+      state: {
+        markdown: "before\nlocal\nsame\nafter\n"
+      }
+    });
+    await expect(drafts.load("2030-02-02")).resolves.toMatchObject({
+      markdown: "before\nlocal\nsame\nafter\n",
+      dirty: true
+    });
+  });
+
+  it("loads the remote note before saving a stale visible snapshot during reconnect", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    remote.note = {
+      date: "2030-02-02",
+      markdown: "breakfast done\nsnack\nlunch done\ndinner done\n",
+      revisionId: "revision-2",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    await drafts.save(createDraft(
+      "2030-02-02",
+      "breakfast\n\nlunch\ndinner\n",
+      "breakfast\nlunch\ndinner\n",
+      "revision-1",
+      true
+    ));
+
+    const result = await saveSelectedDailyNoteSnapshot({
+      snapshot: { date: "2030-02-02", markdown: "breakfast\n\nlunch\ndinner\n" },
+      authReconnectRequired: false,
+      refreshRemoteBeforeSave: true,
+      drafts,
+      remote,
+      getState: () => editorState({
+        selectedDate: "2030-02-02",
+        loadedDate: "2030-02-02",
+        markdown: "breakfast\n\nlunch\ndinner\n"
+      })
+    });
+
+    expect(result.type).toBe("saved");
+    expect(remote.loadInputs).toEqual(["2030-02-02"]);
+    expect(remote.savedInputs).toEqual([
+      {
+        date: "2030-02-02",
+        markdown: "breakfast done\n\nsnack\nlunch done\ndinner done\n",
+        expectedRevisionId: "revision-2"
+      }
+    ]);
+  });
+
+  it("resolves pending conflicts through whole-note, unresolved-only, and manual choices", async () => {
+    const conflict = syncConflict({
+      baseline: "before\nold\nsame\nafter\n",
+      local: "before\nlocal\nsame local\nafter\n",
+      remote: "before\nremote\nsame\nafter remote\n"
+    });
+
+    await expectConflictResolution(conflict, "this-device", {
+      markdown: conflict.localMarkdown,
+      status: "synced",
+      savedMarkdown: conflict.localMarkdown
+    });
+    await expectConflictResolution(conflict, "google-drive", {
+      markdown: conflict.remoteMarkdown,
+      status: "synced",
+      savedMarkdown: null
+    });
+    await expectConflictResolution(conflict, "this-device-unresolved", {
+      markdown: "before\nlocal\nsame local\nafter remote\n",
+      status: "synced",
+      savedMarkdown: "before\nlocal\nsame local\nafter remote\n"
+    });
+    await expectConflictResolution(conflict, "google-drive-unresolved", {
+      markdown: "before\nremote\nsame local\nafter remote\n",
+      status: "synced",
+      savedMarkdown: "before\nremote\nsame local\nafter remote\n"
+    });
+    await expectConflictResolution(conflict, "manual", {
+      markdown: "before\n<<<<<<< Local Draft\nlocal\n=======\nremote\n>>>>>>> Google Drive\nsame local\nafter remote\n",
+      status: "conflict",
+      savedMarkdown: null
     });
   });
 
@@ -459,6 +591,69 @@ function editorState(overrides: Partial<DateBoundEditorState>): DateBoundEditorS
     editorChangeEpoch: 0,
     ...overrides
   };
+}
+
+function syncConflict(input: {
+  readonly baseline: string;
+  readonly local: string;
+  readonly remote: string;
+}): DailyNoteSyncConflict {
+  return {
+    date: "2030-02-02",
+    localMarkdown: input.local,
+    remoteMarkdown: input.remote,
+    baselineMarkdown: input.baseline,
+    baselineRevisionId: "baseline-revision",
+    remoteRevisionId: "remote-revision",
+    merge: mergeDailyNote({
+      baseline: input.baseline,
+      local: input.local,
+      remote: input.remote
+    })
+  };
+}
+
+async function expectConflictResolution(
+  conflict: DailyNoteSyncConflict,
+  resolution: DailyNoteConflictResolution,
+  expected: {
+    readonly markdown: string;
+    readonly status: string;
+    readonly savedMarkdown: string | null;
+  }
+): Promise<void> {
+  const drafts = new MemoryDraftStore();
+  const remote = new RecordingRemoteStorageProvider();
+  const result = await resolveSelectedDailyNoteConflict({
+    conflict,
+    resolution,
+    drafts,
+    remote,
+    getState: () => editorState({
+      selectedDate: conflict.date,
+      loadedDate: conflict.date,
+      markdown: conflict.localMarkdown
+    })
+  });
+
+  expect(result.type).toBe("saved");
+  if (result.type !== "saved") return;
+  expect(result.session).toMatchObject({
+    markdown: expected.markdown,
+    status: expected.status
+  });
+  expect(result.transition).toMatchObject({
+    state: {
+      markdown: expected.markdown
+    }
+  });
+  expect(remote.savedInputs.map((input) => input.markdown)).toEqual(
+    expected.savedMarkdown === null ? [] : [expected.savedMarkdown]
+  );
+  await expect(drafts.load(conflict.date)).resolves.toMatchObject({
+    markdown: expected.markdown,
+    dirty: expected.status !== "synced"
+  });
 }
 
 class MemoryDraftStore implements LocalDraftStore {

@@ -1,11 +1,22 @@
-import { mergeDailyNote } from "~/domain/merge";
+import { mergeDailyNote, type MergeResult } from "~/domain/merge";
 import { createDraft } from "~/storage/localDraftStore";
 import type { IsoDate } from "~/domain/dates";
-import type { LocalDraft, LocalDraftStore, RemoteStorageProvider, SyncStatus } from "~/storage/types";
+import type { LocalDraft, LocalDraftStore, RemoteDailyNote, RemoteStorageProvider, SyncStatus } from "~/storage/types";
 
 export interface DailyNoteSession {
   readonly markdown: string;
   readonly status: SyncStatus;
+  readonly conflict?: DailyNoteSyncConflict;
+}
+
+export interface DailyNoteSyncConflict {
+  readonly date: IsoDate;
+  readonly localMarkdown: string;
+  readonly remoteMarkdown: string;
+  readonly baselineMarkdown: string;
+  readonly baselineRevisionId: string | null;
+  readonly remoteRevisionId: string;
+  readonly merge: MergeResult;
 }
 
 export interface CleanDailyNoteRefresh {
@@ -14,6 +25,13 @@ export interface CleanDailyNoteRefresh {
   readonly baselineRevisionId: string | null;
   readonly status: "local-only" | "synced";
 }
+
+export type DailyNoteConflictResolution =
+  | "this-device"
+  | "google-drive"
+  | "this-device-unresolved"
+  | "google-drive-unresolved"
+  | "manual";
 
 export async function loadDailyNoteSession(
   date: IsoDate,
@@ -181,17 +199,7 @@ export async function syncDailyNote(
     };
   }
 
-  const merged = mergeDailyNote({
-    baseline: draft.baselineMarkdown,
-    local: draft.markdown,
-    remote: result.remote.markdown
-  });
-
-  await drafts.save(createDraft(date, merged.merged, result.remote.markdown, result.remote.revisionId, true));
-  return {
-    markdown: merged.merged,
-    status: merged.conflicted ? "conflict" : "saved-locally"
-  };
+  return await mergeRemoteConflict(date, draft, result.remote, drafts, null);
 }
 
 export async function saveAndSyncDailyNoteSnapshot(
@@ -202,6 +210,32 @@ export async function saveAndSyncDailyNoteSnapshot(
 ): Promise<DailyNoteSession> {
   await persistLocalDraft(date, markdown, drafts);
   return await syncDailyNote(date, drafts, remote);
+}
+
+export async function rebaseAndSyncDailyNoteSnapshot(
+  date: IsoDate,
+  markdown: string,
+  drafts: LocalDraftStore,
+  remote: RemoteStorageProvider
+): Promise<DailyNoteSession> {
+  await persistLocalDraft(date, markdown, drafts);
+  return await rebaseAndSyncDailyNote(date, drafts, remote);
+}
+
+export async function rebaseAndSyncDailyNote(
+  date: IsoDate,
+  drafts: LocalDraftStore,
+  remote: RemoteStorageProvider
+): Promise<DailyNoteSession> {
+  const draft = await drafts.load(date);
+  if (draft === null || !draft.dirty) return await loadDailyNoteSession(date, drafts, remote);
+
+  const remoteNote = await remote.loadDailyNote(date);
+  if (remoteNote === null || remoteNote.revisionId === draft.baselineRevisionId) {
+    return await syncDailyNote(date, drafts, remote);
+  }
+
+  return await mergeRemoteConflict(date, draft, remoteNote, drafts, remote);
 }
 
 export async function syncDirtyDailyNoteDrafts(
@@ -218,6 +252,44 @@ export async function syncDirtyDailyNoteDrafts(
   }
 
   return sessions;
+}
+
+export async function resolveDailyNoteConflict(
+  conflict: DailyNoteSyncConflict,
+  resolution: DailyNoteConflictResolution,
+  drafts: LocalDraftStore,
+  remote: RemoteStorageProvider
+): Promise<DailyNoteSession> {
+  const markdown = conflictResolutionMarkdown(conflict, resolution);
+  if (resolution === "manual") {
+    await drafts.save(createDraft(
+      conflict.date,
+      markdown,
+      conflict.remoteMarkdown,
+      conflict.remoteRevisionId,
+      true
+    ));
+    return {
+      markdown,
+      status: "conflict"
+    };
+  }
+
+  const dirty = markdown !== conflict.remoteMarkdown;
+  await drafts.save(createDraft(
+    conflict.date,
+    markdown,
+    conflict.remoteMarkdown,
+    conflict.remoteRevisionId,
+    dirty
+  ));
+
+  return dirty
+    ? await syncDailyNote(conflict.date, drafts, remote)
+    : {
+        markdown,
+        status: "synced"
+      };
 }
 
 function draftChangedSinceSyncStarted(startedWith: LocalDraft, current: LocalDraft | null): current is LocalDraft {
@@ -245,4 +317,59 @@ function draftToSession(draft: LocalDraft): DailyNoteSession {
     markdown: draft.markdown,
     status: draft.dirty ? "saved-locally" : "synced"
   };
+}
+
+async function mergeRemoteConflict(
+  date: IsoDate,
+  draft: LocalDraft,
+  remoteNote: RemoteDailyNote,
+  drafts: LocalDraftStore,
+  resolvedSyncRemote: RemoteStorageProvider | null
+): Promise<DailyNoteSession> {
+  const merged = mergeDailyNote({
+    baseline: draft.baselineMarkdown,
+    local: draft.markdown,
+    remote: remoteNote.markdown
+  });
+
+  if (merged.unresolvedHunks.length === 0) {
+    await drafts.save(createDraft(date, merged.mergedMarkdown, remoteNote.markdown, remoteNote.revisionId, true));
+    if (resolvedSyncRemote !== null) return await syncDailyNote(date, drafts, resolvedSyncRemote);
+    return {
+      markdown: merged.mergedMarkdown,
+      status: "saved-locally"
+    };
+  }
+
+  return {
+    markdown: draft.markdown,
+    status: "conflict",
+    conflict: {
+      date,
+      localMarkdown: draft.markdown,
+      remoteMarkdown: remoteNote.markdown,
+      baselineMarkdown: draft.baselineMarkdown,
+      baselineRevisionId: draft.baselineRevisionId,
+      remoteRevisionId: remoteNote.revisionId,
+      merge: merged
+    }
+  };
+}
+
+function conflictResolutionMarkdown(
+  conflict: DailyNoteSyncConflict,
+  resolution: DailyNoteConflictResolution
+): string {
+  switch (resolution) {
+    case "this-device":
+      return conflict.merge.choices.thisDevice;
+    case "google-drive":
+      return conflict.merge.choices.googleDrive;
+    case "this-device-unresolved":
+      return conflict.merge.choices.thisDeviceForUnresolved ?? conflict.merge.choices.thisDevice;
+    case "google-drive-unresolved":
+      return conflict.merge.choices.googleDriveForUnresolved ?? conflict.merge.choices.googleDrive;
+    case "manual":
+      return conflict.merge.manualConflictMarkdown;
+  }
 }

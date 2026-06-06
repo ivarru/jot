@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.5.8",
+  "version": "0.6.0",
   "type": "module",
   "private": true,
   "scripts": {
@@ -14,6 +14,7 @@
     "smoke:raw-keyboard": "node scripts/smoke-raw-keyboard.mjs",
     "smoke:wysiwyg-paste": "node scripts/smoke-wysiwyg-paste.mjs",
     "smoke:fake-daily-note-upload": "node scripts/smoke-fake-daily-note-upload.mjs",
+    "smoke:fake-reconnect-conflict": "node scripts/smoke-fake-reconnect-conflict.mjs",
     "smoke:fake-image": "node scripts/smoke-fake-image.mjs",
     "start": "vinxi start",
     "test": "vitest run",

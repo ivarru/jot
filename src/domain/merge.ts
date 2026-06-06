@@ -6,27 +6,45 @@ export interface MergeInput {
   readonly remote: string;
 }
 
+export interface UnresolvedMergeHunk {
+  readonly localMarkdown: string;
+  readonly remoteMarkdown: string;
+}
+
+export interface MergeResolutionChoices {
+  readonly thisDevice: string;
+  readonly googleDrive: string;
+  readonly thisDeviceForUnresolved: string | null;
+  readonly googleDriveForUnresolved: string | null;
+}
+
 export interface MergeResult {
+  readonly mergedMarkdown: string;
+  readonly unresolvedHunks: readonly UnresolvedMergeHunk[];
+  readonly choices: MergeResolutionChoices;
+  readonly manualConflictMarkdown: string;
+  /** @deprecated Use mergedMarkdown. */
   readonly merged: string;
+  /** @deprecated Use unresolvedHunks.length > 0. */
   readonly conflicted: boolean;
 }
 
 export function mergeDailyNote(input: MergeInput): MergeResult {
   if (input.local === input.remote) {
-    return { merged: input.local, conflicted: false };
+    return cleanMergeResult(input, input.local);
   }
 
   if (input.local === input.baseline) {
-    return { merged: input.remote, conflicted: false };
+    return cleanMergeResult(input, input.remote);
   }
 
   if (input.remote === input.baseline) {
-    return { merged: input.local, conflicted: false };
+    return cleanMergeResult(input, input.local);
   }
 
   const merged = tryAppendOnlyMerge(input);
   if (merged !== null) {
-    return { merged, conflicted: false };
+    return cleanMergeResult(input, merged);
   }
 
   return mergeLineChanges(input);
@@ -34,6 +52,12 @@ export function mergeDailyNote(input: MergeInput): MergeResult {
 
 export function createConflictMarkdown(local: string, remote: string): string {
   return conflictHunksFromLineDiff(diffLines(local, remote));
+}
+
+export function containsDailyNoteConflictMarkers(markdown: string): boolean {
+  return markdown.includes("<<<<<<< Local Draft\n") &&
+    markdown.includes("=======\n") &&
+    markdown.includes(">>>>>>> Google Drive\n");
 }
 
 function tryAppendOnlyMerge(input: MergeInput): string | null {
@@ -59,8 +83,16 @@ function mergeLineChanges(input: MergeInput): MergeResult {
   let localIndex = 0;
   let remoteIndex = 0;
   let baselineIndex = 0;
-  let merged = "";
-  let conflicted = false;
+  let manualConflictMarkdown = "";
+  let thisDeviceForUnresolved = "";
+  let googleDriveForUnresolved = "";
+  const unresolvedHunks: UnresolvedMergeHunk[] = [];
+
+  const appendResolved = (markdown: string) => {
+    manualConflictMarkdown += markdown;
+    thisDeviceForUnresolved += markdown;
+    googleDriveForUnresolved += markdown;
+  };
 
   while (localIndex < localHunks.length || remoteIndex < remoteHunks.length) {
     const localHunk = localHunks[localIndex];
@@ -68,16 +100,16 @@ function mergeLineChanges(input: MergeInput): MergeResult {
 
     if (remoteHunk === undefined || (localHunk !== undefined && hunkComesBefore(localHunk, remoteHunk))) {
       const hunk = localHunk!;
-      merged += baselineLines.slice(baselineIndex, hunk.start).join("");
-      merged += hunk.replacement.join("");
+      appendResolved(baselineLines.slice(baselineIndex, hunk.start).join(""));
+      appendResolved(hunk.replacement.join(""));
       baselineIndex = hunk.end;
       localIndex += 1;
       continue;
     }
 
     if (localHunk === undefined || hunkComesBefore(remoteHunk, localHunk)) {
-      merged += baselineLines.slice(baselineIndex, remoteHunk.start).join("");
-      merged += remoteHunk.replacement.join("");
+      appendResolved(baselineLines.slice(baselineIndex, remoteHunk.start).join(""));
+      appendResolved(remoteHunk.replacement.join(""));
       baselineIndex = remoteHunk.end;
       remoteIndex += 1;
       continue;
@@ -86,21 +118,29 @@ function mergeLineChanges(input: MergeInput): MergeResult {
     const group = collectOverlappingHunks(localHunks, remoteHunks, localIndex, remoteIndex);
     localIndex = group.nextLocalIndex;
     remoteIndex = group.nextRemoteIndex;
-    merged += baselineLines.slice(baselineIndex, group.start).join("");
+    appendResolved(baselineLines.slice(baselineIndex, group.start).join(""));
 
     const localValue = applyHunksToRange(baselineLines, group.start, group.end, group.localHunks);
     const remoteValue = applyHunksToRange(baselineLines, group.start, group.end, group.remoteHunks);
     if (localValue === remoteValue) {
-      merged += localValue;
+      appendResolved(localValue);
+    } else if (allPureInsertions(group.localHunks)) {
+      appendResolved(applyInsertionHunksToMarkdown(group.start, group.localHunks, remoteValue));
     } else {
-      conflicted = true;
-      merged += conflictHunk(localValue, remoteValue);
+      const hunk = { localMarkdown: localValue, remoteMarkdown: remoteValue };
+      unresolvedHunks.push(hunk);
+      manualConflictMarkdown += conflictHunk(localValue, remoteValue);
+      thisDeviceForUnresolved += hunk.localMarkdown;
+      googleDriveForUnresolved += hunk.remoteMarkdown;
     }
     baselineIndex = group.end;
   }
 
-  merged += baselineLines.slice(baselineIndex).join("");
-  return { merged, conflicted };
+  appendResolved(baselineLines.slice(baselineIndex).join(""));
+  return mergeResultFromParts(input, manualConflictMarkdown, unresolvedHunks, {
+    thisDeviceForUnresolved,
+    googleDriveForUnresolved
+  });
 }
 
 function lineHunks(from: string, to: string): LineHunk[] {
@@ -218,6 +258,30 @@ function applyHunksToRange(
   return value;
 }
 
+function allPureInsertions(hunks: readonly LineHunk[]): boolean {
+  return hunks.length > 0 && hunks.every((hunk) => hunk.start === hunk.end);
+}
+
+function applyInsertionHunksToMarkdown(
+  baselineStart: number,
+  insertionHunks: readonly LineHunk[],
+  markdown: string
+): string {
+  const lines = splitLines(markdown);
+  let value = "";
+  let lineIndex = 0;
+
+  for (const hunk of insertionHunks) {
+    const targetIndex = Math.max(0, Math.min(lines.length, hunk.start - baselineStart));
+    value += lines.slice(lineIndex, targetIndex).join("");
+    value += hunk.replacement.join("");
+    lineIndex = targetIndex;
+  }
+
+  value += lines.slice(lineIndex).join("");
+  return value;
+}
+
 function hunkComesBefore(left: LineHunk, right: LineHunk): boolean {
   if (left.end < right.start) return true;
   if (left.end > right.start) return false;
@@ -272,4 +336,41 @@ function flushConflictHunk(local: string, remote: string): string {
 
 function conflictHunk(local: string, remote: string): string {
   return `<<<<<<< Local Draft\n${ensureTrailingNewline(local)}=======\n${ensureTrailingNewline(remote)}>>>>>>> Google Drive\n`;
+}
+
+function cleanMergeResult(input: MergeInput, mergedMarkdown: string): MergeResult {
+  return mergeResultFromParts(input, mergedMarkdown, [], {
+    thisDeviceForUnresolved: mergedMarkdown,
+    googleDriveForUnresolved: mergedMarkdown
+  });
+}
+
+function mergeResultFromParts(
+  input: MergeInput,
+  manualConflictMarkdown: string,
+  unresolvedHunks: readonly UnresolvedMergeHunk[],
+  unresolvedChoices: {
+    readonly thisDeviceForUnresolved: string;
+    readonly googleDriveForUnresolved: string;
+  }
+): MergeResult {
+  const thisDeviceForUnresolved = unresolvedHunks.length > 0 && unresolvedChoices.thisDeviceForUnresolved !== input.local
+    ? unresolvedChoices.thisDeviceForUnresolved
+    : null;
+  const googleDriveForUnresolved = unresolvedHunks.length > 0 && unresolvedChoices.googleDriveForUnresolved !== input.remote
+    ? unresolvedChoices.googleDriveForUnresolved
+    : null;
+  return {
+    mergedMarkdown: manualConflictMarkdown,
+    unresolvedHunks,
+    choices: {
+      thisDevice: input.local,
+      googleDrive: input.remote,
+      thisDeviceForUnresolved,
+      googleDriveForUnresolved
+    },
+    manualConflictMarkdown,
+    merged: manualConflictMarkdown,
+    conflicted: unresolvedHunks.length > 0
+  };
 }

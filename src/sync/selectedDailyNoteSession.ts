@@ -18,8 +18,12 @@ import {
   loadDailyNoteSession,
   loadLocalDailyNoteSession,
   persistLocalDraft,
+  rebaseAndSyncDailyNoteSnapshot,
+  resolveDailyNoteConflict,
   saveAndSyncDailyNoteSnapshot,
   type CleanDailyNoteRefresh,
+  type DailyNoteConflictResolution,
+  type DailyNoteSyncConflict,
   type DailyNoteSession
 } from "./syncDailyNote";
 import type { SyncRetryAction } from "./syncErrorRetry";
@@ -47,6 +51,7 @@ export interface SaveSelectedDailyNoteSnapshotInput {
   readonly drafts: LocalDraftStore;
   readonly remote: RemoteStorageProvider;
   readonly getState: () => DateBoundEditorState;
+  readonly refreshRemoteBeforeSave?: boolean;
   readonly beforeApply?: () => void;
 }
 
@@ -55,6 +60,16 @@ export interface SaveVisibleDailyNoteSnapshotInput {
   readonly drafts: LocalDraftStore;
   readonly remote: RemoteStorageProvider;
   readonly getState: () => DateBoundEditorState;
+  readonly refreshRemoteBeforeSave?: boolean;
+}
+
+export interface ResolveSelectedDailyNoteConflictInput {
+  readonly conflict: DailyNoteSyncConflict;
+  readonly resolution: DailyNoteConflictResolution;
+  readonly drafts: LocalDraftStore;
+  readonly remote: RemoteStorageProvider;
+  readonly getState: () => DateBoundEditorState;
+  readonly beforeApply?: () => void;
 }
 
 export type LoadSelectedDailyNoteSessionResult =
@@ -387,12 +402,10 @@ export async function saveSelectedDailyNoteSnapshot(
   }
 
   try {
-    const session = await saveAndSyncDailyNoteSnapshot(
-      input.snapshot.date,
-      input.snapshot.markdown,
-      input.drafts,
-      input.remote
-    );
+    const save = input.refreshRemoteBeforeSave === true
+      ? rebaseAndSyncDailyNoteSnapshot
+      : saveAndSyncDailyNoteSnapshot;
+    const session = await save(input.snapshot.date, input.snapshot.markdown, input.drafts, input.remote);
     input.beforeApply?.();
     return {
       type: "saved",
@@ -405,6 +418,42 @@ export async function saveSelectedDailyNoteSnapshot(
       snapshot: input.snapshot,
       error,
       applyToVisibleDailyNote: snapshotStillVisible(input.getState(), input.snapshot)
+    };
+  }
+}
+
+export async function resolveSelectedDailyNoteConflict(
+  input: ResolveSelectedDailyNoteConflictInput
+): Promise<SaveSelectedDailyNoteSnapshotResult> {
+  try {
+    const session = await resolveDailyNoteConflict(
+      input.conflict,
+      input.resolution,
+      input.drafts,
+      input.remote
+    );
+    input.beforeApply?.();
+    return {
+      type: "saved",
+      session,
+      transition: applySyncResult(
+        input.getState(),
+        {
+          date: input.conflict.date,
+          markdown: input.conflict.localMarkdown
+        },
+        session
+      )
+    };
+  } catch (error) {
+    return {
+      type: "failed",
+      snapshot: {
+        date: input.conflict.date,
+        markdown: input.conflict.localMarkdown
+      },
+      error,
+      applyToVisibleDailyNote: input.getState().selectedDate === input.conflict.date
     };
   }
 }
