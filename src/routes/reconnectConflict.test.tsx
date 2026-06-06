@@ -28,6 +28,7 @@ vi.mock("~/components/MilkdownEditor", () => ({
     readonly documentKey: string;
     readonly value: string;
     readonly readOnly?: boolean;
+    readonly onCursorChange?: (offset: number) => void;
     readonly onChange: (documentKey: string, markdown: string) => void;
     readonly onBlur: (documentKey: string, markdown: string) => void;
   }) => (
@@ -35,6 +36,8 @@ vi.mock("~/components/MilkdownEditor", () => ({
       aria-label="Mock WYSIWYG editor"
       readOnly={props.readOnly === true}
       value={props.value}
+      onClick={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
+      onSelect={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
       onInput={(event) => props.onChange(props.documentKey, event.currentTarget.value)}
       onBlur={(event) => props.onBlur(props.documentKey, event.currentTarget.value)}
     />
@@ -227,6 +230,35 @@ describe("Home reconnect and conflict handling", () => {
     expect(rawToggle!.checked).toBe(true);
     expect(rawToggle!.disabled).toBe(true);
     expect(host.querySelector<HTMLTextAreaElement>(".plain-text-editor")?.value).toContain("<<<<<<< Local Draft");
+
+    dispose();
+  });
+
+  it("toggles the link at the editor cursor from the heading button", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "Read <https://example.com/docs/sync-model> today",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange("Read <https://example".length, "Read <https://example".length);
+    editor!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle link format']");
+    expect(toggle).not.toBeNull();
+    expect(toggle!.title).toBe("Toggle link format");
+    toggle!.click();
+    await settle();
+
+    expect(editor!.value).toBe("Read [sync-model](<https://example.com/docs/sync-model>) today");
 
     dispose();
   });

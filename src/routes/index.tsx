@@ -57,6 +57,7 @@ import {
   nextEditorMode,
   type EditorMode
 } from "~/editor/editorModeShortcut";
+import { toggleLinkAtCursor } from "~/editor/linkToggle";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
 import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
@@ -1167,6 +1168,22 @@ export default function Home() {
     setEditorMode(mode);
   };
 
+  const toggleLinkFormat = () => {
+    const date = selectedDate();
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
+
+    const result = toggleLinkAtCursor(markdown(), lastEditorCursorOffset());
+    if (result === null) return;
+
+    const change = applyEditorChange(dateBoundEditorState(), date, result.markdown);
+    if (change.type !== "current-editor") return;
+
+    applyDateBoundEditorTransition({ state: change.state, markdownWrite: change.markdownWrite });
+    setFocusEditorAtEnd(false);
+    setFocusEditorOffset(result.cursorOffset);
+    setEditorResetKey((key) => key + 1);
+  };
+
   const handleEditorChange = (documentKey: string, value: string) => {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
@@ -1858,6 +1875,16 @@ export default function Home() {
                   </Show>
                 </div>
               </Show>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Toggle link format"
+                title="Toggle link format"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={toggleLinkFormat}
+              >
+                <LinkFormatIcon />
+              </button>
               <label
                 class="raw-mode-toggle"
                 data-tooltip={`Toggle raw Markdown (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
@@ -2539,6 +2566,25 @@ function InsertImageIcon() {
       <path d="m21 15-4.5-4.5L9 18" />
       <path d="M16 5v6" />
       <path d="M13 8h6" />
+    </svg>
+  );
+}
+
+function LinkFormatIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+      <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />
     </svg>
   );
 }
