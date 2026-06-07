@@ -11,6 +11,7 @@ import {
   markdownSourceOffsetToRenderedOffset,
   renderedOffsetToMarkdownSourceOffset
 } from "~/editor/markdownCursor";
+import { diffChars } from "diff";
 import type { Editor as MilkdownEditorInstance } from "@milkdown/kit/core";
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import type { Selection } from "@milkdown/kit/prose/state";
@@ -43,6 +44,9 @@ interface MilkdownEditorSession {
   readonly setReadOnly: (readOnly: boolean) => void;
   readonly undo: () => boolean;
 }
+
+type MarkdownSerializer = (doc: ProseNode) => string;
+let cursorMarkerSequence = 0;
 
 export interface MilkdownEditorController {
   readonly applyRawMarkdown: (markdown: string) => void;
@@ -224,13 +228,15 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 
               props.onChange(documentKey, markdown);
             });
-            ctx.get(listenerCtx).selectionUpdated((_ctx, selection) => {
+            ctx.get(listenerCtx).selectionUpdated((ctx, selection) => {
               if (disposed || activeSession !== session) return;
               if (props.focusEnabled === false) return;
               if (!root.contains(document.activeElement)) return;
-              props.onCursorChange?.(renderedOffsetToMarkdownSourceOffset(
+              props.onCursorChange?.(editorSelectionToMarkdownSourceOffset(
                 markdownState.currentMarkdown,
-                selectionToRenderedTextOffset(selection)
+                selection,
+                ctx.get(editorViewCtx),
+                ctx.get(serializerCtx)
               ));
             });
           })
@@ -275,9 +281,11 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             getCursorOffset: () => {
               if (disposed || activeSession !== session || editor === null) return null;
               const view = editor.ctx.get(editorViewCtx);
-              return renderedOffsetToMarkdownSourceOffset(
+              return editorSelectionToMarkdownSourceOffset(
                 markdownState.currentMarkdown,
-                selectionToRenderedTextOffset(view.state.selection)
+                view.state.selection,
+                view,
+                editor.ctx.get(serializerCtx)
               );
             },
             getMarkdown: () => markdownState.currentMarkdown,
@@ -503,6 +511,76 @@ function placeEditorSelectionAtEnd(
 
 function selectionToRenderedTextOffset(selection: Selection): number {
   return renderedTextOffsetBeforePosition(selection.$from.doc, selection.from);
+}
+
+export function editorSelectionToMarkdownSourceOffset(
+  markdown: string,
+  selection: Selection,
+  view: EditorView,
+  serializer: MarkdownSerializer
+): number {
+  const serializedOffset = serializedEditorSelectionToMarkdownSourceOffset(markdown, selection, view, serializer);
+  if (serializedOffset !== null) return serializedOffset;
+
+  return renderedOffsetToMarkdownSourceOffset(markdown, selectionToRenderedTextOffset(selection));
+}
+
+function serializedEditorSelectionToMarkdownSourceOffset(
+  markdown: string,
+  selection: Selection,
+  view: EditorView,
+  serializer: MarkdownSerializer
+): number | null {
+  const marker = createCursorMarker(markdown);
+  try {
+    const tr = view.state.tr.insertText(marker, selection.from, selection.to);
+    const markedMarkdown = serializer(tr.doc);
+    const serializedOffset = markedMarkdown.indexOf(marker);
+    if (serializedOffset === -1) return null;
+
+    const serializedMarkdown = `${markedMarkdown.slice(0, serializedOffset)}${markedMarkdown.slice(
+      serializedOffset + marker.length
+    )}`;
+    return mapStringOffset(serializedMarkdown, markdown, serializedOffset);
+  } catch {
+    return null;
+  }
+}
+
+function createCursorMarker(markdown: string): string {
+  do {
+    cursorMarkerSequence += 1;
+  } while (markdown.includes(cursorMarker(cursorMarkerSequence)));
+  return cursorMarker(cursorMarkerSequence);
+}
+
+function cursorMarker(sequence: number): string {
+  return `JOTCURSORMARKER${sequence}END`;
+}
+
+function mapStringOffset(from: string, to: string, offset: number): number {
+  if (from === to) return Math.max(0, Math.min(to.length, offset));
+
+  let fromPosition = 0;
+  let toPosition = 0;
+  for (const change of diffChars(from, to)) {
+    const valueLength = change.value.length;
+    if (change.added === true) {
+      toPosition += valueLength;
+      continue;
+    }
+    if (change.removed === true) {
+      if (offset <= fromPosition + valueLength) return toPosition;
+      fromPosition += valueLength;
+      continue;
+    }
+
+    if (offset <= fromPosition + valueLength) return toPosition + (offset - fromPosition);
+    fromPosition += valueLength;
+    toPosition += valueLength;
+  }
+
+  return toPosition;
 }
 
 function renderedTextOffsetBeforePosition(doc: ProseNode, position: number): number {

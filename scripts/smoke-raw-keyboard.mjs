@@ -227,6 +227,7 @@ async function switchToRawMode(cdp) {
     const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
     return textarea instanceof HTMLTextAreaElement && textarea.closest("[hidden]") === null;
   })()`);
+  await waitForRawEditorReady(cdp);
 }
 
 async function switchToWysiwygMode(cdp) {
@@ -251,6 +252,16 @@ async function waitForEditorModeToggle(cdp) {
   })()`);
 }
 
+async function waitForRawEditorReady(cdp) {
+  await waitForExpression(cdp, `(() => {
+    const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
+    return textarea instanceof HTMLTextAreaElement &&
+      textarea.closest("[hidden]") === null &&
+      !textarea.readOnly &&
+      document.activeElement === textarea;
+  })()`);
+}
+
 async function setRawMarkdown(cdp, markdown) {
   await replaceRawMarkdown(cdp, markdown);
   await waitForRawMarkdown(cdp, markdown);
@@ -269,7 +280,7 @@ async function focusRawEditor(cdp) {
     if (!(textarea instanceof HTMLTextAreaElement)) return false;
     textarea.focus();
     textarea.select();
-    return true;
+    return document.activeElement === textarea && !textarea.readOnly;
   })()`);
   assert(focused, "Could not focus raw markdown editor.");
 }

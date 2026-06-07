@@ -1,8 +1,14 @@
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
+import { defaultValueCtx, Editor, editorViewCtx, serializerCtx } from "@milkdown/kit/core";
+import type { Node as ProseMirrorNode } from "@milkdown/kit/prose/model";
+import { TextSelection } from "@milkdown/kit/prose/state";
+import { commonmark } from "@milkdown/kit/preset/commonmark";
+import { gfm } from "@milkdown/kit/preset/gfm";
 import {
   applyMilkdownUpdatedMarkdown,
   createMilkdownMarkdownSyncState,
+  editorSelectionToMarkdownSourceOffset,
   MilkdownEditor,
   trackMilkdownExternalMarkdown,
   trackMilkdownSerializedMarkdown
@@ -267,6 +273,26 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("maps a WYSIWYG table cursor through Milkdown serialization to the raw Markdown offset", async () => {
+    const markdown = "| A | B |\n| --- | --- |\n| one | two |\n";
+    const editor = await createMilkdownTestEditor(markdown);
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const position = findTextEndPosition(view.state.doc, "one");
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, position)));
+
+      expect(editorSelectionToMarkdownSourceOffset(
+        markdown,
+        view.state.selection,
+        view,
+        editor.ctx.get(serializerCtx)
+      )).toBe(markdown.indexOf("one") + "one".length);
+    } finally {
+      await editor.destroy();
+    }
+  });
+
   it("clears a pending external marker when a debounced user edit does not match it", () => {
     const state = createMilkdownMarkdownSyncState("old");
     trackMilkdownExternalMarkdown(state, "remote", "remote\n");
@@ -329,4 +355,36 @@ function animationFrame(): Promise<void> {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function createMilkdownTestEditor(markdown: string) {
+  return await Editor.make()
+    .config((ctx) => {
+      ctx.set(defaultValueCtx, markdown);
+    })
+    .use(commonmark)
+    .use(gfm)
+    .create();
+}
+
+function findTextEndPosition(doc: ProseMirrorNode, textToFind: string): number {
+  const position = findTextNodePosition(doc, textToFind);
+  if (position === null) {
+    throw new Error(`Text not found in Milkdown document: ${textToFind}`);
+  }
+  return position + textToFind.length;
+}
+
+function findTextNodePosition(doc: ProseMirrorNode, textToFind: string): number | null {
+  let found: number | null = null;
+  doc.descendants((node, position) => {
+    if (!node.isText || node.text === undefined) return true;
+
+    const index = node.text.indexOf(textToFind);
+    if (index === -1) return true;
+
+    found = position + index;
+    return false;
+  });
+  return found;
 }
