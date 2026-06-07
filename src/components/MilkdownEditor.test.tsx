@@ -227,6 +227,46 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("does not report cursor changes while focus is disabled", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const cursorChanges: number[] = [];
+    let setMarkdown!: (markdown: string) => void;
+
+    const dispose = render(
+      () => {
+        const [markdown, innerSetMarkdown] = createSignal("old inactive");
+        setMarkdown = innerSetMarkdown;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value={markdown()}
+            readOnly={true}
+            focusEnabled={false}
+            onCursorChange={(offset) => cursorChanges.push(offset)}
+            onChange={() => undefined}
+            onBlur={() => undefined}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForContentEditable(host, "false");
+      cursorChanges.length = 0;
+
+      setMarkdown("new inactive");
+      await delay(300);
+
+      expect(cursorChanges).toEqual([]);
+
+    } finally {
+      dispose();
+    }
+  });
+
   it("clears a pending external marker when a debounced user edit does not match it", () => {
     const state = createMilkdownMarkdownSyncState("old");
     trackMilkdownExternalMarkdown(state, "remote", "remote\n");

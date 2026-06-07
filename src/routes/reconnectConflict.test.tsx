@@ -31,17 +31,70 @@ vi.mock("~/components/MilkdownEditor", () => ({
     readonly onCursorChange?: (offset: number) => void;
     readonly onChange: (documentKey: string, markdown: string) => void;
     readonly onBlur: (documentKey: string, markdown: string) => void;
-  }) => (
-    <textarea
-      aria-label="Mock WYSIWYG editor"
-      readOnly={props.readOnly === true}
-      value={props.value}
-      onClick={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
-      onSelect={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
-      onInput={(event) => props.onChange(props.documentKey, event.currentTarget.value)}
-      onBlur={(event) => props.onBlur(props.documentKey, event.currentTarget.value)}
-    />
-  )
+    readonly onController?: (controller: {
+      readonly applyRawMarkdown: (markdown: string) => void;
+      readonly closeHistory: () => void;
+      readonly redo: () => boolean;
+      readonly undo: () => boolean;
+    } | null) => void;
+  }) => {
+    let present = props.value;
+    const past: string[] = [];
+    const future: string[] = [];
+
+    const record = (markdown: string) => {
+      if (markdown === present) return;
+      past.push(present);
+      present = markdown;
+      future.length = 0;
+      props.onChange(props.documentKey, markdown);
+    };
+    const undo = () => {
+      const previous = past.pop();
+      if (previous === undefined) return false;
+      future.push(present);
+      present = previous;
+      props.onChange(props.documentKey, previous);
+      return true;
+    };
+    const redo = () => {
+      const next = future.pop();
+      if (next === undefined) return false;
+      past.push(present);
+      present = next;
+      props.onChange(props.documentKey, next);
+      return true;
+    };
+
+    props.onController?.({
+      applyRawMarkdown: record,
+      closeHistory: () => undefined,
+      redo,
+      undo
+    });
+
+    return (
+      <textarea
+        aria-label="Mock WYSIWYG editor"
+        readOnly={props.readOnly === true}
+        value={props.value}
+        onClick={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
+        onSelect={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
+        onInput={(event) => record(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
+            if (undo()) event.preventDefault();
+          } else if (
+            (event.key.toLowerCase() === "y" && event.ctrlKey) ||
+            (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && event.shiftKey)
+          ) {
+            if (redo()) event.preventDefault();
+          }
+        }}
+        onBlur={(event) => props.onBlur(props.documentKey, event.currentTarget.value)}
+      />
+    );
+  }
 }));
 
 vi.mock("~/storage/localDraftStore", () => ({
@@ -262,6 +315,95 @@ describe("Home reconnect and conflict handling", () => {
 
     dispose();
   });
+
+  it("keeps editor instances mounted across raw and WYSIWYG switches so undo history survives", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "Keep undoable edits",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const wysiwygEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(wysiwygEditor).not.toBeNull();
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    const rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(rawEditor).not.toBeNull();
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")).toBe(wysiwygEditor);
+
+    rawToggle!.click();
+    await settle();
+
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")).toBe(rawEditor);
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")).toBe(wysiwygEditor);
+
+    dispose();
+  });
+
+  it("undoes WYSIWYG and raw edits in chronological order", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const wysiwygEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(wysiwygEditor).not.toBeNull();
+    wysiwygEditor!.value = "A";
+    wysiwygEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    const rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(rawEditor).not.toBeNull();
+    expect(rawEditor!.value).toBe("A");
+    rawEditor!.value = "AB";
+    rawEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    rawToggle!.click();
+    await settle();
+
+    expect(wysiwygEditor!.value).toBe("AB");
+    wysiwygEditor!.value = "ABC";
+    wysiwygEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    expect(pressUndo(wysiwygEditor!)).toBe(true);
+    await settle();
+    expect(wysiwygEditor!.value).toBe("AB");
+
+    expect(pressUndo(wysiwygEditor!)).toBe(true);
+    await settle();
+    expect(wysiwygEditor!.value).toBe("A");
+
+    expect(pressUndo(wysiwygEditor!)).toBe(true);
+    await settle();
+    expect(wysiwygEditor!.value).toBe("");
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!.value).toBe("");
+
+    dispose();
+  });
 });
 
 function dialog(host: ParentNode, title: string): Element | null {
@@ -276,6 +418,17 @@ function clickButton(host: ParentNode, label: string): void {
   const element = button(host, label);
   expect(element).not.toBeNull();
   element!.click();
+}
+
+function pressUndo(editor: HTMLTextAreaElement): boolean {
+  const event = new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    key: "z",
+    metaKey: true
+  });
+  editor.dispatchEvent(event);
+  return event.defaultPrevented;
 }
 
 async function settle(): Promise<void> {

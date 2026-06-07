@@ -1,4 +1,4 @@
-import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
+import { createEffect, createRenderEffect, createSignal, on, onCleanup, Show, untrack } from "solid-js";
 import { firstClipboardImageFile } from "./clipboardImages";
 import type { ImageAttachmentDisplayMap } from "./milkdownImages";
 import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
@@ -21,20 +21,33 @@ interface MilkdownEditorProps {
   readonly resetKey?: number;
   readonly focusAtEnd?: boolean;
   readonly focusOffset?: number | null;
+  readonly focusEnabled?: boolean;
   readonly onFocusApplied?: () => void;
-  readonly onCursorChange?: (offset: number) => void;
+  readonly onCursorChange?: ((offset: number) => void) | undefined;
   readonly imageAttachmentDisplays?: ImageAttachmentDisplayMap;
   readonly value: string;
   readonly readOnly?: boolean;
   readonly onChange: (documentKey: string, markdown: string) => void;
   readonly onBlur: (documentKey: string, markdown: string) => void;
+  readonly onController?: (controller: MilkdownEditorController | null) => void;
   readonly onPasteImage?: (documentKey: string, file: File) => void;
 }
 
 interface MilkdownEditorSession {
-  readonly applyExternalMarkdown: (markdown: string) => void;
+  readonly applyExternalMarkdown: (markdown: string, undoable: boolean) => void;
+  readonly closeHistory: () => void;
   readonly getMarkdown: () => string;
+  readonly focus: (placement: FocusPlacement, markdown: string, onFocusApplied?: () => void) => void;
+  readonly redo: () => boolean;
   readonly setReadOnly: (readOnly: boolean) => void;
+  readonly undo: () => boolean;
+}
+
+export interface MilkdownEditorController {
+  readonly applyRawMarkdown: (markdown: string) => void;
+  readonly closeHistory: () => void;
+  readonly redo: () => boolean;
+  readonly undo: () => boolean;
 }
 
 export interface MilkdownMarkdownSyncState {
@@ -115,6 +128,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           removeRootListeners?.();
           if (activeSession === session) {
             activeSession = null;
+            props.onController?.(null);
           }
           void editor?.destroy();
         });
@@ -131,6 +145,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { listener, listenerCtx },
           { listItemBlockComponent, listItemBlockConfig },
           { Plugin, TextSelection },
+          { closeHistory, redo, undo },
           { isInTable },
           { liftListItem, sinkListItem },
           { wrapIn },
@@ -145,6 +160,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             import("@milkdown/kit/plugin/listener"),
             import("@milkdown/kit/component/list-item-block"),
             import("@milkdown/kit/prose/state"),
+            import("@milkdown/kit/prose/history"),
             import("@milkdown/kit/prose/tables"),
             import("@milkdown/kit/prose/schema-list"),
             import("@milkdown/kit/prose/commands"),
@@ -208,6 +224,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             });
             ctx.get(listenerCtx).selectionUpdated((_ctx, selection) => {
               if (disposed || activeSession !== session) return;
+              if (props.focusEnabled === false) return;
               props.onCursorChange?.(renderedOffsetToMarkdownSourceOffset(
                 markdownState.currentMarkdown,
                 selectionToRenderedTextOffset(selection)
@@ -235,19 +252,34 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             return;
           }
           session = {
-            applyExternalMarkdown: (markdown) => {
+            applyExternalMarkdown: (markdown, undoable) => {
               if (disposed || activeSession !== session || editor === null) return;
 
               let replacedMarkdown = markdown;
               editor.action((ctx) => {
-                replaceAll(markdown)(ctx);
+                replaceAll(markdown, !undoable)(ctx);
                 const view = ctx.get(editorViewCtx);
                 const serializer = ctx.get(serializerCtx);
                 replacedMarkdown = serializer(view.state.doc);
               });
               trackMilkdownExternalMarkdown(markdownState, markdown, replacedMarkdown);
             },
+            closeHistory: () => {
+              if (disposed || activeSession !== session || editor === null) return;
+              const view = editor.ctx.get(editorViewCtx);
+              view.dispatch(closeHistory(view.state.tr));
+            },
             getMarkdown: () => markdownState.currentMarkdown,
+            focus: (placement, markdown, onFocusApplied) => {
+              if (disposed || activeSession !== session || editor === null) return;
+              const view = editor.ctx.get(editorViewCtx);
+              focusEditable(root, placement, view, TextSelection, markdown, onFocusApplied);
+            },
+            redo: () => {
+              if (disposed || activeSession !== session || editor === null) return false;
+              const view = editor.ctx.get(editorViewCtx);
+              return redo(view.state, view.dispatch, view);
+            },
             setReadOnly: (readOnly) => {
               if (disposed || activeSession !== session || editor === null) return;
               currentReadOnly = readOnly;
@@ -257,23 +289,33 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               });
               view.dom.setAttribute("contenteditable", currentReadOnly ? "false" : "true");
               view.dom.setAttribute("aria-readonly", currentReadOnly ? "true" : "false");
+            },
+            undo: () => {
+              if (disposed || activeSession !== session || editor === null) return false;
+              const view = editor.ctx.get(editorViewCtx);
+              return undo(view.state, view.dispatch, view);
             }
           };
           activeSession = session;
+          props.onController?.({
+            applyRawMarkdown: (markdown) => {
+              session?.applyExternalMarkdown(markdown, true);
+            },
+            closeHistory: () => {
+              session?.closeHistory();
+            },
+            redo: () => session?.redo() ?? false,
+            undo: () => session?.undo() ?? false
+          });
           session.setReadOnly(props.readOnly === true);
           if (props.value !== markdownState.currentMarkdown) {
-            session.applyExternalMarkdown(props.value);
+            session.applyExternalMarkdown(props.value, false);
           }
           const view = editor.ctx.get(editorViewCtx);
           trackMilkdownSerializedMarkdown(markdownState, editor.ctx.get(serializerCtx)(view.state.doc));
-          focusEditable(
-            root,
-            focusPlacement(focusAtEnd, focusOffset),
-            view,
-            TextSelection,
-            props.value,
-            props.onFocusApplied
-          );
+          if (props.focusEnabled !== false) {
+            session.focus(focusPlacement(focusAtEnd, focusOffset), props.value, props.onFocusApplied);
+          }
         }
 
         const blurListener = () => props.onBlur(documentKey, markdownState.currentMarkdown);
@@ -302,15 +344,31 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
     const session = activeSession;
     if (session === null || markdown === session.getMarkdown()) return;
 
-    session.applyExternalMarkdown(markdown);
+    session.applyExternalMarkdown(markdown, false);
   });
 
-  createEffect(() => {
+  createRenderEffect(
+    on(
+      () => [props.documentKey, props.resetKey, props.focusAtEnd, props.focusOffset, props.focusEnabled] as const,
+      () => {
+        if (props.focusEnabled === false) return;
+        activeSession?.focus(
+          focusPlacement(props.focusAtEnd, props.focusOffset),
+          untrack(() => props.value),
+          props.onFocusApplied
+        );
+      },
+      { defer: true }
+    )
+  );
+
+  createRenderEffect(() => {
     activeSession?.setReadOnly(props.readOnly === true);
   });
 
   createEffect(() => {
     props.value;
+    if (props.focusEnabled === false) return;
     if (error() === null || fallbackTextarea === undefined) return;
     requestAnimationFrame(() => {
       if (fallbackTextarea !== undefined) resizeTextAreaToContents(fallbackTextarea);
@@ -352,7 +410,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           }}
           onKeyUp={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
           onSelect={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
-          onBlur={(event) => props.onBlur(props.documentKey, event.currentTarget.value)}
+          onBlur={(event) => {
+            props.onCursorChange?.(event.currentTarget.selectionStart);
+            props.onBlur(props.documentKey, event.currentTarget.value);
+          }}
           aria-label="Markdown editor fallback"
         />
       </Show>
@@ -386,42 +447,46 @@ function focusEditable(
   markdown: string,
   onFocusApplied?: () => void
 ): void {
+  if (placement.type === "end") {
+    placeEditorSelectionAtEnd(view, textSelection);
+  } else if (placement.type === "offset") {
+    placeSelectionAtMarkdownSourceOffset(view, textSelection, markdown, placement.offset);
+  }
+
+  view.focus();
+  onFocusApplied?.();
+
   requestAnimationFrame(() => {
-    const editable = root.querySelector<HTMLElement>("[contenteditable='true']");
-    if (!editable) return;
-    editable.focus();
-    if (placement.type === "end") {
-      placeSelectionAtEnd(editable);
-    } else if (placement.type === "offset") {
-      placeSelectionAtMarkdownSourceOffset(view, textSelection, markdown, placement.offset);
-    }
-    onFocusApplied?.();
+    if (root.querySelector<HTMLElement>("[contenteditable]") !== null) view.focus();
   });
 }
 
 function focusTextArea(element: HTMLTextAreaElement, placement: FocusPlacement, onFocusApplied?: () => void): void {
+  element.focus();
+  placeTextAreaSelection(element, placement);
+  onFocusApplied?.();
+
   requestAnimationFrame(() => {
     element.focus();
-    if (placement.type === "end") {
-      const offset = element.value.length;
-      element.setSelectionRange(offset, offset);
-    } else if (placement.type === "offset") {
-      const offset = Math.max(0, Math.min(element.value.length, placement.offset));
-      element.setSelectionRange(offset, offset);
-    }
-    onFocusApplied?.();
+    placeTextAreaSelection(element, placement);
   });
 }
 
-function placeSelectionAtEnd(element: HTMLElement): void {
-  const selection = window.getSelection();
-  if (selection === null) return;
+function placeTextAreaSelection(element: HTMLTextAreaElement, placement: FocusPlacement): void {
+  if (placement.type === "end") {
+    const offset = element.value.length;
+    element.setSelectionRange(offset, offset);
+  } else if (placement.type === "offset") {
+    const offset = Math.max(0, Math.min(element.value.length, placement.offset));
+    element.setSelectionRange(offset, offset);
+  }
+}
 
-  const range = document.createRange();
-  range.selectNodeContents(element);
-  range.collapse(false);
-  selection.removeAllRanges();
-  selection.addRange(range);
+function placeEditorSelectionAtEnd(
+  view: EditorView,
+  textSelection: typeof import("@milkdown/kit/prose/state").TextSelection
+): void {
+  view.dispatch(view.state.tr.setSelection(textSelection.atEnd(view.state.doc)).scrollIntoView());
 }
 
 function selectionToRenderedTextOffset(selection: Selection): number {

@@ -87,7 +87,10 @@ try {
     await switchToRawMode(cdp);
 
     await assertRawTabUndo(cdp, "plain line", "* plain line");
-    await assertRawTabUndo(cdp, "# Heading", "## Heading");
+    await assertRawTabUndo(cdp, "# Heading", "Heading");
+    await assertRawUndoSurvivesModeSwitch(cdp);
+    await assertWysiwygUndoRevertsRawEdit(cdp);
+    await assertChronologicalUndoAcrossModes(cdp);
   } finally {
     cdp.close();
   }
@@ -106,22 +109,120 @@ async function assertRawTabUndo(cdp, before, afterTab) {
   if ((await rawMarkdown(cdp)) !== before) {
     await pressUndo(cdp, process.platform !== "darwin");
   }
-  await waitForRawMarkdown(cdp, before);
+  await waitForNormalizedRawMarkdown(cdp, before);
+}
+
+async function assertChronologicalUndoAcrossModes(cdp) {
+  await switchToRawMode(cdp);
+  await setRawMarkdown(cdp, "");
+
+  await switchToWysiwygMode(cdp);
+  await cdp.send("Input.insertText", { text: "A" });
+  await waitForNormalizedRawMarkdown(cdp, "A");
+
+  await switchToRawMode(cdp);
+  await replaceRawMarkdown(cdp, "AB");
+  await waitForNormalizedRawMarkdown(cdp, "AB");
+
+  await switchToWysiwygMode(cdp);
+  await cdp.send("Input.insertText", { text: "C" });
+  await waitForNormalizedRawMarkdown(cdp, "ABC");
+
+  await pressUndo(cdp);
+  await waitForNormalizedRawMarkdown(cdp, "AB");
+
+  await pressUndo(cdp);
+  await waitForNormalizedRawMarkdown(cdp, "A");
+
+  await pressUndo(cdp);
+  await waitForNormalizedRawMarkdown(cdp, "");
+}
+
+async function assertRawUndoSurvivesModeSwitch(cdp) {
+  const markdown = "undo survives mode switches";
+  await setRawMarkdown(cdp, "");
+  await cdp.send("Input.insertText", { text: markdown });
+  await waitForRawMarkdown(cdp, markdown);
+
+  await switchToWysiwygMode(cdp);
+  await switchToRawMode(cdp);
+  await focusRawEditor(cdp);
+  await pressUndo(cdp);
+  if ((await rawMarkdown(cdp)) !== "") {
+    await pressUndo(cdp, process.platform !== "darwin");
+  }
+  await waitForRawMarkdown(cdp, "");
+}
+
+async function assertWysiwygUndoRevertsRawEdit(cdp) {
+  const before = "before raw edit";
+  const after = `${before}\nraw mode change`;
+  await setRawMarkdown(cdp, before);
+  await switchToWysiwygMode(cdp);
+  await switchToRawMode(cdp);
+  await focusRawEditorAtEnd(cdp);
+  await cdp.send("Input.insertText", { text: after.slice(before.length) });
+  await waitForRawMarkdown(cdp, after);
+
+  await switchToWysiwygMode(cdp);
+  await focusWysiwygEditor(cdp);
+  await pressUndo(cdp);
+  if (normalizeMarkdown(await rawMarkdown(cdp)) !== before) {
+    await pressUndo(cdp, process.platform !== "darwin");
+  }
+  await waitForNormalizedRawMarkdown(cdp, before);
 }
 
 async function switchToRawMode(cdp) {
-  await waitForExpression(cdp, "document.querySelector('.raw-mode-toggle input') !== null");
+  await waitForEditorModeToggle(cdp);
   const switched = await evaluate(cdp, `(() => {
     const input = document.querySelector('.raw-mode-toggle input');
     if (!(input instanceof HTMLInputElement)) return false;
     if (!input.checked) input.click();
-    return true;
+    return input.checked;
   })()`);
   assert(switched, "Could not switch to raw mode.");
-  await waitForExpression(cdp, "document.querySelector('textarea[aria-label=\"Markdown text editor\"]') !== null");
+  await waitForExpression(cdp, `(() => {
+    const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
+    return textarea instanceof HTMLTextAreaElement && textarea.closest("[hidden]") === null;
+  })()`);
+}
+
+async function switchToWysiwygMode(cdp) {
+  await waitForEditorModeToggle(cdp);
+  const switched = await evaluate(cdp, `(() => {
+    const input = document.querySelector('.raw-mode-toggle input');
+    if (!(input instanceof HTMLInputElement)) return false;
+    if (input.checked) input.click();
+    return !input.checked;
+  })()`);
+  assert(switched, "Could not switch to WYSIWYG mode.");
+  await waitForExpression(cdp, `(() => {
+    const editor = document.querySelector('.milkdown-root');
+    return editor instanceof HTMLElement && editor.closest("[hidden]") === null;
+  })()`);
+}
+
+async function waitForEditorModeToggle(cdp) {
+  await waitForExpression(cdp, `(() => {
+    const input = document.querySelector('.raw-mode-toggle input');
+    return input instanceof HTMLInputElement && !input.disabled;
+  })()`);
 }
 
 async function setRawMarkdown(cdp, markdown) {
+  await replaceRawMarkdown(cdp, markdown);
+  await waitForRawMarkdown(cdp, markdown);
+}
+
+async function replaceRawMarkdown(cdp, markdown) {
+  await focusRawEditor(cdp);
+  await pressBackspace(cdp);
+  await waitForNormalizedRawMarkdown(cdp, "");
+  await cdp.send("Input.insertText", { text: markdown });
+}
+
+async function focusRawEditor(cdp) {
   const focused = await evaluate(cdp, `(() => {
     const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
     if (!(textarea instanceof HTMLTextAreaElement)) return false;
@@ -130,10 +231,44 @@ async function setRawMarkdown(cdp, markdown) {
     return true;
   })()`);
   assert(focused, "Could not focus raw markdown editor.");
-  await pressBackspace(cdp);
-  await waitForRawMarkdown(cdp, "");
-  await cdp.send("Input.insertText", { text: markdown });
-  await waitForRawMarkdown(cdp, markdown);
+}
+
+async function focusRawEditorAtEnd(cdp) {
+  const focused = await evaluate(cdp, `(() => {
+    const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
+    if (!(textarea instanceof HTMLTextAreaElement)) return false;
+    textarea.focus();
+    const offset = textarea.value.length;
+    textarea.setSelectionRange(offset, offset);
+    return true;
+  })()`);
+  assert(focused, "Could not focus raw markdown editor at the end.");
+}
+
+async function focusWysiwygEditor(cdp) {
+  const focused = await evaluate(cdp, `(() => {
+    const editor = document.querySelector('.milkdown-root [contenteditable="true"]');
+    if (!(editor instanceof HTMLElement) || editor.closest("[hidden]") !== null) return false;
+    editor.focus();
+    return document.activeElement === editor;
+  })()`);
+  assert(focused, "Could not focus WYSIWYG editor.");
+}
+
+async function focusWysiwygEditorAtEnd(cdp) {
+  const focused = await evaluate(cdp, `(() => {
+    const editor = document.querySelector('.milkdown-root [contenteditable="true"]');
+    if (!(editor instanceof HTMLElement) || editor.closest("[hidden]") !== null) return false;
+    editor.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    return document.activeElement === editor;
+  })()`);
+  assert(focused, "Could not focus WYSIWYG editor at the end.");
 }
 
 async function waitForRawMarkdown(cdp, expected) {
@@ -146,11 +281,27 @@ async function waitForRawMarkdown(cdp, expected) {
   throw new Error(`Expected raw markdown ${JSON.stringify(expected)}, got ${JSON.stringify(await rawMarkdown(cdp))}.`);
 }
 
+async function waitForNormalizedRawMarkdown(cdp, expected) {
+  const started = Date.now();
+  while (Date.now() - started < 5000) {
+    const value = await rawMarkdown(cdp);
+    if (normalizeMarkdown(value) === expected) return;
+    await delay(100);
+  }
+  throw new Error(
+    `Expected normalized raw markdown ${JSON.stringify(expected)}, got ${JSON.stringify(await rawMarkdown(cdp))}.`
+  );
+}
+
 async function rawMarkdown(cdp) {
   return await evaluate(cdp, `(() => {
     const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
     return textarea instanceof HTMLTextAreaElement ? textarea.value : null;
   })()`);
+}
+
+function normalizeMarkdown(markdown) {
+  return typeof markdown === "string" ? markdown.replace(/\n$/, "") : markdown;
 }
 
 async function pressTab(cdp) {

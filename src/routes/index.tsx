@@ -6,7 +6,7 @@ import { GoogleAccessTokenUnavailableError, GoogleIdentityTokenProvider, isGoogl
 import { APP_VERSION, ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
 import { DailyNoteUploadConflictDialog } from "~/components/DailyNoteUploadConflictDialog";
 import { DailyNoteUploadStatusAlert } from "~/components/DailyNoteUploadStatusAlert";
-import { MilkdownEditor } from "~/components/MilkdownEditor";
+import { MilkdownEditor, type MilkdownEditorController } from "~/components/MilkdownEditor";
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
 import { findImageAttachmentReferences } from "~/domain/attachmentReferences";
@@ -186,6 +186,8 @@ export default function Home() {
   const [focusEditorAtEnd, setFocusEditorAtEnd] = createSignal(false);
   const [focusEditorOffset, setFocusEditorOffset] = createSignal<number | null>(null);
   const [lastEditorCursorOffset, setLastEditorCursorOffset] = createSignal(0);
+  const [textFocusRestored, setTextFocusRestored] = createSignal(true);
+  const [wysiwygFocusRestored, setWysiwygFocusRestored] = createSignal(true);
   const [imageAttachmentStatus, setImageAttachmentStatus] = createSignal<ImageAttachmentStatus>("idle");
   const [imageAttachmentError, setImageAttachmentError] = createSignal<string | null>(null);
   const [imageAttachmentDate, setImageAttachmentDate] = createSignal<IsoDate | null>(null);
@@ -207,6 +209,8 @@ export default function Home() {
   const [suppressLocalPersist, setSuppressLocalPersist] = createSignal(false);
   const [editorChangeEpoch, setEditorChangeEpoch] = createSignal(0);
   let datePickerRoot: HTMLDivElement | undefined;
+  let milkdownController: MilkdownEditorController | null = null;
+  let plainTextEditorElement: HTMLTextAreaElement | null = null;
 
   const dateBoundEditorState = (): DateBoundEditorState => ({
     selectedDate: selectedDate(),
@@ -1163,8 +1167,16 @@ export default function Home() {
   };
 
   const updateEditorMode = (mode: EditorMode) => {
-    if (editorMode() === mode) return;
-    setFocusEditorOffset(lastEditorCursorOffset());
+    const previousMode = editorMode();
+    if (previousMode === mode) return;
+    milkdownController?.closeHistory();
+    setFocusEditorOffset(
+      previousMode === "text" && plainTextEditorElement !== null
+        ? plainTextEditorElement.selectionStart
+        : lastEditorCursorOffset()
+    );
+    setTextFocusRestored(mode !== "text");
+    setWysiwygFocusRestored(mode !== "wysiwyg");
     setEditorMode(mode);
   };
 
@@ -1198,6 +1210,21 @@ export default function Home() {
       if (handleRemoteError(error, { message: errorMessage(error), retry: "save-current-note", date: result.backgroundSave.date })) return;
     });
   };
+
+  const handleRawEditorChange = (documentKey: string, value: string) => {
+    if (editorReadOnly()) return;
+    if (parseIsoDate(documentKey) === null) return;
+
+    if (milkdownController !== null) {
+      milkdownController.applyRawMarkdown(value);
+      return;
+    }
+
+    handleEditorChange(documentKey, value);
+  };
+
+  const undoEditorHistory = () => milkdownController?.undo() ?? false;
+  const redoEditorHistory = () => milkdownController?.redo() ?? false;
 
   const handleEditorBlur = (documentKey: string, value: string) => {
     if (editorReadOnly()) return;
@@ -2313,44 +2340,54 @@ export default function Home() {
                   </div>
                 </div>
               </Show>
-              <Show
-                when={editorMode() === "wysiwyg"}
-                fallback={
-                  <PlainTextEditor
-                    documentKey={selectedDate()!}
-                    resetKey={editorResetKey()}
-                    focusAtEnd={focusEditorAtEnd()}
-                    focusOffset={focusEditorOffset()}
-                    onFocusApplied={() => {
-                      setFocusEditorAtEnd(false);
-                      setFocusEditorOffset(null);
-                    }}
-                    onCursorChange={setLastEditorCursorOffset}
-                    value={markdown()}
-                    readOnly={editorReadOnly()}
-                    onChange={handleEditorChange}
-                    onBlur={handleEditorBlur}
-                  />
-                }
-              >
+              <div hidden={editorMode() !== "text"} aria-hidden={editorMode() !== "text"}>
+                <PlainTextEditor
+                  documentKey={selectedDate()!}
+                  resetKey={editorResetKey()}
+                  focusAtEnd={focusEditorAtEnd()}
+                  focusOffset={focusEditorOffset()}
+                  focusEnabled={editorMode() === "text"}
+                  onFocusApplied={() => {
+                    setFocusEditorAtEnd(false);
+                    setFocusEditorOffset(null);
+                    setTextFocusRestored(true);
+                  }}
+                  onCursorChange={editorMode() === "text" ? setLastEditorCursorOffset : undefined}
+                  onElement={(element) => {
+                    plainTextEditorElement = element;
+                  }}
+                  value={markdown()}
+                  readOnly={editorReadOnly() || editorMode() !== "text" || !textFocusRestored()}
+                  onChange={handleRawEditorChange}
+                  onBlur={handleEditorBlur}
+                  onUndo={undoEditorHistory}
+                  onRedo={redoEditorHistory}
+                />
+              </div>
+              <div hidden={editorMode() !== "wysiwyg"} aria-hidden={editorMode() !== "wysiwyg"}>
                 <MilkdownEditor
                   documentKey={selectedDate()!}
                   resetKey={editorResetKey()}
                   focusAtEnd={focusEditorAtEnd()}
                   focusOffset={focusEditorOffset()}
+                  focusEnabled={editorMode() === "wysiwyg"}
                   onFocusApplied={() => {
                     setFocusEditorAtEnd(false);
                     setFocusEditorOffset(null);
+                    setWysiwygFocusRestored(true);
                   }}
-                  onCursorChange={setLastEditorCursorOffset}
+                  onCursorChange={editorMode() === "wysiwyg" ? setLastEditorCursorOffset : undefined}
                   imageAttachmentDisplays={imageAttachmentDisplays()}
                   value={markdown()}
-                  readOnly={editorReadOnly()}
+                  readOnly={editorReadOnly() || editorMode() !== "wysiwyg" || !wysiwygFocusRestored()}
                   onChange={handleEditorChange}
                   onBlur={handleEditorBlur}
+                  onController={(controller) => {
+                    milkdownController = controller;
+                  }}
                   onPasteImage={handleEditorImagePaste}
                 />
-              </Show>
+              </div>
             </section>
           </Show>
         </Show>
