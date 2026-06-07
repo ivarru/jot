@@ -91,6 +91,9 @@ try {
     await assertRawUndoSurvivesModeSwitch(cdp);
     await assertWysiwygUndoRevertsRawEdit(cdp);
     await assertChronologicalUndoAcrossModes(cdp);
+    await assertWysiwygCursorSurvivesSwitchToRaw(cdp);
+    await assertWysiwygTypingCursorSurvivesSwitchToRaw(cdp);
+    await assertRawCursorInsideHiddenMarkdownSurvivesRoundTrip(cdp);
   } finally {
     cdp.close();
   }
@@ -173,6 +176,44 @@ async function assertWysiwygUndoRevertsRawEdit(cdp) {
   await waitForNormalizedRawMarkdown(cdp, before);
 }
 
+async function assertWysiwygCursorSurvivesSwitchToRaw(cdp) {
+  const markdown = Array.from({ length: 20 }, (_item, index) => `- item ${index + 1}`).join("\n");
+  await switchToRawMode(cdp);
+  await setRawMarkdown(cdp, markdown);
+  await switchToWysiwygMode(cdp);
+  await focusWysiwygEditorAtEnd(cdp);
+  await delay(100);
+
+  await switchToRawMode(cdp);
+  await waitForRawSelection(cdp, markdown.length);
+}
+
+async function assertWysiwygTypingCursorSurvivesSwitchToRaw(cdp) {
+  const before = "ab";
+  const inserted = "XYZ";
+  await switchToRawMode(cdp);
+  await setRawMarkdown(cdp, before);
+  await switchToWysiwygMode(cdp);
+  await focusWysiwygEditorAtEnd(cdp);
+  await cdp.send("Input.insertText", { text: inserted });
+  await waitForNormalizedRawMarkdown(cdp, `${before}${inserted}`);
+
+  await switchToRawMode(cdp);
+  await waitForRawSelection(cdp, (await rawMarkdown(cdp)).length);
+}
+
+async function assertRawCursorInsideHiddenMarkdownSurvivesRoundTrip(cdp) {
+  const markdown = "See [visible](https://example.com/a/very/long/path) now";
+  const cursorOffset = markdown.indexOf("very");
+  await switchToRawMode(cdp);
+  await setRawMarkdown(cdp, markdown);
+  await focusRawEditorAtOffset(cdp, cursorOffset);
+
+  await switchToWysiwygMode(cdp);
+  await switchToRawMode(cdp);
+  await waitForRawSelection(cdp, cursorOffset);
+}
+
 async function switchToRawMode(cdp) {
   await waitForEditorModeToggle(cdp);
   const switched = await evaluate(cdp, `(() => {
@@ -198,8 +239,8 @@ async function switchToWysiwygMode(cdp) {
   })()`);
   assert(switched, "Could not switch to WYSIWYG mode.");
   await waitForExpression(cdp, `(() => {
-    const editor = document.querySelector('.milkdown-root');
-    return editor instanceof HTMLElement && editor.closest("[hidden]") === null;
+    const editor = document.querySelector('.milkdown-root [contenteditable="true"]');
+    return editor instanceof HTMLElement && editor.closest("[hidden]") === null && document.activeElement === editor;
   })()`);
 }
 
@@ -243,6 +284,17 @@ async function focusRawEditorAtEnd(cdp) {
     return true;
   })()`);
   assert(focused, "Could not focus raw markdown editor at the end.");
+}
+
+async function focusRawEditorAtOffset(cdp, offset) {
+  const focused = await evaluate(cdp, `(() => {
+    const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
+    if (!(textarea instanceof HTMLTextAreaElement)) return false;
+    textarea.focus();
+    textarea.setSelectionRange(${JSON.stringify(offset)}, ${JSON.stringify(offset)});
+    return true;
+  })()`);
+  assert(focused, `Could not focus raw markdown editor at offset ${offset}.`);
 }
 
 async function focusWysiwygEditor(cdp) {
@@ -298,6 +350,27 @@ async function rawMarkdown(cdp) {
     const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
     return textarea instanceof HTMLTextAreaElement ? textarea.value : null;
   })()`);
+}
+
+async function rawSelection(cdp) {
+  return await evaluate(cdp, `(() => {
+    const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
+    return textarea instanceof HTMLTextAreaElement
+      ? { start: textarea.selectionStart, end: textarea.selectionEnd }
+      : null;
+  })()`);
+}
+
+async function waitForRawSelection(cdp, expected) {
+  const started = Date.now();
+  while (Date.now() - started < 5000) {
+    const selection = await rawSelection(cdp);
+    if (selection?.start === expected && selection?.end === expected) return;
+    await delay(100);
+  }
+  throw new Error(
+    `Expected raw selection ${expected}, got ${JSON.stringify(await rawSelection(cdp))} in ${JSON.stringify(await rawMarkdown(cdp))}.`
+  );
 }
 
 function normalizeMarkdown(markdown) {

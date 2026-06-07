@@ -36,6 +36,7 @@ interface MilkdownEditorProps {
 interface MilkdownEditorSession {
   readonly applyExternalMarkdown: (markdown: string, undoable: boolean) => void;
   readonly closeHistory: () => void;
+  readonly getCursorOffset: () => number | null;
   readonly getMarkdown: () => string;
   readonly focus: (placement: FocusPlacement, markdown: string, onFocusApplied?: () => void) => void;
   readonly redo: () => boolean;
@@ -46,6 +47,7 @@ interface MilkdownEditorSession {
 export interface MilkdownEditorController {
   readonly applyRawMarkdown: (markdown: string) => void;
   readonly closeHistory: () => void;
+  readonly getCursorOffset: () => number | null;
   readonly redo: () => boolean;
   readonly undo: () => boolean;
 }
@@ -225,6 +227,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             ctx.get(listenerCtx).selectionUpdated((_ctx, selection) => {
               if (disposed || activeSession !== session) return;
               if (props.focusEnabled === false) return;
+              if (!root.contains(document.activeElement)) return;
               props.onCursorChange?.(renderedOffsetToMarkdownSourceOffset(
                 markdownState.currentMarkdown,
                 selectionToRenderedTextOffset(selection)
@@ -269,6 +272,14 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               const view = editor.ctx.get(editorViewCtx);
               view.dispatch(closeHistory(view.state.tr));
             },
+            getCursorOffset: () => {
+              if (disposed || activeSession !== session || editor === null) return null;
+              const view = editor.ctx.get(editorViewCtx);
+              return renderedOffsetToMarkdownSourceOffset(
+                markdownState.currentMarkdown,
+                selectionToRenderedTextOffset(view.state.selection)
+              );
+            },
             getMarkdown: () => markdownState.currentMarkdown,
             focus: (placement, markdown, onFocusApplied) => {
               if (disposed || activeSession !== session || editor === null) return;
@@ -304,6 +315,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             closeHistory: () => {
               session?.closeHistory();
             },
+            getCursorOffset: () => session?.getCursorOffset() ?? null,
             redo: () => session?.redo() ?? false,
             undo: () => session?.undo() ?? false
           });

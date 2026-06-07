@@ -1169,12 +1169,12 @@ export default function Home() {
   const updateEditorMode = (mode: EditorMode) => {
     const previousMode = editorMode();
     if (previousMode === mode) return;
-    milkdownController?.closeHistory();
-    setFocusEditorOffset(
+    const cursorOffset =
       previousMode === "text" && plainTextEditorElement !== null
         ? plainTextEditorElement.selectionStart
-        : lastEditorCursorOffset()
-    );
+        : milkdownController?.getCursorOffset() ?? lastEditorCursorOffset();
+    milkdownController?.closeHistory();
+    setFocusEditorOffset(cursorOffset);
     setTextFocusRestored(mode !== "text");
     setWysiwygFocusRestored(mode !== "wysiwyg");
     setEditorMode(mode);

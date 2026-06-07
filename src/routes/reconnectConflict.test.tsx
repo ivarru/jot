@@ -12,7 +12,8 @@ const testState = vi.hoisted(() => ({
     readonly updatedAt: string;
   },
   loadAuthError: false,
-  saveConflict: false
+  saveConflict: false,
+  suppressMockCursorChanges: false
 }));
 
 vi.mock("~/config", () => ({
@@ -34,10 +35,12 @@ vi.mock("~/components/MilkdownEditor", () => ({
     readonly onController?: (controller: {
       readonly applyRawMarkdown: (markdown: string) => void;
       readonly closeHistory: () => void;
+      readonly getCursorOffset: () => number | null;
       readonly redo: () => boolean;
       readonly undo: () => boolean;
     } | null) => void;
   }) => {
+    let textarea: HTMLTextAreaElement | undefined;
     let present = props.value;
     const past: string[] = [];
     const future: string[] = [];
@@ -69,6 +72,7 @@ vi.mock("~/components/MilkdownEditor", () => ({
     props.onController?.({
       applyRawMarkdown: record,
       closeHistory: () => undefined,
+      getCursorOffset: () => textarea?.selectionStart ?? null,
       redo,
       undo
     });
@@ -76,10 +80,17 @@ vi.mock("~/components/MilkdownEditor", () => ({
     return (
       <textarea
         aria-label="Mock WYSIWYG editor"
+        ref={(element) => {
+          textarea = element;
+        }}
         readOnly={props.readOnly === true}
         value={props.value}
-        onClick={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
-        onSelect={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
+        onClick={(event) => {
+          if (!testState.suppressMockCursorChanges) props.onCursorChange?.(event.currentTarget.selectionStart);
+        }}
+        onSelect={(event) => {
+          if (!testState.suppressMockCursorChanges) props.onCursorChange?.(event.currentTarget.selectionStart);
+        }}
         onInput={(event) => record(event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
@@ -224,6 +235,7 @@ describe("Home reconnect and conflict handling", () => {
     testState.remoteNote = null;
     testState.loadAuthError = false;
     testState.saveConflict = false;
+    testState.suppressMockCursorChanges = false;
     window.location.hash = "#/date/2030-02-02";
     localStorage.setItem("jot.fakeAuth", "true");
   });
@@ -346,6 +358,44 @@ describe("Home reconnect and conflict handling", () => {
 
     expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")).toBe(rawEditor);
     expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")).toBe(wysiwygEditor);
+
+    dispose();
+  });
+
+  it("keeps the WYSIWYG cursor after typing when switching to raw mode", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "abcdef",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const wysiwygEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(wysiwygEditor).not.toBeNull();
+    wysiwygEditor!.setSelectionRange(2, 2);
+    wysiwygEditor!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    testState.suppressMockCursorChanges = true;
+    wysiwygEditor!.value = "abXYZcdef";
+    wysiwygEditor!.setSelectionRange(5, 5);
+    wysiwygEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    const rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(rawEditor).not.toBeNull();
+    expect(rawEditor!.value).toBe("abXYZcdef");
+    expect(rawEditor!.selectionStart).toBe(5);
+    expect(rawEditor!.selectionEnd).toBe(5);
 
     dispose();
   });
