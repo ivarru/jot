@@ -30,17 +30,12 @@ export function shouldHandleTextAreaStructuralTab(event: KeyboardEvent): boolean
 export function applyTextAreaStructuralTab(
   element: HTMLTextAreaElement,
   shiftKey: boolean,
-  onChange: (markdown: string) => void,
-  onCursorChange?: (offset: number) => void
+  onChange: (markdown: string) => void
 ): boolean {
   const action = textAreaStructuralTabAction(element.value, element.selectionStart, element.selectionEnd, shiftKey);
-  if (action.type === "noop") {
-    onCursorChange?.(element.selectionStart);
-    return true;
-  }
+  if (action.type === "noop") return true;
 
   const inputFired = applyUndoableTextAreaReplacement(element, action.edit);
-  onCursorChange?.(element.selectionStart);
   if (!inputFired) {
     onChange(element.value);
   }

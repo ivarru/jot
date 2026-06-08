@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } from "solid-js";
 import { ImageAttachmentFlow, type LocalImageAttachmentSource, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
 import { commitImageAttachmentReferenceInsertion } from "~/attachments/imageAttachmentInsertionSession";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
@@ -58,6 +58,7 @@ import {
   type EditorMode
 } from "~/editor/editorModeShortcut";
 import { toggleLinkAtCursor } from "~/editor/linkToggle";
+import type { MarkdownSelection } from "~/editor/markdownSelection";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
 import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
@@ -184,8 +185,7 @@ export default function Home() {
   const [insertImageMenuOpen, setInsertImageMenuOpen] = createSignal(false);
   const [editorResetKey, setEditorResetKey] = createSignal(0);
   const [focusEditorAtEnd, setFocusEditorAtEnd] = createSignal(false);
-  const [focusEditorOffset, setFocusEditorOffset] = createSignal<number | null>(null);
-  const [lastEditorCursorOffset, setLastEditorCursorOffset] = createSignal(0);
+  const [focusEditorSelection, setFocusEditorSelection] = createSignal<MarkdownSelection | null>(null);
   const [textFocusRestored, setTextFocusRestored] = createSignal(true);
   const [wysiwygFocusRestored, setWysiwygFocusRestored] = createSignal(true);
   const [imageAttachmentStatus, setImageAttachmentStatus] = createSignal<ImageAttachmentStatus>("idle");
@@ -211,6 +211,7 @@ export default function Home() {
   let datePickerRoot: HTMLDivElement | undefined;
   let milkdownController: MilkdownEditorController | null = null;
   let plainTextEditorElement: HTMLTextAreaElement | null = null;
+  let pendingEditorModeSelection: MarkdownSelection | null | undefined;
 
   const dateBoundEditorState = (): DateBoundEditorState => ({
     selectedDate: selectedDate(),
@@ -1168,23 +1169,41 @@ export default function Home() {
 
   const updateEditorMode = (mode: EditorMode) => {
     const previousMode = editorMode();
+    const pendingSelection = pendingEditorModeSelection;
+    pendingEditorModeSelection = undefined;
     if (previousMode === mode) return;
-    const cursorOffset =
-      previousMode === "text" && plainTextEditorElement !== null
-        ? plainTextEditorElement.selectionStart
-        : milkdownController?.getCursorOffset() ?? lastEditorCursorOffset();
     milkdownController?.closeHistory();
-    setFocusEditorOffset(cursorOffset);
-    setTextFocusRestored(mode !== "text");
-    setWysiwygFocusRestored(mode !== "wysiwyg");
-    setEditorMode(mode);
+    const selection = pendingSelection !== undefined ? pendingSelection : currentEditorSelection(previousMode);
+    batch(() => {
+      setFocusEditorSelection(selection);
+      setTextFocusRestored(mode !== "text");
+      setWysiwygFocusRestored(mode !== "wysiwyg");
+      setEditorMode(mode);
+    });
+  };
+
+  const captureEditorModeSelection = () => {
+    pendingEditorModeSelection = currentEditorSelection();
+  };
+
+  const currentEditorSelection = (mode: EditorMode = editorMode()): MarkdownSelection | null => {
+    if (mode === "text") {
+      if (plainTextEditorElement === null) return null;
+      return {
+        start: plainTextEditorElement.selectionStart,
+        end: plainTextEditorElement.selectionEnd
+      };
+    }
+
+    return milkdownController?.getSelection() ?? null;
   };
 
   const toggleLinkFormat = () => {
     const date = selectedDate();
     if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
 
-    const result = toggleLinkAtCursor(markdown(), lastEditorCursorOffset());
+    const cursorOffset = currentEditorSelection()?.start ?? 0;
+    const result = toggleLinkAtCursor(markdown(), cursorOffset);
     if (result === null) return;
 
     const change = applyEditorChange(dateBoundEditorState(), date, result.markdown);
@@ -1192,7 +1211,7 @@ export default function Home() {
 
     applyDateBoundEditorTransition({ state: change.state, markdownWrite: change.markdownWrite });
     setFocusEditorAtEnd(false);
-    setFocusEditorOffset(result.cursorOffset);
+    setFocusEditorSelection({ start: result.cursorOffset, end: result.cursorOffset });
     setEditorResetKey((key) => key + 1);
   };
 
@@ -1350,7 +1369,7 @@ export default function Home() {
       if (insertion === null) return;
       applyDateBoundEditorTransition(insertion.transition);
       setFocusEditorAtEnd(true);
-      setFocusEditorOffset(null);
+      setFocusEditorSelection(null);
       setEditorResetKey((key) => key + 1);
       setImagePickingSession(null);
       clearStoredActiveImagePicker();
@@ -1402,7 +1421,7 @@ export default function Home() {
       if (insertion === null) return;
       applyDateBoundEditorTransition(insertion.transition);
       setFocusEditorAtEnd(true);
-      setFocusEditorOffset(null);
+      setFocusEditorSelection(null);
       setEditorResetKey((key) => key + 1);
       setImagePickingSession(null);
       clearStoredActiveImagePicker();
@@ -1922,6 +1941,7 @@ export default function Home() {
                   checked={editorMode() === "text"}
                   aria-keyshortcuts={EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS}
                   disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                  onPointerDown={captureEditorModeSelection}
                   onChange={(event) => updateEditorMode(event.currentTarget.checked ? "text" : "wysiwyg")}
                 />
                 <span>Raw</span>
@@ -2345,14 +2365,13 @@ export default function Home() {
                   documentKey={selectedDate()!}
                   resetKey={editorResetKey()}
                   focusAtEnd={focusEditorAtEnd()}
-                  focusOffset={focusEditorOffset()}
+                  focusSelection={focusEditorSelection()}
                   focusEnabled={editorMode() === "text"}
                   onFocusApplied={() => {
                     setFocusEditorAtEnd(false);
-                    setFocusEditorOffset(null);
+                    setFocusEditorSelection(null);
                     setTextFocusRestored(true);
                   }}
-                  onCursorChange={editorMode() === "text" ? setLastEditorCursorOffset : undefined}
                   onElement={(element) => {
                     plainTextEditorElement = element;
                   }}
@@ -2369,14 +2388,13 @@ export default function Home() {
                   documentKey={selectedDate()!}
                   resetKey={editorResetKey()}
                   focusAtEnd={focusEditorAtEnd()}
-                  focusOffset={focusEditorOffset()}
+                  focusSelection={focusEditorSelection()}
                   focusEnabled={editorMode() === "wysiwyg"}
                   onFocusApplied={() => {
                     setFocusEditorAtEnd(false);
-                    setFocusEditorOffset(null);
+                    setFocusEditorSelection(null);
                     setWysiwygFocusRestored(true);
                   }}
-                  onCursorChange={editorMode() === "wysiwyg" ? setLastEditorCursorOffset : undefined}
                   imageAttachmentDisplays={imageAttachmentDisplays()}
                   value={markdown()}
                   readOnly={editorReadOnly() || editorMode() !== "wysiwyg" || !wysiwygFocusRestored()}

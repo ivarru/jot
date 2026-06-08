@@ -8,7 +8,7 @@ import { gfm } from "@milkdown/kit/preset/gfm";
 import {
   applyMilkdownUpdatedMarkdown,
   createMilkdownMarkdownSyncState,
-  editorSelectionToMarkdownSourceOffset,
+  editorSelectionToMarkdownSourceSelection,
   MilkdownEditor,
   trackMilkdownExternalMarkdown,
   trackMilkdownSerializedMarkdown
@@ -233,26 +233,29 @@ describe("MilkdownEditor", () => {
     }
   });
 
-  it("does not report cursor changes while focus is disabled", async () => {
+  it("restores focus when only the requested selection changes", async () => {
     const host = document.createElement("div");
     document.body.append(host);
-    const cursorChanges: number[] = [];
-    let setMarkdown!: (markdown: string) => void;
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
 
     const dispose = render(
       () => {
-        const [markdown, innerSetMarkdown] = createSignal("old inactive");
-        setMarkdown = innerSetMarkdown;
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
 
         return (
           <MilkdownEditor
             documentKey="2030-02-02"
-            value={markdown()}
-            readOnly={true}
-            focusEnabled={false}
-            onCursorChange={(offset) => cursorChanges.push(offset)}
+            value="before selected after"
+            focusSelection={selection()}
             onChange={() => undefined}
             onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController !== null) getSelection = nextController.getSelection;
+            }}
           />
         );
       },
@@ -260,20 +263,103 @@ describe("MilkdownEditor", () => {
     );
 
     try {
-      await waitForContentEditable(host, "false");
-      cursorChanges.length = 0;
+      const editor = await waitForEditable(host);
 
-      setMarkdown("new inactive");
-      await delay(300);
+      setSelection({ start: "before ".length, end: "before selected".length });
+      await animationFrame();
+      await animationFrame();
 
-      expect(cursorChanges).toEqual([]);
-
+      expect(document.activeElement).toBe(editor);
+      expect(getSelection()).toEqual({
+        start: "before ".length,
+        end: "before selected".length
+      });
     } finally {
       dispose();
     }
   });
 
-  it("maps a WYSIWYG table cursor through Milkdown serialization to the raw Markdown offset", async () => {
+  it("maps a browser selection at the editable root boundary to the raw Markdown range", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const markdown = Array.from({ length: 20 }, (_item, index) => `- item ${index + 1}`).join("\n");
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+
+    const dispose = render(
+      () => (
+        <MilkdownEditor
+          documentKey="2030-02-02"
+          value={markdown}
+          onChange={() => undefined}
+          onBlur={() => undefined}
+          onController={(nextController) => {
+            if (nextController !== null) getSelection = nextController.getSelection;
+          }}
+        />
+      ),
+      host
+    );
+
+    try {
+      const editor = await waitForEditable(host);
+      const selection = document.getSelection();
+      const range = document.createRange();
+
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      expect(getSelection()).toEqual({ start: markdown.length, end: markdown.length });
+
+      range.selectNodeContents(editor);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      expect(getSelection()).toEqual({ start: 0, end: markdown.length });
+    } finally {
+      dispose();
+    }
+  });
+
+  it("maps a browser selection inside the final list item text to the raw Markdown end", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const markdown = Array.from({ length: 20 }, (_item, index) => `- item ${index + 1}`).join("\n");
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+
+    const dispose = render(
+      () => (
+        <MilkdownEditor
+          documentKey="2030-02-02"
+          value={markdown}
+          onChange={() => undefined}
+          onBlur={() => undefined}
+          onController={(nextController) => {
+            if (nextController !== null) getSelection = nextController.getSelection;
+          }}
+        />
+      ),
+      host
+    );
+
+    try {
+      const editor = await waitForEditable(host);
+      const text = findTextDomNode(editor, "item 20");
+      expect(text).not.toBeNull();
+      const selection = document.getSelection();
+      const range = document.createRange();
+
+      range.setStart(text!, "item 20".length);
+      range.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+
+      expect(getSelection()).toEqual({ start: markdown.length, end: markdown.length });
+    } finally {
+      dispose();
+    }
+  });
+
+  it("maps a WYSIWYG table cursor through Milkdown serialization to the raw Markdown range", async () => {
     const markdown = "| A | B |\n| --- | --- |\n| one | two |\n";
     const editor = await createMilkdownTestEditor(markdown);
 
@@ -282,12 +368,40 @@ describe("MilkdownEditor", () => {
       const position = findTextEndPosition(view.state.doc, "one");
       view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, position)));
 
-      expect(editorSelectionToMarkdownSourceOffset(
+      expect(editorSelectionToMarkdownSourceSelection(
         markdown,
         view.state.selection,
         view,
         editor.ctx.get(serializerCtx)
-      )).toBe(markdown.indexOf("one") + "one".length);
+      )).toEqual({
+        start: markdown.indexOf("one") + "one".length,
+        end: markdown.indexOf("one") + "one".length
+      });
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("maps a WYSIWYG selection through Milkdown serialization to the raw Markdown range", async () => {
+    const markdown = "| A | B |\n| --- | --- |\n| one | two |\n";
+    const editor = await createMilkdownTestEditor(markdown);
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const start = findTextNodePosition(view.state.doc, "one");
+      const end = findTextEndPosition(view.state.doc, "two");
+      expect(start).not.toBeNull();
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, start!, end)));
+
+      expect(editorSelectionToMarkdownSourceSelection(
+        markdown,
+        view.state.selection,
+        view,
+        editor.ctx.get(serializerCtx)
+      )).toEqual({
+        start: markdown.indexOf("one"),
+        end: markdown.indexOf("two") + "two".length
+      });
     } finally {
       await editor.destroy();
     }
@@ -387,4 +501,14 @@ function findTextNodePosition(doc: ProseMirrorNode, textToFind: string): number 
     return false;
   });
   return found;
+}
+
+function findTextDomNode(root: HTMLElement, textToFind: string): Text | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node !== null) {
+    if (node.textContent?.includes(textToFind)) return node as Text;
+    node = walker.nextNode();
+  }
+  return null;
 }

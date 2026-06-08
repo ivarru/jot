@@ -12,8 +12,7 @@ const testState = vi.hoisted(() => ({
     readonly updatedAt: string;
   },
   loadAuthError: false,
-  saveConflict: false,
-  suppressMockCursorChanges: false
+  saveConflict: false
 }));
 
 vi.mock("~/config", () => ({
@@ -29,13 +28,12 @@ vi.mock("~/components/MilkdownEditor", () => ({
     readonly documentKey: string;
     readonly value: string;
     readonly readOnly?: boolean;
-    readonly onCursorChange?: (offset: number) => void;
     readonly onChange: (documentKey: string, markdown: string) => void;
     readonly onBlur: (documentKey: string, markdown: string) => void;
     readonly onController?: (controller: {
       readonly applyRawMarkdown: (markdown: string) => void;
       readonly closeHistory: () => void;
-      readonly getCursorOffset: () => number | null;
+      readonly getSelection: () => { readonly start: number; readonly end: number } | null;
       readonly redo: () => boolean;
       readonly undo: () => boolean;
     } | null) => void;
@@ -72,7 +70,13 @@ vi.mock("~/components/MilkdownEditor", () => ({
     props.onController?.({
       applyRawMarkdown: record,
       closeHistory: () => undefined,
-      getCursorOffset: () => textarea?.selectionStart ?? null,
+      getSelection: () =>
+        textarea === undefined
+          ? null
+          : {
+              start: textarea.selectionStart,
+              end: textarea.selectionEnd
+            },
       redo,
       undo
     });
@@ -85,12 +89,6 @@ vi.mock("~/components/MilkdownEditor", () => ({
         }}
         readOnly={props.readOnly === true}
         value={props.value}
-        onClick={(event) => {
-          if (!testState.suppressMockCursorChanges) props.onCursorChange?.(event.currentTarget.selectionStart);
-        }}
-        onSelect={(event) => {
-          if (!testState.suppressMockCursorChanges) props.onCursorChange?.(event.currentTarget.selectionStart);
-        }}
         onInput={(event) => record(event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
@@ -235,7 +233,6 @@ describe("Home reconnect and conflict handling", () => {
     testState.remoteNote = null;
     testState.loadAuthError = false;
     testState.saveConflict = false;
-    testState.suppressMockCursorChanges = false;
     window.location.hash = "#/date/2030-02-02";
     localStorage.setItem("jot.fakeAuth", "true");
   });
@@ -362,7 +359,7 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
-  it("keeps the WYSIWYG cursor after typing when switching to raw mode", async () => {
+  it("captures the WYSIWYG selection before the raw toggle takes focus", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
       markdown: "abcdef",
@@ -377,24 +374,22 @@ describe("Home reconnect and conflict handling", () => {
 
     const wysiwygEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
     expect(wysiwygEditor).not.toBeNull();
-    wysiwygEditor!.setSelectionRange(2, 2);
-    wysiwygEditor!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-
-    testState.suppressMockCursorChanges = true;
     wysiwygEditor!.value = "abXYZcdef";
-    wysiwygEditor!.setSelectionRange(5, 5);
     wysiwygEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
     await settle();
+    wysiwygEditor!.setSelectionRange(2, 5);
 
     const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
     expect(rawToggle).not.toBeNull();
+    rawToggle!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    wysiwygEditor!.setSelectionRange(0, 0);
     rawToggle!.click();
     await settle();
 
     const rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
     expect(rawEditor).not.toBeNull();
     expect(rawEditor!.value).toBe("abXYZcdef");
-    expect(rawEditor!.selectionStart).toBe(5);
+    expect(rawEditor!.selectionStart).toBe(2);
     expect(rawEditor!.selectionEnd).toBe(5);
 
     dispose();

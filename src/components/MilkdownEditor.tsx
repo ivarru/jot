@@ -1,4 +1,4 @@
-import { createEffect, createRenderEffect, createSignal, on, onCleanup, Show, untrack } from "solid-js";
+import { createEffect, createRenderEffect, createSignal, on, onCleanup, Show } from "solid-js";
 import { firstClipboardImageFile } from "./clipboardImages";
 import type { ImageAttachmentDisplayMap } from "./milkdownImages";
 import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
@@ -11,6 +11,7 @@ import {
   markdownSourceOffsetToRenderedOffset,
   renderedOffsetToMarkdownSourceOffset
 } from "~/editor/markdownCursor";
+import type { MarkdownSelection } from "~/editor/markdownSelection";
 import { diffChars } from "diff";
 import type { Editor as MilkdownEditorInstance } from "@milkdown/kit/core";
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
@@ -21,10 +22,9 @@ interface MilkdownEditorProps {
   readonly documentKey: string;
   readonly resetKey?: number;
   readonly focusAtEnd?: boolean;
-  readonly focusOffset?: number | null;
+  readonly focusSelection?: MarkdownSelection | null;
   readonly focusEnabled?: boolean;
   readonly onFocusApplied?: () => void;
-  readonly onCursorChange?: ((offset: number) => void) | undefined;
   readonly imageAttachmentDisplays?: ImageAttachmentDisplayMap;
   readonly value: string;
   readonly readOnly?: boolean;
@@ -37,9 +37,9 @@ interface MilkdownEditorProps {
 interface MilkdownEditorSession {
   readonly applyExternalMarkdown: (markdown: string, undoable: boolean) => void;
   readonly closeHistory: () => void;
-  readonly getCursorOffset: () => number | null;
+  readonly getSelection: () => MarkdownSelection | null;
   readonly getMarkdown: () => string;
-  readonly focus: (placement: FocusPlacement, markdown: string, onFocusApplied?: () => void) => void;
+  readonly focus: (placement: FocusPlacement, onFocusApplied?: () => void) => void;
   readonly redo: () => boolean;
   readonly setReadOnly: (readOnly: boolean) => void;
   readonly undo: () => boolean;
@@ -51,7 +51,7 @@ let cursorMarkerSequence = 0;
 export interface MilkdownEditorController {
   readonly applyRawMarkdown: (markdown: string) => void;
   readonly closeHistory: () => void;
-  readonly getCursorOffset: () => number | null;
+  readonly getSelection: () => MarkdownSelection | null;
   readonly redo: () => boolean;
   readonly undo: () => boolean;
 }
@@ -122,7 +122,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
       async () => {
         const documentKey = props.documentKey;
         const focusAtEnd = props.focusAtEnd === true;
-        const focusOffset = props.focusOffset;
+        const focusSelection = props.focusSelection;
         const markdownState = createMilkdownMarkdownSyncState(props.value);
         let currentReadOnly = props.readOnly === true;
         let disposed = false;
@@ -228,17 +228,6 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 
               props.onChange(documentKey, markdown);
             });
-            ctx.get(listenerCtx).selectionUpdated((ctx, selection) => {
-              if (disposed || activeSession !== session) return;
-              if (props.focusEnabled === false) return;
-              if (!root.contains(document.activeElement)) return;
-              props.onCursorChange?.(editorSelectionToMarkdownSourceOffset(
-                markdownState.currentMarkdown,
-                selection,
-                ctx.get(editorViewCtx),
-                ctx.get(serializerCtx)
-              ));
-            });
           })
           .use(commonmark)
           .use(jotImageView)
@@ -278,21 +267,26 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               const view = editor.ctx.get(editorViewCtx);
               view.dispatch(closeHistory(view.state.tr));
             },
-            getCursorOffset: () => {
+            getSelection: () => {
               if (disposed || activeSession !== session || editor === null) return null;
               const view = editor.ctx.get(editorViewCtx);
-              return editorSelectionToMarkdownSourceOffset(
-                markdownState.currentMarkdown,
+              const markdown = markdownState.currentMarkdown;
+              return editorDomSelectionToMarkdownSourceSelection(
+                markdown,
+                view,
+                editor.ctx.get(serializerCtx)
+              ) ?? editorSelectionToMarkdownSourceSelection(
+                markdown,
                 view.state.selection,
                 view,
                 editor.ctx.get(serializerCtx)
               );
             },
             getMarkdown: () => markdownState.currentMarkdown,
-            focus: (placement, markdown, onFocusApplied) => {
+            focus: (placement, onFocusApplied) => {
               if (disposed || activeSession !== session || editor === null) return;
               const view = editor.ctx.get(editorViewCtx);
-              focusEditable(root, placement, view, TextSelection, markdown, onFocusApplied);
+              focusEditable(root, placement, view, TextSelection, markdownState.currentMarkdown, onFocusApplied);
             },
             redo: () => {
               if (disposed || activeSession !== session || editor === null) return false;
@@ -323,7 +317,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             closeHistory: () => {
               session?.closeHistory();
             },
-            getCursorOffset: () => session?.getCursorOffset() ?? null,
+            getSelection: () => session?.getSelection() ?? null,
             redo: () => session?.redo() ?? false,
             undo: () => session?.undo() ?? false
           });
@@ -334,7 +328,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           const view = editor.ctx.get(editorViewCtx);
           trackMilkdownSerializedMarkdown(markdownState, editor.ctx.get(serializerCtx)(view.state.doc));
           if (props.focusEnabled !== false) {
-            session.focus(focusPlacement(focusAtEnd, focusOffset), props.value, props.onFocusApplied);
+            session.focus(focusPlacement(focusAtEnd, focusSelection), props.onFocusApplied);
           }
         }
 
@@ -369,12 +363,12 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 
   createRenderEffect(
     on(
-      () => [props.documentKey, props.resetKey, props.focusAtEnd, props.focusOffset, props.focusEnabled] as const,
-      () => {
+      () => [props.documentKey, props.resetKey, props.focusAtEnd, props.focusSelection, props.focusEnabled] as const,
+      (focus, previousFocus) => {
         if (props.focusEnabled === false) return;
+        if (clearedOnlyFocusSelection(focus, previousFocus)) return;
         activeSession?.focus(
-          focusPlacement(props.focusAtEnd, props.focusOffset),
-          untrack(() => props.value),
+          focusPlacement(props.focusAtEnd, props.focusSelection),
           props.onFocusApplied
         );
       },
@@ -406,13 +400,11 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           ref={(element) => {
             fallbackTextarea = element;
             resizeTextAreaToContents(element);
-            focusTextArea(element, focusPlacement(props.focusAtEnd, props.focusOffset), props.onFocusApplied);
+            focusTextArea(element, focusPlacement(props.focusAtEnd, props.focusSelection), props.onFocusApplied);
           }}
-          onClick={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
           onInput={(event) => {
             if (props.readOnly === true) return;
             resizeTextAreaToContents(event.currentTarget);
-            props.onCursorChange?.(event.currentTarget.selectionStart);
             props.onChange(props.documentKey, event.currentTarget.value);
           }}
           onKeyDown={(event) => {
@@ -423,15 +415,11 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             applyTextAreaStructuralTab(
               event.currentTarget,
               event.shiftKey,
-              (markdown) => props.onChange(props.documentKey, markdown),
-              props.onCursorChange
+              (markdown) => props.onChange(props.documentKey, markdown)
             );
             resizeTextAreaToContents(event.currentTarget);
           }}
-          onKeyUp={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
-          onSelect={(event) => props.onCursorChange?.(event.currentTarget.selectionStart)}
           onBlur={(event) => {
-            props.onCursorChange?.(event.currentTarget.selectionStart);
             props.onBlur(props.documentKey, event.currentTarget.value);
           }}
           aria-label="Markdown editor fallback"
@@ -449,14 +437,32 @@ type FocusPlacement =
       readonly type: "end";
     }
   | {
-      readonly type: "offset";
-      readonly offset: number;
+      readonly type: "selection";
+      readonly selection: MarkdownSelection;
     };
 
-function focusPlacement(focusAtEnd?: boolean, focusOffset?: number | null): FocusPlacement {
-  if (typeof focusOffset === "number") return { type: "offset", offset: focusOffset };
+function focusPlacement(focusAtEnd?: boolean, focusSelection?: MarkdownSelection | null): FocusPlacement {
+  if (focusSelection !== null && focusSelection !== undefined) return { type: "selection", selection: focusSelection };
   if (focusAtEnd === true) return { type: "end" };
   return { type: "default" };
+}
+
+function clearedOnlyFocusSelection(
+  focus: readonly [string, number | undefined, boolean | undefined, MarkdownSelection | null | undefined, boolean | undefined],
+  previousFocus:
+    | readonly [string, number | undefined, boolean | undefined, MarkdownSelection | null | undefined, boolean | undefined]
+    | undefined
+): boolean {
+  return (
+    previousFocus !== undefined &&
+    previousFocus[3] !== null &&
+    previousFocus[3] !== undefined &&
+    focus[3] === null &&
+    focus[0] === previousFocus[0] &&
+    focus[1] === previousFocus[1] &&
+    focus[2] === previousFocus[2] &&
+    focus[4] === previousFocus[4]
+  );
 }
 
 function focusEditable(
@@ -467,18 +473,43 @@ function focusEditable(
   markdown: string,
   onFocusApplied?: () => void
 ): void {
+  placeEditorSelection(view, textSelection, markdown, placement);
+  view.focus();
+  placeEditorSelection(view, textSelection, markdown, placement);
+  onFocusApplied?.();
+  restoreEditableSelection(root, view, textSelection, markdown, placement, 4);
+}
+
+function restoreEditableSelection(
+  root: HTMLElement,
+  view: EditorView,
+  textSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
+  markdown: string,
+  placement: FocusPlacement,
+  attempts: number
+): void {
+  requestAnimationFrame(() => {
+    if (root.querySelector<HTMLElement>("[contenteditable='true']") === null) {
+      if (attempts > 0) restoreEditableSelection(root, view, textSelection, markdown, placement, attempts - 1);
+      return;
+    }
+    placeEditorSelection(view, textSelection, markdown, placement);
+    view.focus();
+    placeEditorSelection(view, textSelection, markdown, placement);
+  });
+}
+
+function placeEditorSelection(
+  view: EditorView,
+  textSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
+  markdown: string,
+  placement: FocusPlacement
+): void {
   if (placement.type === "end") {
     placeEditorSelectionAtEnd(view, textSelection);
-  } else if (placement.type === "offset") {
-    placeSelectionAtMarkdownSourceOffset(view, textSelection, markdown, placement.offset);
+  } else if (placement.type === "selection") {
+    placeSelectionAtMarkdownSourceSelection(view, textSelection, markdown, placement.selection);
   }
-
-  view.focus();
-  onFocusApplied?.();
-
-  requestAnimationFrame(() => {
-    if (root.querySelector<HTMLElement>("[contenteditable]") !== null) view.focus();
-  });
 }
 
 function focusTextArea(element: HTMLTextAreaElement, placement: FocusPlacement, onFocusApplied?: () => void): void {
@@ -496,9 +527,10 @@ function placeTextAreaSelection(element: HTMLTextAreaElement, placement: FocusPl
   if (placement.type === "end") {
     const offset = element.value.length;
     element.setSelectionRange(offset, offset);
-  } else if (placement.type === "offset") {
-    const offset = Math.max(0, Math.min(element.value.length, placement.offset));
-    element.setSelectionRange(offset, offset);
+  } else if (placement.type === "selection") {
+    const start = Math.max(0, Math.min(element.value.length, placement.selection.start));
+    const end = Math.max(0, Math.min(element.value.length, placement.selection.end));
+    element.setSelectionRange(start, end);
   }
 }
 
@@ -509,31 +541,83 @@ function placeEditorSelectionAtEnd(
   view.dispatch(view.state.tr.setSelection(textSelection.atEnd(view.state.doc)).scrollIntoView());
 }
 
-function selectionToRenderedTextOffset(selection: Selection): number {
-  return renderedTextOffsetBeforePosition(selection.$from.doc, selection.from);
-}
-
-export function editorSelectionToMarkdownSourceOffset(
+export function editorSelectionToMarkdownSourceSelection(
   markdown: string,
   selection: Selection,
   view: EditorView,
   serializer: MarkdownSerializer
-): number {
-  const serializedOffset = serializedEditorSelectionToMarkdownSourceOffset(markdown, selection, view, serializer);
-  if (serializedOffset !== null) return serializedOffset;
-
-  return renderedOffsetToMarkdownSourceOffset(markdown, selectionToRenderedTextOffset(selection));
+): MarkdownSelection {
+  return {
+    start: editorPositionToMarkdownSourceOffset(markdown, selection.from, view, serializer),
+    end: editorPositionToMarkdownSourceOffset(markdown, selection.to, view, serializer)
+  };
 }
 
-function serializedEditorSelectionToMarkdownSourceOffset(
+function editorDomSelectionToMarkdownSourceSelection(
   markdown: string,
-  selection: Selection,
+  view: EditorView,
+  serializer: MarkdownSerializer
+): MarkdownSelection | null {
+  const selection = view.dom.ownerDocument.getSelection();
+  if (selection === null || selection.rangeCount === 0) return null;
+
+  const range = selection.getRangeAt(0);
+  if (!containsSelectionNode(view.dom, range.commonAncestorContainer)) return null;
+
+  try {
+    return {
+      start: editorPositionToMarkdownSourceOffset(
+        markdown,
+        editorDomPositionToEditorPosition(view, range.startContainer, range.startOffset),
+        view,
+        serializer
+      ),
+      end: editorPositionToMarkdownSourceOffset(
+        markdown,
+        editorDomPositionToEditorPosition(view, range.endContainer, range.endOffset),
+        view,
+        serializer
+      )
+    };
+  } catch {
+    return null;
+  }
+}
+
+function containsSelectionNode(root: HTMLElement, node: Node): boolean {
+  return node === root || root.contains(node);
+}
+
+function editorDomPositionToEditorPosition(view: EditorView, node: Node, offset: number): number {
+  if (node === view.dom) {
+    if (offset <= 0) return 0;
+    if (offset >= view.dom.childNodes.length) return view.state.doc.content.size;
+  }
+
+  return view.posAtDOM(node, offset);
+}
+
+function editorPositionToMarkdownSourceOffset(
+  markdown: string,
+  position: number,
+  view: EditorView,
+  serializer: MarkdownSerializer
+): number {
+  const serializedOffset = serializedEditorPositionToMarkdownSourceOffset(markdown, position, view, serializer);
+  if (serializedOffset !== null) return serializedOffset;
+
+  return renderedOffsetToMarkdownSourceOffset(markdown, renderedTextOffsetBeforePosition(view.state.doc, position));
+}
+
+function serializedEditorPositionToMarkdownSourceOffset(
+  markdown: string,
+  position: number,
   view: EditorView,
   serializer: MarkdownSerializer
 ): number | null {
   const marker = createCursorMarker(markdown);
   try {
-    const tr = view.state.tr.insertText(marker, selection.from, selection.to);
+    const tr = view.state.tr.insertText(marker, position, position);
     const markedMarkdown = serializer(tr.doc);
     const serializedOffset = markedMarkdown.indexOf(marker);
     if (serializedOffset === -1) return null;
@@ -587,16 +671,39 @@ function renderedTextOffsetBeforePosition(doc: ProseNode, position: number): num
   return doc.textBetween(0, Math.max(0, position), "\n\n", "\n").length;
 }
 
-function placeSelectionAtMarkdownSourceOffset(
+function placeSelectionAtMarkdownSourceSelection(
   view: EditorView,
   textSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
   markdown: string,
-  sourceOffset: number
+  selection: MarkdownSelection
 ): void {
-  const renderedOffset = markdownSourceOffsetToRenderedOffset(markdown, sourceOffset);
-  const position = positionForRenderedTextOffset(view.state.doc, renderedOffset);
-  const selection = textSelection.near(view.state.doc.resolve(position));
-  view.dispatch(view.state.tr.setSelection(selection).scrollIntoView());
+  const start = positionForMarkdownSourceOffset(view.state.doc, markdown, selection.start);
+  const end = positionForMarkdownSourceOffset(view.state.doc, markdown, selection.end);
+  view.dispatch(
+    view.state.tr
+      .setSelection(textSelection.between(view.state.doc.resolve(start), view.state.doc.resolve(end)))
+      .scrollIntoView()
+  );
+  placeBrowserSelection(view, start, end);
+}
+
+function positionForMarkdownSourceOffset(doc: ProseNode, markdown: string, sourceOffset: number): number {
+  return positionForRenderedTextOffset(doc, markdownSourceOffsetToRenderedOffset(markdown, sourceOffset));
+}
+
+function placeBrowserSelection(view: EditorView, start: number, end: number): void {
+  try {
+    const range = view.dom.ownerDocument.createRange();
+    const from = view.domAtPos(start);
+    const to = view.domAtPos(end);
+    range.setStart(from.node, from.offset);
+    range.setEnd(to.node, to.offset);
+    const selection = view.dom.ownerDocument.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  } catch {
+    // ProseMirror positions can map to non-text DOM boundaries; the editor selection remains the source of truth.
+  }
 }
 
 function positionForRenderedTextOffset(doc: ProseNode, offset: number): number {

@@ -93,7 +93,7 @@ try {
     await assertChronologicalUndoAcrossModes(cdp);
     await assertWysiwygCursorSurvivesSwitchToRaw(cdp);
     await assertWysiwygTypingCursorSurvivesSwitchToRaw(cdp);
-    await assertRawCursorInsideHiddenMarkdownSurvivesRoundTrip(cdp);
+    await assertSelectionSurvivesModeSwitches(cdp);
   } finally {
     cdp.close();
   }
@@ -126,6 +126,7 @@ async function assertChronologicalUndoAcrossModes(cdp) {
   await switchToRawMode(cdp);
   await replaceRawMarkdown(cdp, "AB");
   await waitForNormalizedRawMarkdown(cdp, "AB");
+  await focusRawEditorAtEnd(cdp);
 
   await switchToWysiwygMode(cdp);
   await cdp.send("Input.insertText", { text: "C" });
@@ -197,21 +198,32 @@ async function assertWysiwygTypingCursorSurvivesSwitchToRaw(cdp) {
   await focusWysiwygEditorAtEnd(cdp);
   await cdp.send("Input.insertText", { text: inserted });
   await waitForNormalizedRawMarkdown(cdp, `${before}${inserted}`);
+  await delay(100);
 
   await switchToRawMode(cdp);
-  await waitForRawSelection(cdp, (await rawMarkdown(cdp)).length);
+  await waitForRawSelection(cdp, normalizeMarkdown(await rawMarkdown(cdp)).length);
 }
 
-async function assertRawCursorInsideHiddenMarkdownSurvivesRoundTrip(cdp) {
-  const markdown = "See [visible](https://example.com/a/very/long/path) now";
-  const cursorOffset = markdown.indexOf("very");
+async function assertSelectionSurvivesModeSwitches(cdp) {
+  const markdown = "before selected after";
+  const start = markdown.indexOf("selected");
+  const end = start + "selected".length;
   await switchToRawMode(cdp);
   await setRawMarkdown(cdp, markdown);
-  await focusRawEditorAtOffset(cdp, cursorOffset);
+  await focusRawEditorRange(cdp, start, end);
 
   await switchToWysiwygMode(cdp);
+  await delay(100);
+  await cdp.send("Input.insertText", { text: "chosen" });
+  await waitForNormalizedRawMarkdown(cdp, "before chosen after");
+
   await switchToRawMode(cdp);
-  await waitForRawSelection(cdp, cursorOffset);
+  await setRawMarkdown(cdp, markdown);
+  await switchToWysiwygMode(cdp);
+  await focusWysiwygEditor(cdp);
+  await pressSelectAll(cdp);
+  await switchToRawMode(cdp);
+  await waitForRawSelectionRange(cdp, 0, markdown.length);
 }
 
 async function switchToRawMode(cdp) {
@@ -219,7 +231,10 @@ async function switchToRawMode(cdp) {
   const switched = await evaluate(cdp, `(() => {
     const input = document.querySelector('.raw-mode-toggle input');
     if (!(input instanceof HTMLInputElement)) return false;
-    if (!input.checked) input.click();
+    if (!input.checked) {
+      input.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }));
+      input.click();
+    }
     return input.checked;
   })()`);
   assert(switched, "Could not switch to raw mode.");
@@ -235,7 +250,10 @@ async function switchToWysiwygMode(cdp) {
   const switched = await evaluate(cdp, `(() => {
     const input = document.querySelector('.raw-mode-toggle input');
     if (!(input instanceof HTMLInputElement)) return false;
-    if (input.checked) input.click();
+    if (input.checked) {
+      input.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }));
+      input.click();
+    }
     return !input.checked;
   })()`);
   assert(switched, "Could not switch to WYSIWYG mode.");
@@ -275,14 +293,35 @@ async function replaceRawMarkdown(cdp, markdown) {
 }
 
 async function focusRawEditor(cdp) {
-  const focused = await evaluate(cdp, `(() => {
-    const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
-    if (!(textarea instanceof HTMLTextAreaElement)) return false;
-    textarea.focus();
-    textarea.select();
-    return document.activeElement === textarea && !textarea.readOnly;
-  })()`);
-  assert(focused, "Could not focus raw markdown editor.");
+  let state = null;
+  const started = Date.now();
+  while (Date.now() - started < 5000) {
+    state = await evaluate(cdp, `new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
+        if (!(textarea instanceof HTMLTextAreaElement)) {
+          resolve({ exists: false });
+          return;
+        }
+        textarea.focus();
+        textarea.select();
+        requestAnimationFrame(() => {
+          resolve({
+            active: document.activeElement === textarea,
+            end: textarea.selectionEnd,
+            exists: true,
+            hidden: textarea.closest("[hidden]") !== null,
+            readOnly: textarea.readOnly,
+            start: textarea.selectionStart,
+            valueLength: textarea.value.length
+          });
+        });
+      });
+    })`, true);
+    if (state.active && !state.hidden && !state.readOnly && state.start === 0 && state.end === state.valueLength) return;
+    await delay(100);
+  }
+  throw new Error(`Could not focus raw markdown editor: ${JSON.stringify(state)}.`);
 }
 
 async function focusRawEditorAtEnd(cdp) {
@@ -297,15 +336,15 @@ async function focusRawEditorAtEnd(cdp) {
   assert(focused, "Could not focus raw markdown editor at the end.");
 }
 
-async function focusRawEditorAtOffset(cdp, offset) {
+async function focusRawEditorRange(cdp, start, end) {
   const focused = await evaluate(cdp, `(() => {
     const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
     if (!(textarea instanceof HTMLTextAreaElement)) return false;
     textarea.focus();
-    textarea.setSelectionRange(${JSON.stringify(offset)}, ${JSON.stringify(offset)});
+    textarea.setSelectionRange(${JSON.stringify(start)}, ${JSON.stringify(end)});
     return true;
   })()`);
-  assert(focused, `Could not focus raw markdown editor at offset ${offset}.`);
+  assert(focused, `Could not focus raw markdown editor range ${start}-${end}.`);
 }
 
 async function focusWysiwygEditor(cdp) {
@@ -319,19 +358,22 @@ async function focusWysiwygEditor(cdp) {
 }
 
 async function focusWysiwygEditorAtEnd(cdp) {
-  const focused = await evaluate(cdp, `(() => {
-    const editor = document.querySelector('.milkdown-root [contenteditable="true"]');
-    if (!(editor instanceof HTMLElement) || editor.closest("[hidden]") !== null) return false;
-    editor.focus();
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(editor);
-    range.collapse(false);
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    return document.activeElement === editor;
-  })()`);
-  assert(focused, "Could not focus WYSIWYG editor at the end.");
+  await focusWysiwygEditor(cdp);
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "End",
+    code: "End",
+    windowsVirtualKeyCode: 35,
+    nativeVirtualKeyCode: 35,
+    commands: ["MoveToEndOfDocument"]
+  });
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "End",
+    code: "End",
+    windowsVirtualKeyCode: 35,
+    nativeVirtualKeyCode: 35
+  });
 }
 
 async function waitForRawMarkdown(cdp, expected) {
@@ -381,6 +423,18 @@ async function waitForRawSelection(cdp, expected) {
   }
   throw new Error(
     `Expected raw selection ${expected}, got ${JSON.stringify(await rawSelection(cdp))} in ${JSON.stringify(await rawMarkdown(cdp))}.`
+  );
+}
+
+async function waitForRawSelectionRange(cdp, expectedStart, expectedEnd) {
+  const started = Date.now();
+  while (Date.now() - started < 5000) {
+    const selection = await rawSelection(cdp);
+    if (selection?.start === expectedStart && selection?.end === expectedEnd) return;
+    await delay(100);
+  }
+  throw new Error(
+    `Expected raw selection ${expectedStart}-${expectedEnd}, got ${JSON.stringify(await rawSelection(cdp))} in ${JSON.stringify(await rawMarkdown(cdp))}.`
   );
 }
 
@@ -444,6 +498,38 @@ async function pressUndo(cdp, useMac = process.platform === "darwin") {
     code: "KeyZ",
     windowsVirtualKeyCode: 90,
     nativeVirtualKeyCode: 90,
+    modifiers: modifier.modifiers
+  });
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: modifier.key,
+    code: modifier.code,
+    windowsVirtualKeyCode: modifier.windowsVirtualKeyCode,
+    nativeVirtualKeyCode: modifier.nativeVirtualKeyCode
+  });
+}
+
+async function pressSelectAll(cdp, useMac = process.platform === "darwin") {
+  const modifier = useMac
+    ? { key: "Meta", code: "MetaLeft", windowsVirtualKeyCode: 91, nativeVirtualKeyCode: 91, modifiers: 4 }
+    : { key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17, nativeVirtualKeyCode: 17, modifiers: 2 };
+
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", ...modifier });
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "a",
+    code: "KeyA",
+    windowsVirtualKeyCode: 65,
+    nativeVirtualKeyCode: 65,
+    modifiers: modifier.modifiers,
+    commands: ["SelectAll"]
+  });
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "a",
+    code: "KeyA",
+    windowsVirtualKeyCode: 65,
+    nativeVirtualKeyCode: 65,
     modifiers: modifier.modifiers
   });
   await cdp.send("Input.dispatchKeyEvent", {

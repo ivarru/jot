@@ -1,4 +1,5 @@
 import { render } from "solid-js/web";
+import { createSignal } from "solid-js";
 import { PlainTextEditor } from "./PlainTextEditor";
 
 describe("PlainTextEditor", () => {
@@ -347,7 +348,7 @@ describe("PlainTextEditor", () => {
     dispose();
   });
 
-  it("restores focus at the requested cursor offset", async () => {
+  it("restores focus at the requested selection", async () => {
     const host = document.createElement("div");
     document.body.append(host);
 
@@ -355,7 +356,7 @@ describe("PlainTextEditor", () => {
       () => PlainTextEditor({
         documentKey: "2030-02-01",
         value: "first\nsecond",
-        focusOffset: 7,
+        focusSelection: { start: 2, end: 7 },
         onChange: () => undefined,
         onBlur: () => undefined
       }),
@@ -366,7 +367,43 @@ describe("PlainTextEditor", () => {
 
     const textarea = host.querySelector("textarea");
     expect(textarea).not.toBeNull();
-    expect(textarea!.selectionStart).toBe(7);
+    expect(textarea!.selectionStart).toBe(2);
+    expect(textarea!.selectionEnd).toBe(7);
+
+    dispose();
+  });
+
+  it("restores focus when only the requested selection changes", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(null);
+        setSelection = innerSetSelection;
+
+        return (
+          <PlainTextEditor
+            documentKey="2030-02-01"
+            value="first\nsecond"
+            focusSelection={selection()}
+            onChange={() => undefined}
+            onBlur={() => undefined}
+          />
+        );
+      },
+      host
+    );
+
+    const textarea = host.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    textarea!.setSelectionRange(0, 0);
+
+    setSelection({ start: 2, end: 7 });
+    await animationFrame();
+
+    expect(textarea!.selectionStart).toBe(2);
     expect(textarea!.selectionEnd).toBe(7);
 
     dispose();
