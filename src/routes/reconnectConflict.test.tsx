@@ -325,6 +325,67 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("toggles code formatting at the WYSIWYG editor selection from the heading button", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "Use foo today",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange("Use ".length, "Use foo".length);
+    editor!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']");
+    expect(toggle).not.toBeNull();
+    expect(toggle!.title).toBe("Toggle code format");
+    toggle!.click();
+    await settle();
+
+    expect(editor!.value).toBe("Use `foo` today");
+
+    dispose();
+  });
+
+  it("toggles code formatting at the raw editor selection from the heading button", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "first\nsecond",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange(0, "first\nsecond".length);
+
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']");
+    expect(toggle).not.toBeNull();
+    toggle!.click();
+    await settle();
+
+    expect(editor!.value).toBe("```\nfirst\nsecond\n```");
+
+    dispose();
+  });
+
   it("keeps editor instances mounted across raw and WYSIWYG switches so undo history survives", async () => {
     testState.remoteNote = {
       date: "2030-02-02",

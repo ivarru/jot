@@ -57,6 +57,7 @@ import {
   nextEditorMode,
   type EditorMode
 } from "~/editor/editorModeShortcut";
+import { toggleCodeFormat } from "~/editor/codeToggle";
 import { toggleLinkAtCursor } from "~/editor/linkToggle";
 import type { MarkdownSelection } from "~/editor/markdownSelection";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
@@ -1215,6 +1216,21 @@ export default function Home() {
     setEditorResetKey((key) => key + 1);
   };
 
+  const toggleCodeFormatAtSelection = () => {
+    const date = selectedDate();
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
+
+    const selection = currentEditorSelection() ?? { start: 0, end: 0 };
+    const result = toggleCodeFormat(markdown(), selection);
+    const change = applyEditorChange(dateBoundEditorState(), date, result.markdown);
+    if (change.type !== "current-editor") return;
+
+    applyDateBoundEditorTransition({ state: change.state, markdownWrite: change.markdownWrite });
+    setFocusEditorAtEnd(false);
+    setFocusEditorSelection(result.selection);
+    setEditorResetKey((key) => key + 1);
+  };
+
   const handleEditorChange = (documentKey: string, value: string) => {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
@@ -1931,6 +1947,16 @@ export default function Home() {
               >
                 <LinkFormatIcon />
               </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Toggle code format"
+                title="Toggle code format"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={toggleCodeFormatAtSelection}
+              >
+                <CodeFormatIcon />
+              </button>
               <label
                 class="raw-mode-toggle"
                 data-tooltip={`Toggle raw Markdown (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
@@ -2640,6 +2666,26 @@ function LinkFormatIcon() {
     >
       <path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
       <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />
+    </svg>
+  );
+}
+
+function CodeFormatIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="m8 18-6-6 6-6" />
+      <path d="m16 6 6 6-6 6" />
+      <path d="m14 4-4 16" />
     </svg>
   );
 }
