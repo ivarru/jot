@@ -9,6 +9,7 @@ import { DailyNoteUploadStatusAlert } from "~/components/DailyNoteUploadStatusAl
 import { MilkdownEditor, type MilkdownEditorController } from "~/components/MilkdownEditor";
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
+import { applyTextAreaStructuralTab } from "~/components/textAreaIndent";
 import { findImageAttachmentReferences } from "~/domain/attachmentReferences";
 import {
   buildDailyNoteUploadCandidates,
@@ -1231,6 +1232,30 @@ export default function Home() {
     setEditorResetKey((key) => key + 1);
   };
 
+  const applyStructuralTabShortcut = (shiftKey: boolean) => {
+    const date = selectedDate();
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
+
+    if (editorMode() === "text") {
+      if (plainTextEditorElement === null) return;
+      applyTextAreaStructuralTab(
+        plainTextEditorElement,
+        shiftKey,
+        (value) => handleRawEditorChange(date, value)
+      );
+      setFocusEditorAtEnd(false);
+      setFocusEditorSelection({
+        start: plainTextEditorElement.selectionStart,
+        end: plainTextEditorElement.selectionEnd
+      });
+      return;
+    }
+
+    if (milkdownController?.applyStructuralTab(shiftKey) !== true) return;
+    setFocusEditorAtEnd(false);
+    setFocusEditorSelection(milkdownController.getSelection());
+  };
+
   const handleEditorChange = (documentKey: string, value: string) => {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
@@ -1956,6 +1981,28 @@ export default function Home() {
                 onClick={toggleCodeFormatAtSelection}
               >
                 <CodeFormatIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Indent"
+                aria-keyshortcuts="Tab"
+                title="Indent (Tab)"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={() => applyStructuralTabShortcut(false)}
+              >
+                <IndentIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Dedent"
+                aria-keyshortcuts="Shift+Tab"
+                title="Dedent (Shift+Tab)"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={() => applyStructuralTabShortcut(true)}
+              >
+                <DedentIcon />
               </button>
               <label
                 class="raw-mode-toggle"
@@ -2686,6 +2733,48 @@ function CodeFormatIcon() {
       <path d="m8 18-6-6 6-6" />
       <path d="m16 6 6 6-6 6" />
       <path d="m14 4-4 16" />
+    </svg>
+  );
+}
+
+function IndentIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M4 6h16" />
+      <path d="M12 12h8" />
+      <path d="M4 18h16" />
+      <path d="m4 10 4 2-4 2Z" />
+    </svg>
+  );
+}
+
+function DedentIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M4 6h16" />
+      <path d="M12 12h8" />
+      <path d="M4 18h16" />
+      <path d="m8 10-4 2 4 2Z" />
     </svg>
   );
 }

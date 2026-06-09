@@ -36,6 +36,7 @@ interface MilkdownEditorProps {
 
 interface MilkdownEditorSession {
   readonly applyExternalMarkdown: (markdown: string, undoable: boolean) => void;
+  readonly applyStructuralTab: (shiftKey: boolean) => boolean;
   readonly closeHistory: () => void;
   readonly getSelection: () => MarkdownSelection | null;
   readonly getMarkdown: () => string;
@@ -50,6 +51,7 @@ let cursorMarkerSequence = 0;
 
 export interface MilkdownEditorController {
   readonly applyRawMarkdown: (markdown: string) => void;
+  readonly applyStructuralTab: (shiftKey: boolean) => boolean;
   readonly closeHistory: () => void;
   readonly getSelection: () => MarkdownSelection | null;
   readonly redo: () => boolean;
@@ -265,6 +267,16 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               });
               trackMilkdownExternalMarkdown(markdownState, markdown, replacedMarkdown);
             },
+            applyStructuralTab: (shiftKey) => {
+              if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
+              const view = editor.ctx.get(editorViewCtx);
+              const handled =
+                view.someProp("handleKeyDown", (handler) =>
+                  handler(view, new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey }))
+                ) === true;
+              if (handled) view.focus();
+              return handled;
+            },
             closeHistory: () => {
               if (disposed || activeSession !== session || editor === null) return;
               const view = editor.ctx.get(editorViewCtx);
@@ -317,6 +329,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             applyRawMarkdown: (markdown) => {
               session?.applyExternalMarkdown(markdown, true);
             },
+            applyStructuralTab: (shiftKey) => session?.applyStructuralTab(shiftKey) ?? false,
             closeHistory: () => {
               session?.closeHistory();
             },

@@ -32,6 +32,7 @@ vi.mock("~/components/MilkdownEditor", () => ({
     readonly onBlur: (documentKey: string, markdown: string) => void;
     readonly onController?: (controller: {
       readonly applyRawMarkdown: (markdown: string) => void;
+      readonly applyStructuralTab: (shiftKey: boolean) => boolean;
       readonly closeHistory: () => void;
       readonly getSelection: () => { readonly start: number; readonly end: number } | null;
       readonly redo: () => boolean;
@@ -66,9 +67,44 @@ vi.mock("~/components/MilkdownEditor", () => ({
       props.onChange(props.documentKey, next);
       return true;
     };
+    const applyStructuralTab = (shiftKey: boolean) => {
+      if (textarea === undefined) return false;
+      const current = textarea.value;
+      const selectionStart = textarea.selectionStart;
+      const selectionEnd = textarea.selectionEnd;
+      const lineStart = current.lastIndexOf("\n", Math.max(0, selectionStart - 1)) + 1;
+      const replace = (start: number, end: number, replacement: string) => {
+        const next = `${current.slice(0, start)}${replacement}${current.slice(end)}`;
+        const delta = replacement.length - (end - start);
+        const mapOffset = (offset: number) => {
+          if (offset <= start) return offset;
+          if (offset >= end) return offset + delta;
+          return start + replacement.length;
+        };
+        textarea!.value = next;
+        textarea!.setSelectionRange(mapOffset(selectionStart), mapOffset(selectionEnd));
+        record(next);
+      };
+
+      if (shiftKey) {
+        if (current.startsWith("* ", lineStart)) {
+          replace(lineStart, lineStart + 2, "");
+          return true;
+        }
+        if (current.startsWith("  ", lineStart)) {
+          replace(lineStart, lineStart + 2, "");
+          return true;
+        }
+        return true;
+      }
+
+      replace(lineStart, lineStart, current.startsWith("* ", lineStart) ? "  " : "* ");
+      return true;
+    };
 
     props.onController?.({
       applyRawMarkdown: record,
+      applyStructuralTab,
       closeHistory: () => undefined,
       getSelection: () =>
         textarea === undefined
@@ -382,6 +418,79 @@ describe("Home reconnect and conflict handling", () => {
     await settle();
 
     expect(editor!.value).toBe("```\nfirst\nsecond\n```");
+
+    dispose();
+  });
+
+  it("applies structural indent and dedent at the WYSIWYG editor selection from heading buttons", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "before",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange("before".length, "before".length);
+
+    const indent = host.querySelector<HTMLButtonElement>("button[aria-label='Indent']");
+    expect(indent).not.toBeNull();
+    expect(indent!.title).toBe("Indent (Tab)");
+    indent!.click();
+    await settle();
+
+    expect(editor!.value).toBe("* before");
+
+    editor!.setSelectionRange("* before".length, "* before".length);
+    const dedent = host.querySelector<HTMLButtonElement>("button[aria-label='Dedent']");
+    expect(dedent).not.toBeNull();
+    expect(dedent!.title).toBe("Dedent (Shift+Tab)");
+    dedent!.click();
+    await settle();
+
+    expect(editor!.value).toBe("before");
+
+    dispose();
+  });
+
+  it("applies structural indent and dedent at the raw editor selection from heading buttons", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "before",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange("before".length, "before".length);
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Indent']")!.click();
+    await settle();
+
+    expect(editor!.value).toBe("* before");
+
+    editor!.setSelectionRange("* before".length, "* before".length);
+    host.querySelector<HTMLButtonElement>("button[aria-label='Dedent']")!.click();
+    await settle();
+
+    expect(editor!.value).toBe("before");
 
     dispose();
   });
