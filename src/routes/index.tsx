@@ -1256,6 +1256,16 @@ export default function Home() {
     setFocusEditorSelection(milkdownController.getSelection());
   };
 
+  const applyEditorHistoryShortcut = (direction: "undo" | "redo") => {
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent() || selectedDate() === null) return;
+
+    const applied = direction === "undo" ? undoEditorHistory() : redoEditorHistory();
+    if (!applied) return;
+
+    setFocusEditorAtEnd(false);
+    setFocusEditorSelection(currentEditorSelection());
+  };
+
   const handleEditorChange = (documentKey: string, value: string) => {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
@@ -1910,6 +1920,70 @@ export default function Home() {
                   void handleDailyNoteUploadFiles(files);
                 }}
               />
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Undo"
+                aria-keyshortcuts="Control+Z Meta+Z"
+                title="Undo (Ctrl/Cmd+Z)"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={() => applyEditorHistoryShortcut("undo")}
+              >
+                <UndoIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Redo"
+                aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y"
+                title="Redo (Ctrl/Cmd+Shift+Z)"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={() => applyEditorHistoryShortcut("redo")}
+              >
+                <RedoIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Toggle link format"
+                title="Toggle link format"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={toggleLinkFormat}
+              >
+                <LinkFormatIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Toggle code format"
+                title="Toggle code format"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={toggleCodeFormatAtSelection}
+              >
+                <CodeFormatIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Indent"
+                aria-keyshortcuts="Tab"
+                title="Indent (Tab)"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={() => applyStructuralTabShortcut(false)}
+              >
+                <IndentIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Dedent"
+                aria-keyshortcuts="Shift+Tab"
+                title="Dedent (Shift+Tab)"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={() => applyStructuralTabShortcut(true)}
+              >
+                <DedentIcon />
+              </button>
               <Show when={runtime.imageAttachments !== null}>
                 <input
                   ref={uploadImageInput}
@@ -1962,48 +2036,6 @@ export default function Home() {
                   </Show>
                 </div>
               </Show>
-              <button
-                type="button"
-                class="icon-button"
-                aria-label="Toggle link format"
-                title="Toggle link format"
-                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onClick={toggleLinkFormat}
-              >
-                <LinkFormatIcon />
-              </button>
-              <button
-                type="button"
-                class="icon-button"
-                aria-label="Toggle code format"
-                title="Toggle code format"
-                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onClick={toggleCodeFormatAtSelection}
-              >
-                <CodeFormatIcon />
-              </button>
-              <button
-                type="button"
-                class="icon-button"
-                aria-label="Indent"
-                aria-keyshortcuts="Tab"
-                title="Indent (Tab)"
-                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onClick={() => applyStructuralTabShortcut(false)}
-              >
-                <IndentIcon />
-              </button>
-              <button
-                type="button"
-                class="icon-button"
-                aria-label="Dedent"
-                aria-keyshortcuts="Shift+Tab"
-                title="Dedent (Shift+Tab)"
-                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onClick={() => applyStructuralTabShortcut(true)}
-              >
-                <DedentIcon />
-              </button>
               <label
                 class="raw-mode-toggle"
                 data-tooltip={`Toggle raw Markdown (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
@@ -2733,6 +2765,44 @@ function CodeFormatIcon() {
       <path d="m8 18-6-6 6-6" />
       <path d="m16 6 6 6-6 6" />
       <path d="m14 4-4 16" />
+    </svg>
+  );
+}
+
+function UndoIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M9 7 4 12l5 5" />
+      <path d="M5 12h9a5 5 0 1 1 0 10h-2" />
+    </svg>
+  );
+}
+
+function RedoIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="m15 7 5 5-5 5" />
+      <path d="M19 12h-9a5 5 0 1 0 0 10h2" />
     </svg>
   );
 }

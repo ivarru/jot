@@ -495,6 +495,118 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("places the insert image button between dedent and raw mode controls", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const controls = Array.from(
+      host.querySelectorAll(".toolbar-editor-column button.icon-button, .toolbar-editor-column .raw-mode-toggle")
+    ).map((element) => element.matches("button") ? element.getAttribute("aria-label") : "Raw");
+
+    expect(controls).toEqual([
+      "Undo",
+      "Redo",
+      "Toggle link format",
+      "Toggle code format",
+      "Indent",
+      "Dedent",
+      "Insert image",
+      "Raw"
+    ]);
+
+    dispose();
+  });
+
+  it("undoes and redoes WYSIWYG edits from heading buttons", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.value = "A";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+    editor!.value = "AB";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    const undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
+    expect(undo).not.toBeNull();
+    expect(undo!.title).toBe("Undo (Ctrl/Cmd+Z)");
+    undo!.click();
+    await settle();
+
+    expect(editor!.value).toBe("A");
+
+    const redo = host.querySelector<HTMLButtonElement>("button[aria-label='Redo']");
+    expect(redo).not.toBeNull();
+    expect(redo!.title).toBe("Redo (Ctrl/Cmd+Shift+Z)");
+    redo!.click();
+    await settle();
+
+    expect(editor!.value).toBe("AB");
+
+    dispose();
+  });
+
+  it("undoes and redoes raw edits from heading buttons", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(editor).not.toBeNull();
+    editor!.value = "A";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+    editor!.value = "AB";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Undo']")!.click();
+    await settle();
+
+    expect(editor!.value).toBe("A");
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Redo']")!.click();
+    await settle();
+
+    expect(editor!.value).toBe("AB");
+
+    dispose();
+  });
+
   it("keeps editor instances mounted across raw and WYSIWYG switches so undo history survives", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
