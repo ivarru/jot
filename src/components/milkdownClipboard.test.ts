@@ -1,4 +1,5 @@
 import { defaultValueCtx, Editor, editorViewCtx, serializerCtx } from "@milkdown/kit/core";
+import { automd } from "@milkdown/plugin-automd";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
 import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
@@ -16,6 +17,40 @@ describe("milkdown clipboard paste", () => {
       const markdown = editor.ctx.get(serializerCtx)(view.state.doc);
       expect(markdown).toBe("<https://example.com/a:b?x=1>\n");
       expect(markdown).not.toContain("\\:");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("normalizes a plain text URL inserted without a paste event as a Markdown autolink", async () => {
+    const editor = await createEditor("");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+
+      vi.spyOn(view, "hasFocus").mockReturnValue(true);
+      view.dispatch(view.state.tr.insertText("https://example.com/a:b?x=1"));
+      await animationFrame();
+
+      const markdown = editor.ctx.get(serializerCtx)(view.state.doc);
+      expect(markdown).toBe("<https://example.com/a:b?x=1>\n");
+      expect(markdown).not.toContain("\\:");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("keeps ordinary plain text insertion as plain text", async () => {
+    const editor = await createEditor("");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+
+      vi.spyOn(view, "hasFocus").mockReturnValue(true);
+      view.dispatch(view.state.tr.insertText("ordinary text"));
+      await animationFrame();
+
+      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("ordinary text\n");
     } finally {
       await editor.destroy();
     }
@@ -56,8 +91,13 @@ async function createEditor(markdown: string) {
     })
     .use(commonmark)
     .use(gfm)
+    .use(automd)
     .use(clipboard)
     .create();
+}
+
+async function animationFrame(): Promise<void> {
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 }
 
 function pastePlainText(view: EditorView, text: string): boolean {

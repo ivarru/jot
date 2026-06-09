@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "type": "module",
   "private": true,
   "scripts": {
@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@milkdown/kit": "^7.13.1",
+    "@milkdown/plugin-automd": "7.21.1",
     "@solidjs/meta": "^0.29.4",
     "@solidjs/router": "^0.15.3",
     "@solidjs/start": "^1.1.0",

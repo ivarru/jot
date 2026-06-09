@@ -146,6 +146,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { Editor, rootCtx, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, serializerCtx },
           { bulletListSchema, codeBlockSchema, commonmark, headingSchema, imageSchema, listItemSchema, paragraphSchema },
           { gfm },
+          { automd },
           { clipboard },
           { history },
           { listener, listenerCtx },
@@ -161,6 +162,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             import("@milkdown/kit/core"),
             import("@milkdown/kit/preset/commonmark"),
             import("@milkdown/kit/preset/gfm"),
+            import("@milkdown/plugin-automd"),
             import("@milkdown/kit/plugin/clipboard"),
             import("@milkdown/kit/plugin/history"),
             import("@milkdown/kit/plugin/listener"),
@@ -232,6 +234,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(commonmark)
           .use(jotImageView)
           .use(gfm)
+          .use(automd)
           .use(clipboard)
           .use(structuralTabKeymap)
           .use(listItemBlockComponent)

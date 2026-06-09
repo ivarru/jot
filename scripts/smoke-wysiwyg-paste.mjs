@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 const baseUrl = new URL(process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:4173/");
 const chromePath = process.env.CHROME_PATH ?? findChrome();
 const pastedUrl = "https://example.com/a:b?x=1";
-const expectedMarkdown = `<${pastedUrl}>\n`;
+const insertedUrl = "https://example.com/from-keyboard:a?x=1";
 
 if (!chromePath) {
   throw new Error("Chrome was not found. Set CHROME_PATH to run the WYSIWYG paste smoke test.");
@@ -112,13 +112,22 @@ try {
     await delay(500);
     await cdp.send("Page.bringToFront");
     await clickWysiwygEditor(cdp);
+
+    await insertWysiwygText(cdp, insertedUrl);
+    await assertWysiwygLink(cdp, insertedUrl, "inserted URL");
+    await switchToRawMode(cdp);
+    await waitForRawMarkdown(cdp, expectedUrlMarkdown(insertedUrl));
+    await assertRawMarkdownDoesNotEscapeColons(cdp, "inserted URL");
+
+    await replaceRawMarkdown(cdp, "");
+    await switchToWysiwygMode(cdp);
+    await clickWysiwygEditor(cdp);
+
     await writeClipboard(cdp, pastedUrl);
     await pasteFromBrowserClipboard(cdp);
     await switchToRawMode(cdp);
-    await waitForRawMarkdown(cdp, expectedMarkdown);
-
-    const markdown = await rawMarkdown(cdp);
-    assert(!markdown.includes("\\:"), `Expected pasted URL markdown not to escape colons, got ${JSON.stringify(markdown)}.`);
+    await waitForRawMarkdown(cdp, expectedUrlMarkdown(pastedUrl));
+    await assertRawMarkdownDoesNotEscapeColons(cdp, "pasted URL");
   } finally {
     cdp.close();
   }
@@ -127,7 +136,7 @@ try {
   await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
-console.log(`WYSIWYG paste smoke passed for ${baseUrl.origin}`);
+console.log(`WYSIWYG URL smoke passed for ${baseUrl.origin}`);
 
 async function writeClipboard(cdp, text) {
   const result = await evaluate(cdp, `(async () => {
@@ -180,12 +189,23 @@ async function pasteFromBrowserClipboard(cdp) {
   await dispatchPasteShortcut(cdp, process.platform === "darwin");
   const containsPaste = await waitForWysiwygText(cdp, pastedUrl);
   assert(containsPaste, "WYSIWYG editor did not receive the pasted URL.");
-  const hasLink = await evaluate(cdp, `(() => {
-    const link = document.querySelector('.milkdown-root a[href=${JSON.stringify(pastedUrl)}]');
-    return link instanceof HTMLAnchorElement && link.textContent === ${JSON.stringify(pastedUrl)};
-  })()`);
-  assert(hasLink, "WYSIWYG editor did not render the pasted URL as a link.");
+  await assertWysiwygLink(cdp, pastedUrl, "pasted URL");
   await delay(500);
+}
+
+async function insertWysiwygText(cdp, text) {
+  await cdp.send("Input.insertText", { text });
+  const containsText = await waitForWysiwygText(cdp, text);
+  assert(containsText, `WYSIWYG editor did not receive ${JSON.stringify(text)}.`);
+  await delay(500);
+}
+
+async function assertWysiwygLink(cdp, url, label) {
+  const hasLink = await waitForExpressionResult(cdp, `(() => {
+    const link = document.querySelector('.milkdown-root a[href=${JSON.stringify(url)}]');
+    return link instanceof HTMLAnchorElement && link.textContent === ${JSON.stringify(url)};
+  })()`);
+  assert(hasLink, `WYSIWYG editor did not render the ${label} as a link.`);
 }
 
 async function dispatchPasteShortcut(cdp, useMac) {
@@ -248,6 +268,30 @@ async function switchToRawMode(cdp) {
   await waitForExpression(cdp, "document.querySelector('textarea[aria-label=\"Markdown text editor\"]') !== null");
 }
 
+async function switchToWysiwygMode(cdp) {
+  await waitForExpression(cdp, "document.querySelector('.raw-mode-toggle input') !== null");
+  const switched = await evaluate(cdp, `(() => {
+    const input = document.querySelector('.raw-mode-toggle input');
+    if (!(input instanceof HTMLInputElement)) return false;
+    if (input.checked) input.click();
+    return true;
+  })()`);
+  assert(switched, "Could not switch to WYSIWYG mode.");
+  await waitForExpression(cdp, "document.querySelector('.milkdown-root [contenteditable=\"true\"]') !== null");
+}
+
+async function replaceRawMarkdown(cdp, markdown) {
+  await waitForExpression(cdp, "document.querySelector('textarea[aria-label=\"Markdown text editor\"]') !== null");
+  const replaced = await evaluate(cdp, `(() => {
+    const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
+    if (!(textarea instanceof HTMLTextAreaElement)) return false;
+    textarea.value = ${JSON.stringify(markdown)};
+    textarea.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: ${JSON.stringify(markdown)} }));
+    return true;
+  })()`);
+  assert(replaced, "Could not replace raw markdown.");
+}
+
 async function waitForRawMarkdown(cdp, expected) {
   const started = Date.now();
   while (Date.now() - started < 5000) {
@@ -263,6 +307,15 @@ async function rawMarkdown(cdp) {
     const textarea = document.querySelector('textarea[aria-label="Markdown text editor"]');
     return textarea instanceof HTMLTextAreaElement ? textarea.value : null;
   })()`);
+}
+
+function expectedUrlMarkdown(url) {
+  return `<${url}>\n`;
+}
+
+async function assertRawMarkdownDoesNotEscapeColons(cdp, label) {
+  const markdown = await rawMarkdown(cdp);
+  assert(!markdown.includes("\\:"), `Expected ${label} markdown not to escape colons, got ${JSON.stringify(markdown)}.`);
 }
 
 function findChrome() {
@@ -343,6 +396,16 @@ async function waitForExpression(cdp, expression, timeoutMs = 10000) {
     await delay(100);
   }
   throw new Error(`Timed out waiting for expression: ${expression}`);
+}
+
+async function waitForExpressionResult(cdp, expression, timeoutMs = 5000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const result = await evaluate(cdp, expression);
+    if (result) return true;
+    await delay(100);
+  }
+  return false;
 }
 
 async function evaluate(cdp, expression, awaitPromise = false) {
