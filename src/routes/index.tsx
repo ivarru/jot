@@ -48,8 +48,7 @@ import {
   resetSelectedDailyNoteSession,
   type DateBoundEditorState,
   type DateBoundEditorTransition,
-  type MarkdownWrite,
-  type VisibleDailyNoteSnapshot
+  type MarkdownWrite
 } from "~/editor/dateBoundEditor";
 import {
   EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS,
@@ -66,34 +65,16 @@ import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStoragePro
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
 import type { RemoteStorageProvider, SyncStatus } from "~/storage/types";
 import {
-  persistLocalDraft,
   saveAndSyncDailyNoteSnapshot,
   syncDirtyDailyNoteDrafts
 } from "~/sync/syncDailyNote";
-import {
-  captureSaveRetrySnapshot,
-  loadSelectedDailyNoteLocalSession,
-  loadSelectedDailyNoteSession,
-  reconnectSelectedDailyNoteAction,
-  refreshCleanSelectedDailyNoteSession,
-  resolveSelectedDailyNoteConflict,
-  saveSelectedDailyNoteSnapshot,
-  saveVisibleDailyNoteSnapshot,
-  selectedDailyNoteBlurSaveAction,
-  selectedDailyNoteManualSyncAction,
-  selectedDailyNoteRemoteLoadAction,
-  selectedDailyNotePollingAction,
-  type LoadSelectedDailyNoteLocalSessionResult,
-  type LoadSelectedDailyNoteSessionResult,
-  type RefreshCleanSelectedDailyNoteSessionResult,
-  type SaveSelectedDailyNoteSnapshotResult
-} from "~/sync/selectedDailyNoteSession";
+import { createSelectedDateDriveSync } from "~/sync/selectedDateDriveSync";
 import type { DailyNoteConflictResolution, DailyNoteSyncConflict } from "~/sync/syncDailyNote";
 import {
   buildDailyNoteUploadPlan,
   saveDailyNoteUploadPlan
 } from "~/sync/dailyNoteUploadSession";
-import { resolveSyncErrorRetry, type SyncErrorState } from "~/sync/syncErrorRetry";
+import type { SyncErrorState } from "~/sync/syncErrorRetry";
 import {
   nextSyncRetryDelayMs,
   shouldScheduleSyncRetry,
@@ -397,6 +378,24 @@ export default function Home() {
     setExistingNoteDates((dates) => new Set([...dates, date]));
   };
 
+  const selectedDateDriveSync = createSelectedDateDriveSync({
+    authenticated,
+    authReconnectRequired,
+    drafts,
+    remote: runtime.remote,
+    getState: dateBoundEditorState,
+    getSyncStatus: syncStatus,
+    getLastSyncError: lastSyncError,
+    applyTransition: applyDateBoundEditorTransition,
+    setLoadError,
+    setLastSyncError,
+    setPendingSyncConflict,
+    setSyncStatus,
+    markExistingNoteDate,
+    handleRemoteError,
+    errorMessage
+  });
+
   createEffect(() => {
     if (runtime.kind !== "google") {
       setPreparingAuth(false);
@@ -456,19 +455,8 @@ export default function Home() {
         setImportingImageResolutionName(null);
         setImageAttachmentDisplays({});
 
-        let cancelled = false;
-        void loadSelectedDateFromLocalDraft(date).then((action) => {
-          if (cancelled || action === null) return;
-          if (action.type === "load-selected") {
-            void loadSelectedDate(action.date);
-          } else {
-            void refreshCleanSelectedDate(action.date);
-          }
-        });
+        void selectedDateDriveSync.loadSelectedDateFromLocalDraft(date);
 
-        onCleanup(() => {
-          cancelled = true;
-        });
       },
       { defer: false }
     )
@@ -519,10 +507,7 @@ export default function Home() {
       if (!authenticated() || snapshot === null || suppressLocalPersist()) return;
 
       const timeout = window.setTimeout(() => {
-        void persistLocalDraft(snapshot.date, snapshot.markdown, drafts).then(setSyncStatus).catch((error: unknown) => {
-          setLastSyncError({ message: errorMessage(error), retry: "save-current-note", date: snapshot.date });
-          setSyncStatus("error");
-        });
+        void selectedDateDriveSync.persistVisibleLocalDraft(snapshot);
       }, LOCAL_DRAFT_DEBOUNCE_MS);
 
       onCleanup(() => window.clearTimeout(timeout));
@@ -538,7 +523,7 @@ export default function Home() {
         if (authReconnectRequired()) return;
 
         const timeout = window.setTimeout(() => {
-          void flushAndSync(snapshot);
+          void selectedDateDriveSync.saveAndSyncSnapshot(snapshot);
         }, settings().autosaveDebounceMs);
 
         onCleanup(() => window.clearTimeout(timeout));
@@ -623,31 +608,20 @@ export default function Home() {
           settings().cleanPollingIntervalMs,
           settings().dirtyPollingIntervalMs
         ] as const,
-      ([isAuthenticated, _date, _loaded, status]) => {
-        const action = selectedDailyNotePollingAction({
-          authenticated: isAuthenticated,
-          authReconnectRequired: authReconnectRequired(),
-          state: dateBoundEditorState(),
-          status
-        });
-        if (action === null) return;
+      () => {
+        const mode = selectedDateDriveSync.pollingMode();
+        if (mode === null) return;
 
-        if (action.type === "clean-refresh") {
+        if (mode === "clean-refresh") {
           const interval = window.setInterval(() => {
-            void refreshCleanSelectedDate(action.date);
+            void selectedDateDriveSync.pollSelectedDate();
           }, settings().cleanPollingIntervalMs);
           onCleanup(() => window.clearInterval(interval));
           return;
         }
 
         const interval = window.setInterval(() => {
-          const nextAction = selectedDailyNotePollingAction({
-            authenticated: authenticated(),
-            authReconnectRequired: authReconnectRequired(),
-            state: dateBoundEditorState(),
-            status: syncStatus()
-          });
-          if (nextAction?.type === "dirty-save") void saveAndSyncSnapshot(nextAction.snapshot);
+          void selectedDateDriveSync.pollSelectedDate();
         }, settings().dirtyPollingIntervalMs);
         onCleanup(() => window.clearInterval(interval));
       }
@@ -685,11 +659,11 @@ export default function Home() {
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         clearCameraStream();
-        void saveCurrentEditorSnapshot();
+        void selectedDateDriveSync.saveCurrentEditorSnapshot();
         return;
       }
 
-      void syncSelectedDateOnDemand();
+      void selectedDateDriveSync.syncSelectedDateOnDemand();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     onCleanup(() => document.removeEventListener("visibilitychange", onVisibilityChange));
@@ -698,7 +672,7 @@ export default function Home() {
   createEffect(() => {
     const onFocus = () => {
       if (document.visibilityState === "hidden") return;
-      void syncSelectedDateOnDemand();
+      void selectedDateDriveSync.syncSelectedDateOnDemand();
     };
     window.addEventListener("focus", onFocus);
     window.addEventListener("pageshow", onFocus);
@@ -835,193 +809,8 @@ export default function Home() {
 
   const navigateToDate = async (date: IsoDate) => {
     closeDatePicker();
-    void saveCurrentEditorSnapshot();
+    void selectedDateDriveSync.saveCurrentEditorSnapshot();
     window.location.hash = `/date/${date}`;
-  };
-
-  const loadSelectedDate = async (date: IsoDate) => {
-    const result = await loadSelectedDailyNoteSession({
-      date,
-      drafts,
-      remote: runtime.remote,
-      getState: dateBoundEditorState
-    });
-    applySelectedDailyNoteLoadResult(result);
-  };
-
-  const loadSelectedDateFromLocalDraft = async (date: IsoDate) => {
-    const result = await loadSelectedDailyNoteLocalSession({
-      date,
-      drafts,
-      getState: dateBoundEditorState
-    });
-    return applySelectedDailyNoteLocalLoadResult(result);
-  };
-
-  const refreshCleanSelectedDate = async (date: IsoDate) => {
-    const result = await refreshCleanSelectedDailyNoteSession({
-      date,
-      drafts,
-      remote: runtime.remote,
-      getState: dateBoundEditorState
-    });
-    applySelectedDailyNoteRefreshResult(result);
-  };
-
-  const applySelectedDailyNoteLocalLoadResult = (result: LoadSelectedDailyNoteLocalSessionResult) => {
-    switch (result.type) {
-      case "loaded":
-        if (result.transition === null) return null;
-        applyDateBoundEditorTransition(result.transition);
-        setSyncStatus(result.session.status);
-        if (result.session.status !== "conflict") setLastSyncError(null);
-        return result.transition.state.loadedDate === null
-          ? null
-          : selectedDailyNoteRemoteLoadAction(result.transition.state.loadedDate, result.session);
-      case "empty":
-        return result.applyToSelectedDate ? selectedDailyNoteRemoteLoadAction(result.date, null) : null;
-      case "failed":
-        if (!result.applyToSelectedDate) return null;
-        if (handleRemoteError(result.error, {
-          message: errorMessage(result.error),
-          retry: "load-selected-note",
-          date: result.date
-        })) return null;
-        {
-          const message = errorMessage(result.error);
-          setLoadError(message);
-          setLastSyncError({ message, retry: "load-selected-note", date: result.date });
-          setSyncStatus("error");
-        }
-        return null;
-    }
-  };
-
-  const applySelectedDailyNoteLoadResult = (result: LoadSelectedDailyNoteSessionResult) => {
-    switch (result.type) {
-      case "loaded":
-        if (result.transition === null) return;
-        applyDateBoundEditorTransition(result.transition);
-        setSyncStatus(result.session.status);
-        if (result.session.status !== "conflict") setLastSyncError(null);
-        return;
-      case "failed":
-        if (!result.applyToSelectedDate) return;
-        if (handleRemoteError(result.error, {
-          message: errorMessage(result.error),
-          retry: "load-selected-note",
-          date: result.date
-        })) return;
-        {
-          const message = errorMessage(result.error);
-          setLoadError(message);
-          setLastSyncError({ message, retry: "load-selected-note", date: result.date });
-          setSyncStatus("error");
-        }
-        return;
-    }
-  };
-
-  const applySelectedDailyNoteRefreshResult = (result: RefreshCleanSelectedDailyNoteSessionResult) => {
-    switch (result.type) {
-      case "skipped":
-        return;
-      case "refreshed":
-        applyDateBoundEditorTransition(result.transition);
-        setSyncStatus(result.session.status);
-        if (result.session.status !== "conflict") setLastSyncError(null);
-        return;
-      case "failed":
-        if (!result.applyToSelectedDate) return;
-        if (result.phase === "load" && handleRemoteError(result.error, {
-          message: errorMessage(result.error),
-          retry: "load-selected-note",
-          date: result.date
-        })) return;
-        setLastSyncError({ message: errorMessage(result.error), retry: "load-selected-note", date: result.date });
-        setSyncStatus("error");
-        return;
-    }
-  };
-
-  const flushAndSync = async (snapshot: VisibleDailyNoteSnapshot) => {
-    await saveAndSyncSnapshot(snapshot);
-  };
-
-  const saveAndSyncSnapshot = async (
-    snapshot: VisibleDailyNoteSnapshot,
-    options: { readonly refreshRemoteBeforeSave?: boolean } = {}
-  ) => {
-    if (!authReconnectRequired() && canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) setSyncStatus("syncing");
-    const result = await saveSelectedDailyNoteSnapshot({
-      snapshot,
-      authReconnectRequired: authReconnectRequired(),
-      drafts,
-      remote: runtime.remote,
-      getState: dateBoundEditorState,
-      ...(options.refreshRemoteBeforeSave === undefined
-        ? {}
-        : { refreshRemoteBeforeSave: options.refreshRemoteBeforeSave })
-    });
-    applySelectedDailyNoteSaveResult(result);
-  };
-
-  const applySelectedDailyNoteSaveResult = (result: SaveSelectedDailyNoteSnapshotResult) => {
-    switch (result.type) {
-      case "auth-required":
-        if (result.applyStatus !== null) setSyncStatus(result.applyStatus);
-        return;
-      case "saved":
-        if (result.transition === null) return;
-        applyDateBoundEditorTransition(result.transition);
-        if (result.transition.state.loadedDate !== null) markExistingNoteDate(result.transition.state.loadedDate);
-        setSyncStatus(result.session.status);
-        if (result.session.conflict !== undefined) {
-          setPendingSyncConflict(result.session.conflict);
-        } else {
-          setPendingSyncConflict(null);
-        }
-        if (result.session.status !== "conflict") setLastSyncError(null);
-        return;
-      case "failed":
-        if (!result.applyToVisibleDailyNote) return;
-        if (handleRemoteError(result.error, {
-          message: errorMessage(result.error),
-          retry: "save-current-note",
-          date: result.snapshot.date
-        })) return;
-        setLastSyncError({ message: errorMessage(result.error), retry: "save-current-note", date: result.snapshot.date });
-        setSyncStatus("error");
-        return;
-    }
-  };
-
-  const saveCurrentEditorSnapshot = async () => {
-    const result = await saveVisibleDailyNoteSnapshot({
-      authReconnectRequired: authReconnectRequired(),
-      drafts,
-      remote: runtime.remote,
-      getState: dateBoundEditorState
-    });
-    if (result !== null) applySelectedDailyNoteSaveResult(result);
-  };
-
-  const syncSelectedDateOnDemand = async () => {
-    if (!authenticated() || authReconnectRequired()) return;
-    const action = selectedDailyNoteManualSyncAction(dateBoundEditorState(), syncStatus());
-    if (action === null) return;
-
-    switch (action.type) {
-      case "load-selected":
-        await loadSelectedDate(action.date);
-        return;
-      case "refresh-clean":
-        await refreshCleanSelectedDate(action.date);
-        return;
-      case "save-visible":
-        await saveAndSyncSnapshot(action.snapshot);
-        return;
-    }
   };
 
   const startDailyNoteUpload = () => {
@@ -1103,7 +892,7 @@ export default function Home() {
         getState: dateBoundEditorState
       });
       for (const saveResult of result.saveResults) {
-        applySelectedDailyNoteSaveResult(saveResult);
+        selectedDateDriveSync.applySaveResult(saveResult);
       }
       if (result.type === "failed") throw result.error;
       setDailyNoteUploadMessage(`Uploaded ${result.count} daily note${result.count === 1 ? "" : "s"}.`);
@@ -1125,53 +914,25 @@ export default function Home() {
 
     setResolvingSyncConflict(true);
     setLastSyncError(null);
-    if (resolution !== "manual") setSyncStatus("syncing");
     try {
-      const result = await resolveSelectedDailyNoteConflict({
-        conflict,
-        resolution,
-        drafts,
-        remote: runtime.remote,
-        getState: dateBoundEditorState
-      });
+      await selectedDateDriveSync.resolvePendingConflict(conflict, resolution);
       if (resolution === "manual") setEditorMode("text");
-      applySelectedDailyNoteSaveResult(result);
     } finally {
       setResolvingSyncConflict(false);
     }
   };
 
   const retryLastSyncError = () => {
-    const error = lastSyncError();
-    if (error === null) return;
-    const action = resolveSyncErrorRetry(error, { selectedDate: selectedDate(), loadedDate: loadedDate() });
-
-    setLastSyncError(null);
-    if (action === null) return;
-
-    switch (action.type) {
-      case "load-selected-note": {
-        setLoadError(null);
-        void loadSelectedDate(action.date);
-        return;
-      }
-      case "save-current-note":
-        {
-          const snapshot = captureSaveRetrySnapshot(dateBoundEditorState(), action);
-          if (snapshot !== null) void saveAndSyncSnapshot(snapshot);
-        }
-        return;
-      case "save-settings":
-        updateSettings(settings());
-        return;
-      case "sync-dirty-drafts":
+    void selectedDateDriveSync.retryLastSyncError({
+      saveSettings: () => updateSettings(settings()),
+      syncDirtyDrafts: () => {
         void syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate)).catch((syncError: unknown) => {
           if (handleRemoteError(syncError, { message: errorMessage(syncError), retry: "sync-dirty-drafts" })) return;
           setLastSyncError({ message: errorMessage(syncError), retry: "sync-dirty-drafts" });
           setSyncStatus("error");
         });
-        return;
-    }
+      }
+    });
   };
 
   const updateSettings = (next: JotSettings) => {
@@ -1481,8 +1242,7 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
-    const snapshot = selectedDailyNoteBlurSaveAction(dateBoundEditorState(), captureDocumentSnapshot(date, value));
-    if (snapshot !== null) void saveAndSyncSnapshot(snapshot);
+    void selectedDateDriveSync.saveBlurSnapshot(captureDocumentSnapshot(date, value));
   };
 
   const startGooglePhotosImagePick = async () => {
@@ -1613,7 +1373,7 @@ export default function Home() {
       setImageAttachmentAltText("");
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("idle");
-      await saveAndSyncSnapshot(insertion.saveSnapshot);
+      await selectedDateDriveSync.saveAndSyncSnapshot(insertion.saveSnapshot);
     } catch (error: unknown) {
       if (selectedDate() !== date || imageAttachmentDate() !== date) return;
       if (handleRemoteError(error)) {
@@ -1665,7 +1425,7 @@ export default function Home() {
       setImageAttachmentAltText("");
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("idle");
-      await saveAndSyncSnapshot(insertion.saveSnapshot);
+      await selectedDateDriveSync.saveAndSyncSnapshot(insertion.saveSnapshot);
     } catch (error: unknown) {
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("choosing");
@@ -1870,14 +1630,7 @@ export default function Home() {
       setAuthenticated(true);
       setAuthReconnectRequired(false);
       refreshAndScheduleToday();
-      const reconnectAction = reconnectSelectedDailyNoteAction(dateBoundEditorState());
-      if (reconnectAction?.type === "save-visible") {
-        await saveAndSyncSnapshot(reconnectAction.snapshot, { refreshRemoteBeforeSave: true });
-      } else if (reconnectAction?.type === "load-selected") {
-        await loadSelectedDate(reconnectAction.date);
-        const loadedAction = reconnectSelectedDailyNoteAction(dateBoundEditorState());
-        if (loadedAction?.type === "save-visible") await saveAndSyncSnapshot(loadedAction.snapshot, { refreshRemoteBeforeSave: true });
-      }
+      await selectedDateDriveSync.reconnect();
       await syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate));
       const date = selectedDate();
       if (date !== null && canEditDailyNoteDate(date, dateBoundEditorState()) && syncStatus() === "auth-required") {
@@ -1899,6 +1652,7 @@ export default function Home() {
     }
 
     resetDatePickerState();
+    selectedDateDriveSync.cancelInFlightWork();
     await drafts.clearAll();
     if (runtime.kind === "google") {
       await runtime.tokenProvider.revoke?.();
@@ -2249,8 +2003,8 @@ export default function Home() {
                 class={`sync-status sync-${syncStatus()}`}
                 aria-label="Force synchronization"
                 title="Force synchronization"
-                disabled={!authenticated() || authReconnectRequired() || selectedDailyNoteManualSyncAction(dateBoundEditorState(), syncStatus()) === null}
-                onClick={() => void syncSelectedDateOnDemand()}
+                disabled={!selectedDateDriveSync.canSyncSelectedDateOnDemand()}
+                onClick={() => void selectedDateDriveSync.syncSelectedDateOnDemand()}
               >
                 {syncStatusLabel(syncStatus())}
               </button>
@@ -2520,7 +2274,7 @@ export default function Home() {
                         const date = selectedDate();
                         if (date === null) return;
                         setLoadError(null);
-                        void loadSelectedDate(date);
+                        void selectedDateDriveSync.loadSelectedDate(date);
                       }}
                     >
                       Retry
