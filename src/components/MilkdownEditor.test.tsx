@@ -3,8 +3,9 @@ import { render } from "solid-js/web";
 import { defaultValueCtx, Editor, editorViewCtx, serializerCtx } from "@milkdown/kit/core";
 import type { Node as ProseMirrorNode } from "@milkdown/kit/prose/model";
 import { TextSelection } from "@milkdown/kit/prose/state";
-import { commonmark } from "@milkdown/kit/preset/commonmark";
+import { commonmark, inlineCodeSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
+import { toggleMark } from "@milkdown/kit/prose/commands";
 import {
   applyMilkdownUpdatedMarkdown,
   createMilkdownMarkdownSyncState,
@@ -276,6 +277,79 @@ describe("MilkdownEditor", () => {
       });
     } finally {
       dispose();
+    }
+  });
+
+  it("toggles collapsed inline-code state without writing literal backticks", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+    let toggleInlineCodeAtSelection!: () => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value="Use  today"
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getSelection = nextController.getSelection;
+              toggleInlineCodeAtSelection = nextController.toggleInlineCodeAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      const editor = await waitForEditable(host);
+      const cursor = "Use ".length;
+
+      setSelection({ start: cursor, end: cursor });
+      await animationFrame();
+      await animationFrame();
+
+      expect(getSelection()).toEqual({ start: cursor, end: cursor });
+      expect(toggleInlineCodeAtSelection()).toBe(true);
+      expect(toggleInlineCodeAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes).toEqual([]);
+      expect(document.activeElement).toBe(editor);
+      expect(getSelection()).toEqual({ start: cursor, end: cursor });
+    } finally {
+      dispose();
+    }
+  });
+
+  it("keeps a boundary space outside code after toggling collapsed inline-code and typing", async () => {
+    const editor = await createMilkdownTestEditor("");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const serializer = editor.ctx.get(serializerCtx);
+      view.dispatch(view.state.tr.insertText("abc "));
+      const cursor = findTextEndPosition(view.state.doc, "abc ");
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor)));
+
+      expect(toggleMark(inlineCodeSchema.type(editor.ctx))(view.state, view.dispatch, view)).toBe(true);
+      view.dispatch(view.state.tr.insertText("def"));
+
+      expect(serializer(view.state.doc)).toBe("abc `def`\n");
+    } finally {
+      await editor.destroy();
     }
   });
 

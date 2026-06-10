@@ -31,6 +31,7 @@ interface MilkdownEditorProps {
   readonly onChange: (documentKey: string, markdown: string) => void;
   readonly onBlur: (documentKey: string, markdown: string) => void;
   readonly onController?: (controller: MilkdownEditorController | null) => void;
+  readonly onHistoryAvailabilityChange?: (availability: EditorHistoryAvailability) => void;
   readonly onPasteImage?: (documentKey: string, file: File) => void;
 }
 
@@ -38,12 +39,20 @@ interface MilkdownEditorSession {
   readonly applyExternalMarkdown: (markdown: string, undoable: boolean) => void;
   readonly applyStructuralTab: (shiftKey: boolean) => boolean;
   readonly closeHistory: () => void;
+  readonly getHistoryAvailability: () => EditorHistoryAvailability;
   readonly getSelection: () => MarkdownSelection | null;
   readonly getMarkdown: () => string;
   readonly focus: (placement: FocusPlacement, onFocusApplied?: () => void) => void;
   readonly redo: () => boolean;
   readonly setReadOnly: (readOnly: boolean) => void;
+  readonly toggleInlineCodeAtSelection: () => boolean;
   readonly undo: () => boolean;
+}
+
+interface EditorViewWithDomObserver extends EditorView {
+  readonly domObserver?: {
+    readonly flush?: () => void;
+  };
 }
 
 type MarkdownSerializer = (doc: ProseNode) => string;
@@ -53,9 +62,16 @@ export interface MilkdownEditorController {
   readonly applyRawMarkdown: (markdown: string) => void;
   readonly applyStructuralTab: (shiftKey: boolean) => boolean;
   readonly closeHistory: () => void;
+  readonly getHistoryAvailability: () => EditorHistoryAvailability;
   readonly getSelection: () => MarkdownSelection | null;
   readonly redo: () => boolean;
+  readonly toggleInlineCodeAtSelection: () => boolean;
   readonly undo: () => boolean;
+}
+
+export interface EditorHistoryAvailability {
+  readonly canUndo: boolean;
+  readonly canRedo: boolean;
 }
 
 export interface MilkdownMarkdownSyncState {
@@ -146,7 +162,16 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 
         const [
           { Editor, rootCtx, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, serializerCtx },
-          { bulletListSchema, codeBlockSchema, commonmark, headingSchema, imageSchema, listItemSchema, paragraphSchema },
+          {
+            bulletListSchema,
+            codeBlockSchema,
+            commonmark,
+            headingSchema,
+            imageSchema,
+            inlineCodeSchema,
+            listItemSchema,
+            paragraphSchema
+          },
           { gfm },
           { automd },
           { clipboard },
@@ -154,7 +179,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { listener, listenerCtx },
           { listItemBlockComponent, listItemBlockConfig },
           { Plugin, TextSelection },
-          { closeHistory, redo, undo },
+          { closeHistory, redo, redoDepth, undo, undoDepth },
           { isInTable },
           { liftListItem, sinkListItem },
           { wrapIn },
@@ -177,6 +202,13 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             import("@milkdown/kit/utils")
           ]);
         if (disposed) return;
+        const historyAvailability = (view: EditorView): EditorHistoryAvailability => ({
+          canUndo: undoDepth(view.state) > 0,
+          canRedo: redoDepth(view.state) > 0
+        });
+        const notifyHistoryAvailability = (view: EditorView) => {
+          props.onHistoryAvailabilityChange?.(historyAvailability(view));
+        };
         const preserveListTightness = $prose(() => createListTightnessPlugin(Plugin));
         const structuralTabKeymap = createMilkdownStructuralTabKeymap({
           useKeymap: $useKeymap,
@@ -226,6 +258,8 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             ctx.get(listenerCtx).updated((ctx, doc) => {
               if (disposed || activeSession !== session) return;
 
+              notifyHistoryAvailability(ctx.get(editorViewCtx));
+
               const serializer = ctx.get(serializerCtx);
               const markdown = serializer(doc);
               if (!applyMilkdownUpdatedMarkdown(markdownState, markdown)) return;
@@ -266,6 +300,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 replacedMarkdown = serializer(view.state.doc);
               });
               trackMilkdownExternalMarkdown(markdownState, markdown, replacedMarkdown);
+              notifyHistoryAvailability(editor.ctx.get(editorViewCtx));
             },
             applyStructuralTab: (shiftKey) => {
               if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
@@ -274,13 +309,20 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 view.someProp("handleKeyDown", (handler) =>
                   handler(view, new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey }))
                 ) === true;
-              if (handled) view.focus();
+              if (handled) {
+                view.focus();
+                notifyHistoryAvailability(view);
+              }
               return handled;
             },
             closeHistory: () => {
               if (disposed || activeSession !== session || editor === null) return;
               const view = editor.ctx.get(editorViewCtx);
               view.dispatch(closeHistory(view.state.tr));
+            },
+            getHistoryAvailability: () => {
+              if (disposed || activeSession !== session || editor === null) return { canUndo: false, canRedo: false };
+              return historyAvailability(editor.ctx.get(editorViewCtx));
             },
             getSelection: () => {
               if (disposed || activeSession !== session || editor === null) return null;
@@ -306,7 +348,9 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             redo: () => {
               if (disposed || activeSession !== session || editor === null) return false;
               const view = editor.ctx.get(editorViewCtx);
-              return redo(view.state, view.dispatch, view);
+              const applied = redo(view.state, view.dispatch, view);
+              if (applied) notifyHistoryAvailability(view);
+              return applied;
             },
             setReadOnly: (readOnly) => {
               if (disposed || activeSession !== session || editor === null) return;
@@ -318,10 +362,28 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               view.dom.setAttribute("contenteditable", currentReadOnly ? "false" : "true");
               view.dom.setAttribute("aria-readonly", currentReadOnly ? "true" : "false");
             },
+            toggleInlineCodeAtSelection: () => {
+              if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
+              const view = editor.ctx.get(editorViewCtx);
+              flushPendingEditorDomChanges(view);
+              const selection = view.state.selection;
+              if (!(selection instanceof TextSelection) || selection.$cursor === null) return false;
+              const markType = inlineCodeSchema.type(editor.ctx);
+              const active = markType.isInSet(view.state.storedMarks ?? selection.$cursor.marks());
+              const transaction = active
+                ? view.state.tr.removeStoredMark(markType)
+                : view.state.tr.addStoredMark(markType.create());
+              view.dispatch(transaction.setMeta("addToHistory", false));
+              view.focus();
+              notifyHistoryAvailability(view);
+              return true;
+            },
             undo: () => {
               if (disposed || activeSession !== session || editor === null) return false;
               const view = editor.ctx.get(editorViewCtx);
-              return undo(view.state, view.dispatch, view);
+              const applied = undo(view.state, view.dispatch, view);
+              if (applied) notifyHistoryAvailability(view);
+              return applied;
             }
           };
           activeSession = session;
@@ -333,10 +395,13 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             closeHistory: () => {
               session?.closeHistory();
             },
+            getHistoryAvailability: () => session?.getHistoryAvailability() ?? { canUndo: false, canRedo: false },
             getSelection: () => session?.getSelection() ?? null,
             redo: () => session?.redo() ?? false,
+            toggleInlineCodeAtSelection: () => session?.toggleInlineCodeAtSelection() ?? false,
             undo: () => session?.undo() ?? false
           });
+          props.onHistoryAvailabilityChange?.(session.getHistoryAvailability());
           session.setReadOnly(props.readOnly === true);
           if (props.value !== markdownState.currentMarkdown) {
             session.applyExternalMarkdown(props.value, false);
@@ -479,6 +544,10 @@ function clearedOnlyFocusSelection(
     focus[2] === previousFocus[2] &&
     focus[4] === previousFocus[4]
   );
+}
+
+function flushPendingEditorDomChanges(view: EditorView): void {
+  (view as EditorViewWithDomObserver).domObserver?.flush?.();
 }
 
 function focusEditable(

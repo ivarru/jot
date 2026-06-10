@@ -6,7 +6,7 @@ import { GoogleAccessTokenUnavailableError, GoogleIdentityTokenProvider, isGoogl
 import { APP_VERSION, ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
 import { DailyNoteUploadConflictDialog } from "~/components/DailyNoteUploadConflictDialog";
 import { DailyNoteUploadStatusAlert } from "~/components/DailyNoteUploadStatusAlert";
-import { MilkdownEditor, type MilkdownEditorController } from "~/components/MilkdownEditor";
+import { MilkdownEditor, type EditorHistoryAvailability, type MilkdownEditorController } from "~/components/MilkdownEditor";
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
 import { applyTextAreaStructuralTab } from "~/components/textAreaIndent";
@@ -133,6 +133,12 @@ type StorageRuntime =
 type ImageAttachmentStatus = "idle" | "starting" | "waiting" | "choosing" | "importing";
 type LocalImageSourceKind = LocalImageAttachmentSource["kind"];
 
+interface EditorHistoryEntry {
+  readonly date: IsoDate;
+  readonly markdown: string;
+  readonly selection: MarkdownSelection;
+}
+
 interface StoredActiveImagePicker {
   readonly date: IsoDate;
   readonly session: GooglePhotosPickingSession;
@@ -190,6 +196,10 @@ export default function Home() {
   const [focusEditorSelection, setFocusEditorSelection] = createSignal<MarkdownSelection | null>(null);
   const [textFocusRestored, setTextFocusRestored] = createSignal(true);
   const [wysiwygFocusRestored, setWysiwygFocusRestored] = createSignal(true);
+  const [editorHistoryAvailability, setEditorHistoryAvailability] = createSignal<EditorHistoryAvailability>({
+    canUndo: false,
+    canRedo: false
+  });
   const [imageAttachmentStatus, setImageAttachmentStatus] = createSignal<ImageAttachmentStatus>("idle");
   const [imageAttachmentError, setImageAttachmentError] = createSignal<string | null>(null);
   const [imageAttachmentDate, setImageAttachmentDate] = createSignal<IsoDate | null>(null);
@@ -214,6 +224,8 @@ export default function Home() {
   let milkdownController: MilkdownEditorController | null = null;
   let plainTextEditorElement: HTMLTextAreaElement | null = null;
   let pendingEditorModeSelection: MarkdownSelection | null | undefined;
+  let rawHistoryPast: EditorHistoryEntry[] = [];
+  let rawHistoryFuture: EditorHistoryEntry[] = [];
 
   const dateBoundEditorState = (): DateBoundEditorState => ({
     selectedDate: selectedDate(),
@@ -424,6 +436,9 @@ export default function Home() {
     on(
       () => [authenticated(), selectedDate()] as const,
       ([isAuthenticated, date]) => {
+        rawHistoryPast = [];
+        rawHistoryFuture = [];
+        if (editorMode() === "text") setEditorHistoryAvailability({ canUndo: false, canRedo: false });
         if (!isAuthenticated || date === null) return;
 
         applyDateBoundEditorTransition(resetSelectedDailyNoteSession(dateBoundEditorState(), date));
@@ -1182,6 +1197,7 @@ export default function Home() {
       setWysiwygFocusRestored(mode !== "wysiwyg");
       setEditorMode(mode);
     });
+    refreshEditorHistoryAvailability();
   };
 
   const captureEditorModeSelection = () => {
@@ -1198,6 +1214,62 @@ export default function Home() {
     }
 
     return milkdownController?.getSelection() ?? null;
+  };
+
+  const rawHistoryAvailability = (): EditorHistoryAvailability => {
+    const date = selectedDate();
+    return {
+      canUndo: date !== null && rawHistoryPast[rawHistoryPast.length - 1]?.date === date,
+      canRedo: date !== null && rawHistoryFuture[rawHistoryFuture.length - 1]?.date === date
+    };
+  };
+
+  const controllerHistoryAvailability = (): EditorHistoryAvailability =>
+    milkdownController?.getHistoryAvailability() ?? { canUndo: false, canRedo: false };
+
+  const effectiveEditorHistoryAvailability = (): EditorHistoryAvailability =>
+    editorMode() === "text" ? rawHistoryAvailability() : controllerHistoryAvailability();
+
+  const refreshEditorHistoryAvailability = () => {
+    setEditorHistoryAvailability(effectiveEditorHistoryAvailability());
+  };
+
+  const handleMilkdownHistoryAvailabilityChange = (availability: EditorHistoryAvailability) => {
+    setEditorHistoryAvailability(editorMode() === "text" ? rawHistoryAvailability() : availability);
+  };
+
+  const rawHistorySelectionFor = (markdownValue: string): MarkdownSelection => {
+    if (plainTextEditorElement === null) {
+      return {
+        start: markdownValue.length,
+        end: markdownValue.length
+      };
+    }
+
+    return {
+      start: Math.max(0, Math.min(markdownValue.length, plainTextEditorElement.selectionStart)),
+      end: Math.max(0, Math.min(markdownValue.length, plainTextEditorElement.selectionEnd))
+    };
+  };
+
+  const rawHistoryEntryFor = (date: IsoDate, markdownValue: string): EditorHistoryEntry => ({
+    date,
+    markdown: markdownValue,
+    selection: rawHistorySelectionFor(markdownValue)
+  });
+
+  const clearRawHistory = () => {
+    rawHistoryPast = [];
+    rawHistoryFuture = [];
+  };
+
+  const clearRawRedoHistory = () => {
+    rawHistoryFuture = [];
+  };
+
+  const recordRawHistorySnapshot = (date: IsoDate, previousMarkdown: string) => {
+    rawHistoryPast.push(rawHistoryEntryFor(date, previousMarkdown));
+    clearRawRedoHistory();
   };
 
   const toggleLinkFormat = () => {
@@ -1221,15 +1293,71 @@ export default function Home() {
     const date = selectedDate();
     if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
 
-    const selection = currentEditorSelection() ?? { start: 0, end: 0 };
-    const result = toggleCodeFormat(markdown(), selection);
-    const change = applyEditorChange(dateBoundEditorState(), date, result.markdown);
-    if (change.type !== "current-editor") return;
+    const selection = currentEditorSelection();
+    if (selection === null) return;
+    if (editorMode() === "wysiwyg" && selection.start === selection.end) {
+      if (milkdownController?.toggleInlineCodeAtSelection() !== true) return;
+      setEditorHistoryAvailability(milkdownController.getHistoryAvailability());
+      return;
+    }
 
-    applyDateBoundEditorTransition({ state: change.state, markdownWrite: change.markdownWrite });
+    const sourceMarkdown = editorMode() === "text" && plainTextEditorElement !== null
+      ? plainTextEditorElement.value
+      : markdown();
+    const result = toggleCodeFormat(sourceMarkdown, selection);
+    applyUndoableMarkdownTransform(date, result.markdown, result.selection);
+  };
+
+  const applyUndoableMarkdownTransform = (date: IsoDate, nextMarkdown: string, selection: MarkdownSelection) => {
+    if (editorMode() === "text") {
+      applyRawEditorChange(date, nextMarkdown, {
+        focusSelection: selection,
+        recordHistory: true
+      });
+      return;
+    }
+
+    if (milkdownController !== null) {
+      milkdownController.applyRawMarkdown(nextMarkdown);
+      setEditorHistoryAvailability(milkdownController.getHistoryAvailability());
+    }
+
+    if (markdown() !== nextMarkdown) {
+      const change = applyEditorChange(dateBoundEditorState(), date, nextMarkdown);
+      if (change.type !== "current-editor") return;
+
+      applyDateBoundEditorTransition({ state: change.state, markdownWrite: change.markdownWrite });
+    }
+
     setFocusEditorAtEnd(false);
-    setFocusEditorSelection(result.selection);
-    setEditorResetKey((key) => key + 1);
+    setFocusEditorSelection(selection);
+  };
+
+  const applyRawEditorChange = (
+    date: IsoDate,
+    nextMarkdown: string,
+    options: {
+      readonly focusSelection: MarkdownSelection | null;
+      readonly recordHistory: boolean;
+    }
+  ) => {
+    const previousMarkdown = markdown();
+    if (options.recordHistory && previousMarkdown !== nextMarkdown) {
+      recordRawHistorySnapshot(date, previousMarkdown);
+    }
+
+    if (previousMarkdown !== nextMarkdown) {
+      const change = applyEditorChange(dateBoundEditorState(), date, nextMarkdown);
+      if (change.type !== "current-editor") return;
+
+      applyDateBoundEditorTransition({ state: change.state, markdownWrite: change.markdownWrite });
+    }
+
+    if (options.focusSelection !== null) {
+      setFocusEditorAtEnd(false);
+      setFocusEditorSelection(options.focusSelection);
+    }
+    refreshEditorHistoryAvailability();
   };
 
   const applyStructuralTabShortcut = (shiftKey: boolean) => {
@@ -1270,9 +1398,13 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
+    if (editorMode() === "wysiwyg") {
+      clearRawHistory();
+    }
     const result = applyEditorChange(dateBoundEditorState(), date, value);
     if (result.type === "current-editor") {
       applyDateBoundEditorTransition({ state: result.state, markdownWrite: result.markdownWrite });
+      refreshEditorHistoryAvailability();
       return;
     }
 
@@ -1283,18 +1415,67 @@ export default function Home() {
 
   const handleRawEditorChange = (documentKey: string, value: string) => {
     if (editorReadOnly()) return;
-    if (parseIsoDate(documentKey) === null) return;
+    const date = parseIsoDate(documentKey);
+    if (date === null) return;
 
-    if (milkdownController !== null) {
-      milkdownController.applyRawMarkdown(value);
-      return;
-    }
-
-    handleEditorChange(documentKey, value);
+    applyRawEditorChange(date, value, {
+      focusSelection: null,
+      recordHistory: true
+    });
   };
 
-  const undoEditorHistory = () => milkdownController?.undo() ?? false;
-  const redoEditorHistory = () => milkdownController?.redo() ?? false;
+  const undoEditorHistory = () => {
+    if (editorMode() === "text") {
+      const date = selectedDate();
+      const previous = rawHistoryPast.pop();
+      if (date === null || previous === undefined) {
+        refreshEditorHistoryAvailability();
+        return false;
+      }
+      if (previous.date !== date) {
+        clearRawHistory();
+        refreshEditorHistoryAvailability();
+        return false;
+      }
+
+      rawHistoryFuture.push(rawHistoryEntryFor(date, plainTextEditorElement?.value ?? markdown()));
+      applyRawEditorChange(date, previous.markdown, {
+        focusSelection: previous.selection,
+        recordHistory: false
+      });
+      return true;
+    }
+
+    const applied = milkdownController?.undo() ?? false;
+    refreshEditorHistoryAvailability();
+    return applied;
+  };
+  const redoEditorHistory = () => {
+    if (editorMode() === "text") {
+      const date = selectedDate();
+      const next = rawHistoryFuture.pop();
+      if (date === null || next === undefined) {
+        refreshEditorHistoryAvailability();
+        return false;
+      }
+      if (next.date !== date) {
+        clearRawHistory();
+        refreshEditorHistoryAvailability();
+        return false;
+      }
+
+      rawHistoryPast.push(rawHistoryEntryFor(date, plainTextEditorElement?.value ?? markdown()));
+      applyRawEditorChange(date, next.markdown, {
+        focusSelection: next.selection,
+        recordHistory: false
+      });
+      return true;
+    }
+
+    const applied = milkdownController?.redo() ?? false;
+    refreshEditorHistoryAvailability();
+    return applied;
+  };
 
   const handleEditorBlur = (documentKey: string, value: string) => {
     if (editorReadOnly()) return;
@@ -1926,7 +2107,7 @@ export default function Home() {
                 aria-label="Undo"
                 aria-keyshortcuts="Control+Z Meta+Z"
                 title="Undo (Ctrl/Cmd+Z)"
-                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent() || !editorHistoryAvailability().canUndo}
                 onClick={() => applyEditorHistoryShortcut("undo")}
               >
                 <UndoIcon />
@@ -1937,7 +2118,7 @@ export default function Home() {
                 aria-label="Redo"
                 aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y"
                 title="Redo (Ctrl/Cmd+Shift+Z)"
-                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent() || !editorHistoryAvailability().canRedo}
                 onClick={() => applyEditorHistoryShortcut("redo")}
               >
                 <RedoIcon />
@@ -2507,7 +2688,9 @@ export default function Home() {
                   onBlur={handleEditorBlur}
                   onController={(controller) => {
                     milkdownController = controller;
+                    refreshEditorHistoryAvailability();
                   }}
+                  onHistoryAvailabilityChange={handleMilkdownHistoryAvailabilityChange}
                   onPasteImage={handleEditorImagePaste}
                 />
               </div>

@@ -483,6 +483,11 @@ select {
   height: 18px;
 }
 
+.icon-button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
 .dropdown-caret {
   width: 0;
   height: 0;

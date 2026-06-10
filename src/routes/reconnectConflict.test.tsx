@@ -12,7 +12,10 @@ const testState = vi.hoisted(() => ({
     readonly updatedAt: string;
   },
   loadAuthError: false,
-  saveConflict: false
+  saveConflict: false,
+  wysiwygSelectionAvailable: true,
+  inlineCodeToggleCount: 0,
+  focusSelectionApplyCount: 0
 }));
 
 vi.mock("~/config", () => ({
@@ -23,9 +26,14 @@ vi.mock("~/config", () => ({
   LOCAL_DRAFT_DEBOUNCE_MS: 250
 }));
 
-vi.mock("~/components/MilkdownEditor", () => ({
+vi.mock("~/components/MilkdownEditor", async () => {
+  const { createEffect } = await vi.importActual<typeof import("solid-js")>("solid-js");
+
+  return {
   MilkdownEditor: (props: {
     readonly documentKey: string;
+    readonly focusSelection?: { readonly start: number; readonly end: number } | null;
+    readonly resetKey?: number;
     readonly value: string;
     readonly readOnly?: boolean;
     readonly onChange: (documentKey: string, markdown: string) => void;
@@ -34,21 +42,36 @@ vi.mock("~/components/MilkdownEditor", () => ({
       readonly applyRawMarkdown: (markdown: string) => void;
       readonly applyStructuralTab: (shiftKey: boolean) => boolean;
       readonly closeHistory: () => void;
+      readonly getHistoryAvailability: () => { readonly canUndo: boolean; readonly canRedo: boolean };
       readonly getSelection: () => { readonly start: number; readonly end: number } | null;
       readonly redo: () => boolean;
+      readonly toggleInlineCodeAtSelection: () => boolean;
       readonly undo: () => boolean;
     } | null) => void;
+    readonly onHistoryAvailabilityChange?: (availability: { readonly canUndo: boolean; readonly canRedo: boolean }) => void;
   }) => {
     let textarea: HTMLTextAreaElement | undefined;
     let present = props.value;
     const past: string[] = [];
     const future: string[] = [];
+    const historyAvailability = () => ({
+      canUndo: past.length > 0,
+      canRedo: future.length > 0
+    });
+    const reportHistoryAvailability = () => props.onHistoryAvailabilityChange?.(historyAvailability());
+    const controllerSerializedMarkdown = (markdown: string) => markdown.endsWith(" ") ? `${markdown.trimEnd()}\n` : markdown;
 
-    const record = (markdown: string) => {
-      if (markdown === present) return;
+    const recordControllerMarkdown = (markdown: string) => {
+      const serialized = controllerSerializedMarkdown(markdown);
+      if (serialized === present) return;
       past.push(present);
-      present = markdown;
+      present = serialized;
       future.length = 0;
+      if (textarea !== undefined) textarea.value = serialized;
+      reportHistoryAvailability();
+    };
+    const recordUserEdit = (markdown: string) => {
+      recordControllerMarkdown(markdown);
       props.onChange(props.documentKey, markdown);
     };
     const undo = () => {
@@ -56,7 +79,9 @@ vi.mock("~/components/MilkdownEditor", () => ({
       if (previous === undefined) return false;
       future.push(present);
       present = previous;
+      if (textarea !== undefined) textarea.value = previous;
       props.onChange(props.documentKey, previous);
+      reportHistoryAvailability();
       return true;
     };
     const redo = () => {
@@ -64,7 +89,9 @@ vi.mock("~/components/MilkdownEditor", () => ({
       if (next === undefined) return false;
       past.push(present);
       present = next;
+      if (textarea !== undefined) textarea.value = next;
       props.onChange(props.documentKey, next);
+      reportHistoryAvailability();
       return true;
     };
     const applyStructuralTab = (shiftKey: boolean) => {
@@ -83,7 +110,7 @@ vi.mock("~/components/MilkdownEditor", () => ({
         };
         textarea!.value = next;
         textarea!.setSelectionRange(mapOffset(selectionStart), mapOffset(selectionEnd));
-        record(next);
+        recordUserEdit(next);
       };
 
       if (shiftKey) {
@@ -103,18 +130,46 @@ vi.mock("~/components/MilkdownEditor", () => ({
     };
 
     props.onController?.({
-      applyRawMarkdown: record,
+      applyRawMarkdown: recordControllerMarkdown,
       applyStructuralTab,
       closeHistory: () => undefined,
+      getHistoryAvailability: historyAvailability,
       getSelection: () =>
-        textarea === undefined
+        textarea === undefined || !testState.wysiwygSelectionAvailable
           ? null
           : {
               start: textarea.selectionStart,
               end: textarea.selectionEnd
             },
       redo,
+      toggleInlineCodeAtSelection: () => {
+        testState.inlineCodeToggleCount += 1;
+        textarea?.focus();
+        return true;
+      },
       undo
+    });
+    reportHistoryAvailability();
+
+    createEffect(() => {
+      const value = props.value;
+      if (value !== present && controllerSerializedMarkdown(value) !== present) {
+        past.length = 0;
+        future.length = 0;
+        present = value;
+        if (textarea !== undefined && textarea.value !== value) textarea.value = value;
+        reportHistoryAvailability();
+      }
+    });
+
+    createEffect(() => {
+      props.resetKey;
+      const selection = props.focusSelection;
+      if (textarea === undefined || selection === null || selection === undefined) return;
+      queueMicrotask(() => {
+        testState.focusSelectionApplyCount += 1;
+        textarea?.setSelectionRange(selection.start, selection.end);
+      });
     });
 
     return (
@@ -125,7 +180,7 @@ vi.mock("~/components/MilkdownEditor", () => ({
         }}
         readOnly={props.readOnly === true}
         value={props.value}
-        onInput={(event) => record(event.currentTarget.value)}
+        onInput={(event) => recordUserEdit(event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
             if (undo()) event.preventDefault();
@@ -140,7 +195,8 @@ vi.mock("~/components/MilkdownEditor", () => ({
       />
     );
   }
-}));
+  };
+});
 
 vi.mock("~/storage/localDraftStore", () => ({
   IndexedDbLocalDraftStore: class {
@@ -269,6 +325,9 @@ describe("Home reconnect and conflict handling", () => {
     testState.remoteNote = null;
     testState.loadAuthError = false;
     testState.saveConflict = false;
+    testState.wysiwygSelectionAvailable = true;
+    testState.inlineCodeToggleCount = 0;
+    testState.focusSelectionApplyCount = 0;
     window.location.hash = "#/date/2030-02-02";
     localStorage.setItem("jot.fakeAuth", "true");
   });
@@ -390,6 +449,107 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("keeps WYSIWYG code formatting undoable and restores the formatted selection", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "Use foo today",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange("Use ".length, "Use foo".length);
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']")!.click();
+    await settle();
+
+    expect(editor!.value).toBe("Use `foo` today");
+    expect(editor!.selectionStart).toBe("Use `".length);
+    expect(editor!.selectionEnd).toBe("Use `foo".length);
+
+    const undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
+    expect(undo).not.toBeNull();
+    expect(undo!.disabled).toBe(false);
+    undo!.click();
+    await settle();
+
+    expect(editor!.value).toBe("Use foo today");
+
+    dispose();
+  });
+
+  it("toggles the WYSIWYG inline-code mark instead of inserting backticks at a collapsed cursor", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "Use  today",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange("Use ".length, "Use ".length);
+
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']");
+    expect(toggle).not.toBeNull();
+    toggle!.click();
+    await settle();
+
+    expect(testState.inlineCodeToggleCount).toBe(1);
+    expect(testState.focusSelectionApplyCount).toBe(0);
+    expect(editor!.value).toBe("Use  today");
+    expect(editor!.selectionStart).toBe("Use ".length);
+    expect(editor!.selectionEnd).toBe("Use ".length);
+
+    toggle!.click();
+    await settle();
+
+    expect(testState.inlineCodeToggleCount).toBe(2);
+    expect(testState.focusSelectionApplyCount).toBe(0);
+    expect(editor!.value).toBe("Use  today");
+    expect(editor!.selectionStart).toBe("Use ".length);
+    expect(editor!.selectionEnd).toBe("Use ".length);
+
+    dispose();
+  });
+
+  it("does not insert code markers at the start of the note when WYSIWYG selection is unavailable", async () => {
+    testState.wysiwygSelectionAvailable = false;
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "Use  today",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']")!.click();
+    await settle();
+
+    expect(testState.inlineCodeToggleCount).toBe(0);
+    expect(editor!.value).toBe("Use  today");
+
+    dispose();
+  });
+
   it("toggles code formatting at the raw editor selection from the heading button", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
@@ -418,6 +578,93 @@ describe("Home reconnect and conflict handling", () => {
     await settle();
 
     expect(editor!.value).toBe("```\nfirst\nsecond\n```");
+
+    dispose();
+  });
+
+  it("inserts code markers at the raw editor cursor without dropping existing text", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(editor).not.toBeNull();
+    editor!.value = "abc ";
+    editor!.setSelectionRange("abc ".length, "abc ".length);
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    editor!.setSelectionRange("abc ".length, "abc ".length);
+    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']")!.click();
+    await settle();
+
+    expect(editor!.value).toBe("abc ``");
+    expect(editor!.selectionStart).toBe("abc `".length);
+    expect(editor!.selectionEnd).toBe("abc `".length);
+
+    dispose();
+  });
+
+  it("undoes and redoes raw cursor code insertion without normalizing trailing spaces", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(editor).not.toBeNull();
+    editor!.value = "abc ";
+    editor!.setSelectionRange("abc ".length, "abc ".length);
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    editor!.setSelectionRange("abc ".length, "abc ".length);
+    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']")!.click();
+    await settle();
+    expect(editor!.value).toBe("abc ``");
+
+    const undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
+    const redo = host.querySelector<HTMLButtonElement>("button[aria-label='Redo']");
+    expect(undo).not.toBeNull();
+    expect(redo).not.toBeNull();
+
+    undo!.click();
+    await settle();
+
+    expect(editor!.value).toBe("abc ");
+    expect(undo!.disabled).toBe(false);
+    expect(redo!.disabled).toBe(false);
+
+    redo!.click();
+    await settle();
+
+    expect(editor!.value).toBe("abc ``");
+    expect(redo!.disabled).toBe(true);
 
     dispose();
   });
@@ -522,6 +769,272 @@ describe("Home reconnect and conflict handling", () => {
       "Insert image",
       "Raw"
     ]);
+
+    dispose();
+  });
+
+  it("disables undo and redo buttons when their history stacks are empty", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    const undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
+    const redo = host.querySelector<HTMLButtonElement>("button[aria-label='Redo']");
+    expect(editor).not.toBeNull();
+    expect(undo).not.toBeNull();
+    expect(redo).not.toBeNull();
+
+    expect(undo!.disabled).toBe(true);
+    expect(redo!.disabled).toBe(true);
+
+    editor!.value = "A";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    expect(undo!.disabled).toBe(false);
+    expect(redo!.disabled).toBe(true);
+
+    undo!.click();
+    await settle();
+
+    expect(undo!.disabled).toBe(true);
+    expect(redo!.disabled).toBe(false);
+
+    redo!.click();
+    await settle();
+
+    expect(undo!.disabled).toBe(false);
+    expect(redo!.disabled).toBe(true);
+
+    dispose();
+  });
+
+  it("keeps redo disabled while raw typing clears the redo stack", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    const undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
+    const redo = host.querySelector<HTMLButtonElement>("button[aria-label='Redo']");
+    expect(editor).not.toBeNull();
+    expect(undo).not.toBeNull();
+    expect(redo).not.toBeNull();
+
+    expect(undo!.disabled).toBe(true);
+    expect(redo!.disabled).toBe(true);
+
+    editor!.value = "A";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    expect(undo!.disabled).toBe(false);
+    expect(redo!.disabled).toBe(true);
+
+    undo!.click();
+    await settle();
+
+    expect(undo!.disabled).toBe(true);
+    expect(redo!.disabled).toBe(false);
+
+    editor!.value = "B";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    expect(undo!.disabled).toBe(false);
+    expect(redo!.disabled).toBe(true);
+
+    dispose();
+  });
+
+  it("does not apply raw undo history from one date to another", async () => {
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "A original"));
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "B original"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    let editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    let undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
+    expect(editor).not.toBeNull();
+    expect(undo).not.toBeNull();
+    await waitFor(() => expect(editor!.value).toBe("A original"));
+
+    editor!.value = "A edited";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    expect(undo!.disabled).toBe(false);
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Next day']")!.click();
+    await waitFor(() => {
+      expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")!.value).toBe("2030-02-03");
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!.value).toBe("B original");
+    });
+
+    editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
+    expect(editor).not.toBeNull();
+    expect(undo).not.toBeNull();
+    expect(undo!.disabled).toBe(true);
+
+    expect(pressUndo(editor!)).toBe(false);
+    await settle();
+
+    expect(editor!.value).toBe("B original");
+    expect(undo!.disabled).toBe(true);
+
+    dispose();
+  });
+
+  it("ignores hidden WYSIWYG redo history when raw history is empty", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const wysiwygEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    const undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
+    const redo = host.querySelector<HTMLButtonElement>("button[aria-label='Redo']");
+    expect(wysiwygEditor).not.toBeNull();
+    expect(rawToggle).not.toBeNull();
+    expect(undo).not.toBeNull();
+    expect(redo).not.toBeNull();
+
+    wysiwygEditor!.value = "A";
+    wysiwygEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    undo!.click();
+    await settle();
+
+    expect(redo!.disabled).toBe(false);
+
+    rawToggle!.click();
+    await settle();
+
+    expect(undo!.disabled).toBe(true);
+    expect(redo!.disabled).toBe(true);
+
+    dispose();
+  });
+
+  it("does not delegate raw keyboard undo to hidden WYSIWYG history", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const wysiwygEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(wysiwygEditor).not.toBeNull();
+    wysiwygEditor!.value = "A";
+    wysiwygEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    const rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    const undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
+    expect(rawEditor).not.toBeNull();
+    expect(undo).not.toBeNull();
+    expect(rawEditor!.value).toBe("A");
+    expect(undo!.disabled).toBe(true);
+
+    expect(pressUndo(rawEditor!)).toBe(false);
+    await settle();
+
+    expect(rawEditor!.value).toBe("A");
+
+    dispose();
+  });
+
+  it("does not delegate raw keyboard redo to hidden WYSIWYG history", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const wysiwygEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(wysiwygEditor).not.toBeNull();
+    wysiwygEditor!.value = "A";
+    wysiwygEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Undo']")!.click();
+    await settle();
+
+    expect(wysiwygEditor!.value).toBe("");
+
+    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    expect(rawToggle).not.toBeNull();
+    rawToggle!.click();
+    await settle();
+
+    const rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    const redo = host.querySelector<HTMLButtonElement>("button[aria-label='Redo']");
+    expect(rawEditor).not.toBeNull();
+    expect(redo).not.toBeNull();
+    expect(rawEditor!.value).toBe("");
+    expect(redo!.disabled).toBe(true);
+
+    expect(pressRedo(rawEditor!)).toBe(false);
+    await settle();
+
+    expect(rawEditor!.value).toBe("");
 
     dispose();
   });
@@ -677,7 +1190,7 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
-  it("undoes WYSIWYG and raw edits in chronological order", async () => {
+  it("keeps raw-mode history out of WYSIWYG undo after returning to WYSIWYG", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
       markdown: "",
@@ -720,14 +1233,10 @@ describe("Home reconnect and conflict handling", () => {
     await settle();
     expect(wysiwygEditor!.value).toBe("AB");
 
-    expect(pressUndo(wysiwygEditor!)).toBe(true);
+    expect(pressUndo(wysiwygEditor!)).toBe(false);
     await settle();
-    expect(wysiwygEditor!.value).toBe("A");
-
-    expect(pressUndo(wysiwygEditor!)).toBe(true);
-    await settle();
-    expect(wysiwygEditor!.value).toBe("");
-    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!.value).toBe("");
+    expect(wysiwygEditor!.value).toBe("AB");
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!.value).toBe("AB");
 
     dispose();
   });
@@ -758,7 +1267,42 @@ function pressUndo(editor: HTMLTextAreaElement): boolean {
   return event.defaultPrevented;
 }
 
+function pressRedo(editor: HTMLTextAreaElement): boolean {
+  const event = new KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    key: "z",
+    metaKey: true,
+    shiftKey: true
+  });
+  editor.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
+function draft(date: IsoDate, markdown: string): LocalDraft {
+  return {
+    date,
+    markdown,
+    baselineMarkdown: markdown,
+    baselineRevisionId: null,
+    dirty: false,
+    updatedAt: "2030-01-01T00:00:00.000Z"
+  };
+}
+
 async function settle(): Promise<void> {
   await Promise.resolve();
   await new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+async function waitFor(assertion: () => void): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      if (attempt === 19) throw error;
+      await settle();
+    }
+  }
 }

@@ -89,8 +89,8 @@ try {
     await assertRawTabUndo(cdp, "plain line", "* plain line");
     await assertRawTabUndo(cdp, "# Heading", "Heading");
     await assertRawUndoSurvivesModeSwitch(cdp);
-    await assertWysiwygUndoRevertsRawEdit(cdp);
-    await assertChronologicalUndoAcrossModes(cdp);
+    await assertRawEditDoesNotEnterWysiwygUndo(cdp);
+    await assertWysiwygUndoStopsAtRawHistoryBoundary(cdp);
     await assertWysiwygCursorSurvivesSwitchToRaw(cdp);
     await assertWysiwygTypingCursorSurvivesSwitchToRaw(cdp);
     await assertSelectionSurvivesModeSwitches(cdp);
@@ -115,7 +115,7 @@ async function assertRawTabUndo(cdp, before, afterTab) {
   await waitForNormalizedRawMarkdown(cdp, before);
 }
 
-async function assertChronologicalUndoAcrossModes(cdp) {
+async function assertWysiwygUndoStopsAtRawHistoryBoundary(cdp) {
   await switchToRawMode(cdp);
   await setRawMarkdown(cdp, "");
 
@@ -134,12 +134,10 @@ async function assertChronologicalUndoAcrossModes(cdp) {
 
   await pressUndo(cdp);
   await waitForNormalizedRawMarkdown(cdp, "AB");
+  await waitForToolbarButtonDisabled(cdp, "Undo", true);
 
   await pressUndo(cdp);
-  await waitForNormalizedRawMarkdown(cdp, "A");
-
-  await pressUndo(cdp);
-  await waitForNormalizedRawMarkdown(cdp, "");
+  await waitForNormalizedRawMarkdown(cdp, "AB");
 }
 
 async function assertRawUndoSurvivesModeSwitch(cdp) {
@@ -158,7 +156,7 @@ async function assertRawUndoSurvivesModeSwitch(cdp) {
   await waitForRawMarkdown(cdp, "");
 }
 
-async function assertWysiwygUndoRevertsRawEdit(cdp) {
+async function assertRawEditDoesNotEnterWysiwygUndo(cdp) {
   const before = "before raw edit";
   const after = `${before}\nraw mode change`;
   await setRawMarkdown(cdp, before);
@@ -171,10 +169,7 @@ async function assertWysiwygUndoRevertsRawEdit(cdp) {
   await switchToWysiwygMode(cdp);
   await focusWysiwygEditor(cdp);
   await pressUndo(cdp);
-  if (normalizeMarkdown(await rawMarkdown(cdp)) !== before) {
-    await pressUndo(cdp, process.platform !== "darwin");
-  }
-  await waitForNormalizedRawMarkdown(cdp, before);
+  await waitForNormalizedRawMarkdown(cdp, after);
 }
 
 async function assertWysiwygCursorSurvivesSwitchToRaw(cdp) {
@@ -594,6 +589,13 @@ async function clickButton(cdp, text) {
     return true;
   })()`);
   assert(clicked, `Could not find button containing ${text}.`);
+}
+
+async function waitForToolbarButtonDisabled(cdp, label, disabled) {
+  await waitForExpression(cdp, `(() => {
+    const button = document.querySelector(${JSON.stringify(`button[aria-label="${label}"]`)});
+    return button instanceof HTMLButtonElement && button.disabled === ${JSON.stringify(disabled)};
+  })()`);
 }
 
 async function waitForExpression(cdp, expression, timeoutMs = 10000) {

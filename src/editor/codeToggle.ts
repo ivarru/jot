@@ -15,7 +15,17 @@ interface CodeRange {
 
 export function toggleCodeFormat(markdown: string, selection: MarkdownSelection): CodeToggleResult {
   const normalized = normalizeSelection(markdown, selection);
-  if (normalized.start === normalized.end) return insertInlineCodeMarkers(markdown, normalized.start);
+  if (normalized.start === normalized.end) {
+    const emptyCodeRange = emptyInlineCodeRangeContainingCursor(markdown, normalized.start);
+    if (emptyCodeRange !== null) return removeCodeFormatAtCursor(markdown, normalized.start, emptyCodeRange);
+    if (codeRangeContainingCursor(markdown, normalized.start) !== null) {
+      return {
+        markdown,
+        selection: normalized
+      };
+    }
+    return insertInlineCodeMarkers(markdown, normalized.start);
+  }
 
   const codeRange = codeRangeContainingSelection(markdown, normalized);
   if (codeRange !== null) return removeCodeFormat(markdown, normalized, codeRange);
@@ -70,6 +80,20 @@ function removeCodeFormat(markdown: string, selection: MarkdownSelection, range:
   return removeInlineCodeFormat(markdown, selection, range);
 }
 
+function removeCodeFormatAtCursor(markdown: string, offset: number, range: CodeRange): CodeToggleResult {
+  const content = markdown.slice(range.contentStart, range.contentEnd);
+  const contentOffset = clamp(offset - range.contentStart, 0, content.length);
+  const selectionOffset = range.markerStart + contentOffset;
+
+  return {
+    markdown: replaceRange(markdown, range.markerStart, range.markerEnd, content),
+    selection: {
+      start: selectionOffset,
+      end: selectionOffset
+    }
+  };
+}
+
 function removeInlineCodeFormat(markdown: string, selection: MarkdownSelection, range: CodeRange): CodeToggleResult {
   const selected = markdown.slice(selection.start, selection.end);
   const prefix = markdown.slice(range.contentStart, selection.start);
@@ -110,6 +134,25 @@ function removeFencedCodeFormat(markdown: string, selection: MarkdownSelection, 
 
 function codeRangeContainingSelection(markdown: string, selection: MarkdownSelection): CodeRange | null {
   return codeRanges(markdown).find((range) => selection.start >= range.contentStart && selection.end <= range.contentEnd) ?? null;
+}
+
+function codeRangeContainingCursor(markdown: string, offset: number): CodeRange | null {
+  return codeRanges(markdown).find((range) => offset >= range.contentStart && offset <= range.contentEnd)
+    ?? null;
+}
+
+function emptyInlineCodeRangeContainingCursor(markdown: string, offset: number): CodeRange | null {
+  if (offset <= 0 || offset >= markdown.length) return null;
+  if (markdown[offset - 1] !== "`" || markdown[offset] !== "`") return null;
+  if (markdown[offset - 2] === "`" || markdown[offset + 1] === "`") return null;
+
+  return {
+    kind: "inline",
+    markerStart: offset - 1,
+    contentStart: offset,
+    contentEnd: offset,
+    markerEnd: offset + 1
+  };
 }
 
 function codeRanges(markdown: string): CodeRange[] {

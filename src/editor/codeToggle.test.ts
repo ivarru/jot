@@ -49,6 +49,44 @@ describe("code toggle", () => {
     });
   });
 
+  it("removes empty inline code markers at a collapsed cursor", () => {
+    const markdown = "Use `` today";
+
+    expect(toggleCodeFormat(markdown, { start: "Use `".length, end: "Use `".length })).toEqual({
+      markdown: "Use  today",
+      selection: {
+        start: "Use ".length,
+        end: "Use ".length
+      }
+    });
+  });
+
+  it("leaves non-empty inline code unchanged at a collapsed cursor", () => {
+    const markdown = "Use `foo` today";
+    const cursor = "Use `f".length;
+
+    expect(toggleCodeFormat(markdown, { start: cursor, end: cursor })).toEqual({
+      markdown,
+      selection: {
+        start: cursor,
+        end: cursor
+      }
+    });
+  });
+
+  it("leaves fenced code unchanged at a collapsed cursor", () => {
+    const markdown = "```\nfoo\n```";
+    const cursor = "```\nf".length;
+
+    expect(toggleCodeFormat(markdown, { start: cursor, end: cursor })).toEqual({
+      markdown,
+      selection: {
+        start: cursor,
+        end: cursor
+      }
+    });
+  });
+
   it("wraps a multiline selection in a fenced code block", () => {
     const markdown = "before\nselected\ntext\nafter";
 
