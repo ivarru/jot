@@ -70,6 +70,108 @@ describe("Selected Date Drive Sync lifecycle", () => {
     await expect(drafts.load(DATE)).resolves.toBeNull();
   });
 
+  it("does not apply a remote load that finishes after cancellation", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new DelayedLoadRemoteStorageProvider({
+      date: DATE,
+      markdown: "remote after sign-out",
+      revisionId: "revision-1",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    });
+    const harness = createHarness({ drafts, remote });
+
+    const loading = harness.sync.loadSelectedDate(DATE);
+    await remote.loadStarted.promise;
+    harness.sync.cancelInFlightWork();
+    await drafts.clearAll();
+    remote.finishLoad();
+    await loading;
+
+    expect(harness.transitions).toEqual([]);
+    expect(harness.syncStatuses).toEqual([]);
+    await expect(drafts.load(DATE)).resolves.toBeNull();
+  });
+
+  it("does not persist a visible Local Draft after cancellation", async () => {
+    const drafts = new DelayedLoadDraftStore(null);
+    const remote = new RecordingRemoteStorageProvider();
+    const harness = createHarness({ drafts, remote });
+
+    const persisting = harness.sync.persistVisibleLocalDraft({
+      date: DATE,
+      markdown: "local edit after sign-out"
+    });
+    await drafts.loadStarted.promise;
+    harness.sync.cancelInFlightWork();
+    await drafts.clearAll();
+    drafts.finishLoad();
+    await persisting;
+
+    expect(harness.syncStatuses).toEqual([]);
+    await expect(drafts.load(DATE)).resolves.toBeNull();
+  });
+
+  it("does not commit a clean refresh after cancellation", async () => {
+    const drafts = new MemoryDraftStore();
+    await drafts.save(createDraft(DATE, "clean", "clean", "revision-1", false));
+    const remote = new DelayedLoadRemoteStorageProvider({
+      date: DATE,
+      markdown: "remote refresh after sign-out",
+      revisionId: "revision-2",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    });
+    const harness = createHarness({
+      drafts,
+      remote,
+      state: editorState({
+        selectedDate: DATE,
+        loadedDate: DATE,
+        markdown: "clean",
+        cleanMarkdown: "clean"
+      }),
+      syncStatus: "synced"
+    });
+
+    const refreshing = harness.sync.refreshCleanSelectedDate(DATE);
+    await remote.loadStarted.promise;
+    harness.sync.cancelInFlightWork();
+    await drafts.clearAll();
+    remote.finishLoad();
+    await refreshing;
+
+    expect(harness.transitions).toEqual([]);
+    expect(harness.syncStatuses).toEqual([]);
+    await expect(drafts.load(DATE)).resolves.toBeNull();
+  });
+
+  it("does not apply a remote save result after cancellation", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new DelayedSaveRemoteStorageProvider();
+    const harness = createHarness({
+      drafts,
+      remote,
+      state: editorState({
+        selectedDate: DATE,
+        loadedDate: DATE,
+        markdown: "dirty"
+      })
+    });
+
+    const saving = harness.sync.saveAndSyncSnapshot({
+      date: DATE,
+      markdown: "dirty"
+    });
+    await remote.saveStarted.promise;
+    harness.sync.cancelInFlightWork();
+    await drafts.clearAll();
+    remote.finishSave();
+    await saving;
+
+    expect(harness.transitions).toEqual([]);
+    expect(harness.syncStatuses).toEqual(["syncing"]);
+    await expect(drafts.load(DATE)).resolves.toBeNull();
+  });
+
   it("owns dirty polling without exposing the clean-or-dirty action union to callers", async () => {
     const drafts = new MemoryDraftStore();
     const remote = new RecordingRemoteStorageProvider();
@@ -294,6 +396,31 @@ class DelayedFirstLoadDraftStore extends MemoryDraftStore {
   }
 }
 
+class DelayedLoadDraftStore extends MemoryDraftStore {
+  readonly loadStarted = deferred<void>();
+  private readonly loadCanFinish = deferred<void>();
+  private loadPending = true;
+
+  constructor(private readonly loadResult: LocalDraft | null) {
+    super();
+  }
+
+  override async load(date: IsoDate): Promise<LocalDraft | null> {
+    if (date === DATE && this.loadPending) {
+      this.loadPending = false;
+      this.loadStarted.resolve();
+      await this.loadCanFinish.promise;
+      return this.loadResult;
+    }
+
+    return await super.load(date);
+  }
+
+  finishLoad(): void {
+    this.loadCanFinish.resolve();
+  }
+}
+
 class RecordingRemoteStorageProvider implements RemoteStorageProvider {
   readonly loadInputs: IsoDate[] = [];
   readonly savedInputs: SaveDailyNoteInput[] = [];
@@ -323,6 +450,51 @@ class RecordingRemoteStorageProvider implements RemoteStorageProvider {
 
   async saveSettings<T>(settings: T): Promise<T> {
     return settings;
+  }
+}
+
+class DelayedLoadRemoteStorageProvider extends RecordingRemoteStorageProvider {
+  readonly loadStarted = deferred<void>();
+  private readonly loadCanFinish = deferred<void>();
+
+  constructor(note: RemoteDailyNote) {
+    super();
+    this.note = note;
+  }
+
+  override async loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null> {
+    this.loadInputs.push(date);
+    this.loadStarted.resolve();
+    await this.loadCanFinish.promise;
+    return this.note?.date === date ? this.note : null;
+  }
+
+  finishLoad(): void {
+    this.loadCanFinish.resolve();
+  }
+}
+
+class DelayedSaveRemoteStorageProvider extends RecordingRemoteStorageProvider {
+  readonly saveStarted = deferred<void>();
+  private readonly saveCanFinish = deferred<void>();
+
+  override async saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {
+    this.savedInputs.push(input);
+    this.saveStarted.resolve();
+    await this.saveCanFinish.promise;
+    return {
+      type: "saved",
+      note: {
+        date: input.date,
+        markdown: input.markdown,
+        revisionId: "revision-after-sign-out",
+        updatedAt: "2030-01-01T00:00:00.000Z"
+      }
+    };
+  }
+
+  finishSave(): void {
+    this.saveCanFinish.resolve();
   }
 }
 

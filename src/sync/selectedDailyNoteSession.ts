@@ -14,6 +14,7 @@ import type { LocalDraftStore, RemoteStorageProvider, SyncStatus } from "~/stora
 import {
   cleanDailyNoteRefreshToSession,
   commitVisibleCleanDailyNoteRefresh,
+  isCancelledDailyNoteSyncError,
   loadCleanDailyNoteRefresh,
   loadDailyNoteSession,
   loadLocalDailyNoteSession,
@@ -24,7 +25,8 @@ import {
   type CleanDailyNoteRefresh,
   type DailyNoteConflictResolution,
   type DailyNoteSyncConflict,
-  type DailyNoteSession
+  type DailyNoteSession,
+  type DailyNoteSyncControl
 } from "./syncDailyNote";
 import type { SyncRetryAction } from "./syncErrorRetry";
 
@@ -53,6 +55,7 @@ export interface SaveSelectedDailyNoteSnapshotInput {
   readonly getState: () => DateBoundEditorState;
   readonly refreshRemoteBeforeSave?: boolean;
   readonly beforeApply?: () => void;
+  readonly canContinue?: DailyNoteSyncControl["canContinue"];
 }
 
 export interface SaveVisibleDailyNoteSnapshotInput {
@@ -61,6 +64,7 @@ export interface SaveVisibleDailyNoteSnapshotInput {
   readonly remote: RemoteStorageProvider;
   readonly getState: () => DateBoundEditorState;
   readonly refreshRemoteBeforeSave?: boolean;
+  readonly canContinue?: DailyNoteSyncControl["canContinue"];
 }
 
 export interface ResolveSelectedDailyNoteConflictInput {
@@ -70,6 +74,7 @@ export interface ResolveSelectedDailyNoteConflictInput {
   readonly remote: RemoteStorageProvider;
   readonly getState: () => DateBoundEditorState;
   readonly beforeApply?: () => void;
+  readonly canContinue?: DailyNoteSyncControl["canContinue"];
 }
 
 export type LoadSelectedDailyNoteSessionResult =
@@ -171,6 +176,7 @@ export interface LoadSelectedDailyNoteSessionInput {
   readonly drafts: LocalDraftStore;
   readonly remote: RemoteStorageProvider;
   readonly getState: () => DateBoundEditorState;
+  readonly canContinue?: DailyNoteSyncControl["canContinue"];
 }
 
 export interface LoadSelectedDailyNoteLocalSessionInput {
@@ -185,19 +191,26 @@ export interface RefreshCleanSelectedDailyNoteSessionInput {
   readonly remote: RemoteStorageProvider;
   readonly getState: () => DateBoundEditorState;
   readonly beforeApply?: () => void;
+  readonly canContinue?: DailyNoteSyncControl["canContinue"];
 }
 
 export async function loadSelectedDailyNoteSession(
   input: LoadSelectedDailyNoteSessionInput
 ): Promise<LoadSelectedDailyNoteSessionResult> {
   try {
-    const session = await loadDailyNoteSession(input.date, input.drafts, input.remote);
+    const session = await loadDailyNoteSession(input.date, input.drafts, input.remote, syncControl(input));
     return {
       type: "loaded",
       session,
       transition: applyLoadedDailyNoteResult(input.getState(), input.date, session)
     };
   } catch (error) {
+    if (isCancelledDailyNoteSyncError(error)) return {
+      type: "failed",
+      date: input.date,
+      error,
+      applyToSelectedDate: false
+    };
     return {
       type: "failed",
       date: input.date,
@@ -269,7 +282,7 @@ export async function refreshCleanSelectedDailyNoteSession(
   if (applyCleanDailyNoteRefreshResult(input.getState(), request, session) === null) return { type: "skipped" };
 
   try {
-    const draftCommitted = await commitVisibleCleanDailyNoteRefresh(input.date, refresh, input.drafts);
+    const draftCommitted = await commitVisibleCleanDailyNoteRefresh(input.date, refresh, input.drafts, syncControl(input));
     if (!draftCommitted) return { type: "skipped" };
 
     const transition = applyCleanDailyNoteRefreshResult(input.getState(), request, session);
@@ -283,6 +296,7 @@ export async function refreshCleanSelectedDailyNoteSession(
       draftCommitted
     };
   } catch (error) {
+    if (isCancelledDailyNoteSyncError(error)) return { type: "skipped" };
     return {
       type: "failed",
       date: input.date,
@@ -394,7 +408,19 @@ export async function saveSelectedDailyNoteSnapshot(
   input: SaveSelectedDailyNoteSnapshotInput
 ): Promise<SaveSelectedDailyNoteSnapshotResult> {
   if (input.authReconnectRequired) {
-    await persistLocalDraft(input.snapshot.date, input.snapshot.markdown, input.drafts);
+    try {
+      await persistLocalDraft(input.snapshot.date, input.snapshot.markdown, input.drafts, syncControl(input));
+    } catch (error) {
+      if (isCancelledDailyNoteSyncError(error)) {
+        return {
+          type: "failed",
+          snapshot: input.snapshot,
+          error,
+          applyToVisibleDailyNote: false
+        };
+      }
+      throw error;
+    }
     return {
       type: "auth-required",
       applyStatus: snapshotStillVisible(input.getState(), input.snapshot) ? "auth-required" : null
@@ -405,7 +431,7 @@ export async function saveSelectedDailyNoteSnapshot(
     const save = input.refreshRemoteBeforeSave === true
       ? rebaseAndSyncDailyNoteSnapshot
       : saveAndSyncDailyNoteSnapshot;
-    const session = await save(input.snapshot.date, input.snapshot.markdown, input.drafts, input.remote);
+    const session = await save(input.snapshot.date, input.snapshot.markdown, input.drafts, input.remote, syncControl(input));
     input.beforeApply?.();
     return {
       type: "saved",
@@ -413,6 +439,14 @@ export async function saveSelectedDailyNoteSnapshot(
       transition: applySyncResult(input.getState(), input.snapshot, session)
     };
   } catch (error) {
+    if (isCancelledDailyNoteSyncError(error)) {
+      return {
+        type: "failed",
+        snapshot: input.snapshot,
+        error,
+        applyToVisibleDailyNote: false
+      };
+    }
     return {
       type: "failed",
       snapshot: input.snapshot,
@@ -430,7 +464,8 @@ export async function resolveSelectedDailyNoteConflict(
       input.conflict,
       input.resolution,
       input.drafts,
-      input.remote
+      input.remote,
+      syncControl(input)
     );
     input.beforeApply?.();
     return {
@@ -446,6 +481,17 @@ export async function resolveSelectedDailyNoteConflict(
       )
     };
   } catch (error) {
+    if (isCancelledDailyNoteSyncError(error)) {
+      return {
+        type: "failed",
+        snapshot: {
+          date: input.conflict.date,
+          markdown: input.conflict.localMarkdown
+        },
+        error,
+        applyToVisibleDailyNote: false
+      };
+    }
     return {
       type: "failed",
       snapshot: {
@@ -486,4 +532,8 @@ function snapshotStillVisible(state: DateBoundEditorState, snapshot: VisibleDail
 
 function selectedDateStillRequested(state: DateBoundEditorState, date: IsoDate): boolean {
   return state.selectedDate === date;
+}
+
+function syncControl(input: { readonly canContinue?: DailyNoteSyncControl["canContinue"] }): DailyNoteSyncControl {
+  return input.canContinue === undefined ? {} : { canContinue: input.canContinue };
 }

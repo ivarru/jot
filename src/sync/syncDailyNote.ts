@@ -9,6 +9,17 @@ export interface DailyNoteSession {
   readonly conflict?: DailyNoteSyncConflict;
 }
 
+export interface DailyNoteSyncControl {
+  readonly canContinue?: () => boolean;
+}
+
+export class CancelledDailyNoteSyncError extends Error {
+  constructor() {
+    super("Daily Note sync operation was cancelled.");
+    this.name = "CancelledDailyNoteSyncError";
+  }
+}
+
 export interface DailyNoteSyncConflict {
   readonly date: IsoDate;
   readonly localMarkdown: string;
@@ -36,9 +47,11 @@ export type DailyNoteConflictResolution =
 export async function loadDailyNoteSession(
   date: IsoDate,
   drafts: LocalDraftStore,
-  remote: RemoteStorageProvider
+  remote: RemoteStorageProvider,
+  control: DailyNoteSyncControl = {}
 ): Promise<DailyNoteSession> {
   const localDraft = await drafts.load(date);
+  assertCanContinue(control);
   if (localDraft?.dirty) {
     return {
       markdown: localDraft.markdown,
@@ -47,6 +60,7 @@ export async function loadDailyNoteSession(
   }
 
   const remoteNote = await remote.loadDailyNote(date);
+  assertCanContinue(control);
   if (remoteNote !== null) {
     await drafts.save(createDraft(date, remoteNote.markdown, remoteNote.markdown, remoteNote.revisionId, false));
     return {
@@ -124,9 +138,11 @@ export function cleanDailyNoteRefreshToSession(refresh: CleanDailyNoteRefresh): 
 export async function commitVisibleCleanDailyNoteRefresh(
   date: IsoDate,
   refresh: CleanDailyNoteRefresh,
-  drafts: LocalDraftStore
+  drafts: LocalDraftStore,
+  control: DailyNoteSyncControl = {}
 ): Promise<boolean> {
   const currentDraft = await drafts.load(date);
+  assertCanContinue(control);
   if (currentDraft?.dirty) return false;
 
   return await drafts.saveIfUnchanged(
@@ -139,9 +155,11 @@ export async function commitVisibleCleanDailyNoteRefresh(
 export async function persistLocalDraft(
   date: IsoDate,
   markdown: string,
-  drafts: LocalDraftStore
+  drafts: LocalDraftStore,
+  control: DailyNoteSyncControl = {}
 ): Promise<SyncStatus> {
   const existing = await drafts.load(date);
+  assertCanContinue(control);
   const baselineMarkdown = existing?.baselineMarkdown ?? "";
   const baselineRevisionId = existing?.baselineRevisionId ?? null;
   const dirty = markdown !== baselineMarkdown;
@@ -155,9 +173,11 @@ export async function persistLocalDraft(
 export async function syncDailyNote(
   date: IsoDate,
   drafts: LocalDraftStore,
-  remote: RemoteStorageProvider
+  remote: RemoteStorageProvider,
+  control: DailyNoteSyncControl = {}
 ): Promise<DailyNoteSession> {
   const draft = await drafts.load(date);
+  assertCanContinue(control);
   if (draft === null) {
     return {
       markdown: "",
@@ -177,7 +197,9 @@ export async function syncDailyNote(
     markdown: draft.markdown,
     expectedRevisionId: draft.baselineRevisionId
   });
+  assertCanContinue(control);
   const currentDraft = await drafts.load(date);
+  assertCanContinue(control);
   if (draftChangedSinceSyncStarted(draft, currentDraft)) {
     if (result.type === "saved" && currentDraftStartedFromSameBaseline(draft, currentDraft)) {
       const dirty = currentDraft.markdown !== result.note.markdown;
@@ -199,43 +221,50 @@ export async function syncDailyNote(
     };
   }
 
-  return await mergeRemoteConflict(date, draft, result.remote, drafts, null);
+  return await mergeRemoteConflict(date, draft, result.remote, drafts, null, control);
 }
 
 export async function saveAndSyncDailyNoteSnapshot(
   date: IsoDate,
   markdown: string,
   drafts: LocalDraftStore,
-  remote: RemoteStorageProvider
+  remote: RemoteStorageProvider,
+  control: DailyNoteSyncControl = {}
 ): Promise<DailyNoteSession> {
-  await persistLocalDraft(date, markdown, drafts);
-  return await syncDailyNote(date, drafts, remote);
+  await persistLocalDraft(date, markdown, drafts, control);
+  assertCanContinue(control);
+  return await syncDailyNote(date, drafts, remote, control);
 }
 
 export async function rebaseAndSyncDailyNoteSnapshot(
   date: IsoDate,
   markdown: string,
   drafts: LocalDraftStore,
-  remote: RemoteStorageProvider
+  remote: RemoteStorageProvider,
+  control: DailyNoteSyncControl = {}
 ): Promise<DailyNoteSession> {
-  await persistLocalDraft(date, markdown, drafts);
-  return await rebaseAndSyncDailyNote(date, drafts, remote);
+  await persistLocalDraft(date, markdown, drafts, control);
+  assertCanContinue(control);
+  return await rebaseAndSyncDailyNote(date, drafts, remote, control);
 }
 
 export async function rebaseAndSyncDailyNote(
   date: IsoDate,
   drafts: LocalDraftStore,
-  remote: RemoteStorageProvider
+  remote: RemoteStorageProvider,
+  control: DailyNoteSyncControl = {}
 ): Promise<DailyNoteSession> {
   const draft = await drafts.load(date);
-  if (draft === null || !draft.dirty) return await loadDailyNoteSession(date, drafts, remote);
+  assertCanContinue(control);
+  if (draft === null || !draft.dirty) return await loadDailyNoteSession(date, drafts, remote, control);
 
   const remoteNote = await remote.loadDailyNote(date);
+  assertCanContinue(control);
   if (remoteNote === null || remoteNote.revisionId === draft.baselineRevisionId) {
-    return await syncDailyNote(date, drafts, remote);
+    return await syncDailyNote(date, drafts, remote, control);
   }
 
-  return await mergeRemoteConflict(date, draft, remoteNote, drafts, remote);
+  return await mergeRemoteConflict(date, draft, remoteNote, drafts, remote, control);
 }
 
 export async function syncDirtyDailyNoteDrafts(
@@ -258,10 +287,12 @@ export async function resolveDailyNoteConflict(
   conflict: DailyNoteSyncConflict,
   resolution: DailyNoteConflictResolution,
   drafts: LocalDraftStore,
-  remote: RemoteStorageProvider
+  remote: RemoteStorageProvider,
+  control: DailyNoteSyncControl = {}
 ): Promise<DailyNoteSession> {
   const markdown = conflictResolutionMarkdown(conflict, resolution);
   if (resolution === "manual") {
+    assertCanContinue(control);
     await drafts.save(createDraft(
       conflict.date,
       markdown,
@@ -276,6 +307,7 @@ export async function resolveDailyNoteConflict(
   }
 
   const dirty = markdown !== conflict.remoteMarkdown;
+  assertCanContinue(control);
   await drafts.save(createDraft(
     conflict.date,
     markdown,
@@ -285,7 +317,7 @@ export async function resolveDailyNoteConflict(
   ));
 
   return dirty
-    ? await syncDailyNote(conflict.date, drafts, remote)
+    ? await syncDailyNote(conflict.date, drafts, remote, control)
     : {
         markdown,
         status: "synced"
@@ -324,7 +356,8 @@ async function mergeRemoteConflict(
   draft: LocalDraft,
   remoteNote: RemoteDailyNote,
   drafts: LocalDraftStore,
-  resolvedSyncRemote: RemoteStorageProvider | null
+  resolvedSyncRemote: RemoteStorageProvider | null,
+  control: DailyNoteSyncControl = {}
 ): Promise<DailyNoteSession> {
   const merged = mergeDailyNote({
     baseline: draft.baselineMarkdown,
@@ -334,6 +367,7 @@ async function mergeRemoteConflict(
 
   if (merged.unresolvedHunks.length === 0) {
     const dirty = merged.mergedMarkdown !== remoteNote.markdown;
+    assertCanContinue(control);
     await drafts.save(createDraft(date, merged.mergedMarkdown, remoteNote.markdown, remoteNote.revisionId, dirty));
     if (!dirty) {
       return {
@@ -341,7 +375,7 @@ async function mergeRemoteConflict(
         status: "synced"
       };
     }
-    if (resolvedSyncRemote !== null) return await syncDailyNote(date, drafts, resolvedSyncRemote);
+    if (resolvedSyncRemote !== null) return await syncDailyNote(date, drafts, resolvedSyncRemote, control);
     return {
       markdown: merged.mergedMarkdown,
       status: "saved-locally"
@@ -361,6 +395,14 @@ async function mergeRemoteConflict(
       merge: merged
     }
   };
+}
+
+export function isCancelledDailyNoteSyncError(error: unknown): boolean {
+  return error instanceof CancelledDailyNoteSyncError;
+}
+
+function assertCanContinue(control: DailyNoteSyncControl): void {
+  if (control.canContinue?.() === false) throw new CancelledDailyNoteSyncError();
 }
 
 function conflictResolutionMarkdown(

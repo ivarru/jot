@@ -7,7 +7,7 @@ import type {
 import { canEditDailyNoteDate } from "~/editor/dateBoundEditor";
 import type { LocalDraftStore, RemoteStorageProvider, SyncStatus } from "~/storage/types";
 import type { DailyNoteConflictResolution, DailyNoteSyncConflict } from "./syncDailyNote";
-import { persistLocalDraft } from "./syncDailyNote";
+import { isCancelledDailyNoteSyncError, persistLocalDraft, type DailyNoteSyncControl } from "./syncDailyNote";
 import {
   captureSaveRetrySnapshot,
   loadSelectedDailyNoteLocalSession,
@@ -85,14 +85,19 @@ export function createSelectedDateDriveSync(input: SelectedDateDriveSyncInput): 
 
   const currentGeneration = (): number => generation;
   const isCurrentGeneration = (capturedGeneration: number): boolean => capturedGeneration === generation;
+  const canContinueInGeneration = (capturedGeneration: number): NonNullable<DailyNoteSyncControl["canContinue"]> =>
+    () => isCurrentGeneration(capturedGeneration);
 
   const loadSelectedDate = async (date: IsoDate): Promise<void> => {
+    const startedInGeneration = currentGeneration();
     const result = await loadSelectedDailyNoteSession({
       date,
       drafts: input.drafts,
       remote: input.remote,
-      getState: input.getState
+      getState: input.getState,
+      canContinue: canContinueInGeneration(startedInGeneration)
     });
+    if (!isCurrentGeneration(startedInGeneration)) return;
     applyLoadResult(result);
   };
 
@@ -117,19 +122,28 @@ export function createSelectedDateDriveSync(input: SelectedDateDriveSyncInput): 
   };
 
   const refreshCleanSelectedDate = async (date: IsoDate): Promise<void> => {
+    const startedInGeneration = currentGeneration();
     const result = await refreshCleanSelectedDailyNoteSession({
       date,
       drafts: input.drafts,
       remote: input.remote,
-      getState: input.getState
+      getState: input.getState,
+      canContinue: canContinueInGeneration(startedInGeneration)
     });
+    if (!isCurrentGeneration(startedInGeneration)) return;
     applyRefreshResult(result);
   };
 
   const persistVisibleLocalDraft = async (snapshot: VisibleDailyNoteSnapshot): Promise<void> => {
+    const startedInGeneration = currentGeneration();
     try {
-      input.setSyncStatus(await persistLocalDraft(snapshot.date, snapshot.markdown, input.drafts));
+      const status = await persistLocalDraft(snapshot.date, snapshot.markdown, input.drafts, {
+        canContinue: canContinueInGeneration(startedInGeneration)
+      });
+      if (!isCurrentGeneration(startedInGeneration)) return;
+      input.setSyncStatus(status);
     } catch (error: unknown) {
+      if (isCancelledDailyNoteSyncError(error)) return;
       input.setLastSyncError({
         message: input.errorMessage(error),
         retry: "save-current-note",
@@ -143,6 +157,7 @@ export function createSelectedDateDriveSync(input: SelectedDateDriveSyncInput): 
     snapshot: VisibleDailyNoteSnapshot,
     options: { readonly refreshRemoteBeforeSave?: boolean } = {}
   ): Promise<void> => {
+    const startedInGeneration = currentGeneration();
     if (!input.authReconnectRequired() && canEditDailyNoteDate(snapshot.date, input.getState())) {
       input.setSyncStatus("syncing");
     }
@@ -152,20 +167,25 @@ export function createSelectedDateDriveSync(input: SelectedDateDriveSyncInput): 
       drafts: input.drafts,
       remote: input.remote,
       getState: input.getState,
+      canContinue: canContinueInGeneration(startedInGeneration),
       ...(options.refreshRemoteBeforeSave === undefined
         ? {}
         : { refreshRemoteBeforeSave: options.refreshRemoteBeforeSave })
     });
+    if (!isCurrentGeneration(startedInGeneration)) return;
     applySaveResult(result);
   };
 
   const saveCurrentEditorSnapshot = async (): Promise<void> => {
+    const startedInGeneration = currentGeneration();
     const result = await saveVisibleDailyNoteSnapshot({
       authReconnectRequired: input.authReconnectRequired(),
       drafts: input.drafts,
       remote: input.remote,
-      getState: input.getState
+      getState: input.getState,
+      canContinue: canContinueInGeneration(startedInGeneration)
     });
+    if (!isCurrentGeneration(startedInGeneration)) return;
     if (result !== null) applySaveResult(result);
   };
 
@@ -230,14 +250,17 @@ export function createSelectedDateDriveSync(input: SelectedDateDriveSyncInput): 
     conflict: DailyNoteSyncConflict,
     resolution: DailyNoteConflictResolution
   ): Promise<void> => {
+    const startedInGeneration = currentGeneration();
     if (resolution !== "manual") input.setSyncStatus("syncing");
     const result = await resolveSelectedDailyNoteConflict({
       conflict,
       resolution,
       drafts: input.drafts,
       remote: input.remote,
-      getState: input.getState
+      getState: input.getState,
+      canContinue: canContinueInGeneration(startedInGeneration)
     });
+    if (!isCurrentGeneration(startedInGeneration)) return;
     applySaveResult(result);
   };
 
