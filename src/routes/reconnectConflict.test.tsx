@@ -3,14 +3,35 @@ import type { IsoDate } from "~/domain/dates";
 import type { LocalDraft, SaveDailyNoteInput } from "~/storage/types";
 import Home from "./index";
 
+type Deferred<T = void> = {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+};
+
+interface DelayedDraftLoad {
+  readonly date: IsoDate;
+  readonly result: LocalDraft | null;
+  readonly started: Deferred<void>;
+  readonly finish: Deferred<void>;
+  consumed: boolean;
+}
+
+interface DelayedClearAll {
+  readonly started: Deferred<void>;
+  readonly finish: Deferred<void>;
+}
+
 const testState = vi.hoisted(() => ({
   drafts: new Map<string, LocalDraft>(),
+  delayedDraftLoad: null as DelayedDraftLoad | null,
+  delayedClearAll: null as DelayedClearAll | null,
   remoteNote: null as null | {
     readonly date: string;
     readonly markdown: string;
     readonly revisionId: string;
     readonly updatedAt: string;
   },
+  remoteLoadInputs: [] as IsoDate[],
   loadAuthError: false,
   saveConflict: false,
   wysiwygSelectionAvailable: true,
@@ -201,6 +222,14 @@ vi.mock("~/components/MilkdownEditor", async () => {
 vi.mock("~/storage/localDraftStore", () => ({
   IndexedDbLocalDraftStore: class {
     async load(date: IsoDate) {
+      const delayedLoad = testState.delayedDraftLoad;
+      if (delayedLoad !== null && !delayedLoad.consumed && delayedLoad.date === date) {
+        delayedLoad.consumed = true;
+        delayedLoad.started.resolve();
+        await delayedLoad.finish.promise;
+        return delayedLoad.result;
+      }
+
       return testState.drafts.get(date) ?? null;
     }
 
@@ -229,6 +258,11 @@ vi.mock("~/storage/localDraftStore", () => ({
 
     async clearAll() {
       testState.drafts.clear();
+      const delayedClearAll = testState.delayedClearAll;
+      if (delayedClearAll !== null) {
+        delayedClearAll.started.resolve();
+        await delayedClearAll.finish.promise;
+      }
     }
   },
   createDraft: (date: string, markdown: string, baselineMarkdown: string, baselineRevisionId: string | null, dirty: boolean) => ({
@@ -247,6 +281,7 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
 
   class FakeRemoteStorageProvider {
     async loadDailyNote(date: IsoDate) {
+      testState.remoteLoadInputs.push(date);
       if (testState.loadAuthError) throw new GoogleAccessTokenUnavailableError();
       return testState.remoteNote?.date === date ? testState.remoteNote : null;
     }
@@ -322,7 +357,10 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
 describe("Home reconnect and conflict handling", () => {
   beforeEach(() => {
     testState.drafts.clear();
+    testState.delayedDraftLoad = null;
+    testState.delayedClearAll = null;
     testState.remoteNote = null;
+    testState.remoteLoadInputs = [];
     testState.loadAuthError = false;
     testState.saveConflict = false;
     testState.wysiwygSelectionAvailable = true;
@@ -355,6 +393,43 @@ describe("Home reconnect and conflict handling", () => {
 
     await settle();
     expect(dialog(host, "Reconnect to sync")).toBeNull();
+
+    dispose();
+  });
+
+  it("cancels pending selected-date loads before clearing drafts on sign-out", async () => {
+    const cachedDraft = draft("2030-02-02", "cached before sign-out");
+    testState.drafts.set("2030-02-02", cachedDraft);
+    testState.delayedDraftLoad = delayedDraftLoad("2030-02-02", cachedDraft);
+    testState.delayedClearAll = delayedClearAll();
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "remote after sign-out",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await testState.delayedDraftLoad.started.promise;
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
+    await settle();
+    clickButton(host, "Sign out");
+    await testState.delayedClearAll.started.promise;
+
+    testState.delayedDraftLoad.finish.resolve();
+    await settle();
+
+    expect(testState.remoteLoadInputs).toEqual([]);
+    expect(testState.drafts.size).toBe(0);
+
+    testState.delayedClearAll.finish.resolve();
+    await settle();
+
+    expect(testState.drafts.size).toBe(0);
+    expect(localStorage.getItem("jot.fakeAuth")).toBeNull();
 
     dispose();
   });
@@ -1288,6 +1363,31 @@ function draft(date: IsoDate, markdown: string): LocalDraft {
     dirty: false,
     updatedAt: "2030-01-01T00:00:00.000Z"
   };
+}
+
+function delayedDraftLoad(date: IsoDate, result: LocalDraft | null): DelayedDraftLoad {
+  return {
+    date,
+    result,
+    started: deferred<void>(),
+    finish: deferred<void>(),
+    consumed: false
+  };
+}
+
+function delayedClearAll(): DelayedClearAll {
+  return {
+    started: deferred<void>(),
+    finish: deferred<void>()
+  };
+}
+
+function deferred<T = void>(): Deferred<T> {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
 }
 
 async function settle(): Promise<void> {
