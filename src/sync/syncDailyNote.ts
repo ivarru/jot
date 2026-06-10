@@ -270,14 +270,15 @@ export async function rebaseAndSyncDailyNote(
 export async function syncDirtyDailyNoteDrafts(
   drafts: LocalDraftStore,
   remote: RemoteStorageProvider,
-  skipDate: IsoDate | null = null
+  skipDate: IsoDate | null = null,
+  control: DailyNoteSyncControl = {}
 ): Promise<DailyNoteSession[]> {
   const dirtyDrafts = await drafts.listDirty();
   const sessions: DailyNoteSession[] = [];
 
   for (const draft of dirtyDrafts) {
     if (draft.date === skipDate) continue;
-    sessions.push(await syncDailyNote(draft.date, drafts, remote));
+    sessions.push(await syncDailyNote(draft.date, drafts, remote, control));
   }
 
   return sessions;

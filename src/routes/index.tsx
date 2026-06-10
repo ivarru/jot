@@ -65,11 +65,12 @@ import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStoragePro
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
 import type { RemoteStorageProvider, SyncStatus } from "~/storage/types";
 import {
+  isCancelledDailyNoteSyncError,
   saveAndSyncDailyNoteSnapshot,
   syncDirtyDailyNoteDrafts
 } from "~/sync/syncDailyNote";
 import { createSelectedDateDriveSync } from "~/sync/selectedDateDriveSync";
-import type { DailyNoteConflictResolution, DailyNoteSyncConflict } from "~/sync/syncDailyNote";
+import type { DailyNoteConflictResolution, DailyNoteSyncConflict, DailyNoteSyncControl } from "~/sync/syncDailyNote";
 import {
   buildDailyNoteUploadPlan,
   saveDailyNoteUploadPlan
@@ -207,6 +208,7 @@ export default function Home() {
   let pendingEditorModeSelection: MarkdownSelection | null | undefined;
   let rawHistoryPast: EditorHistoryEntry[] = [];
   let rawHistoryFuture: EditorHistoryEntry[] = [];
+  let backgroundSyncGeneration = 0;
 
   const dateBoundEditorState = (): DateBoundEditorState => ({
     selectedDate: selectedDate(),
@@ -381,6 +383,28 @@ export default function Home() {
     setExistingNoteDates((dates) => new Set([...dates, date]));
   };
 
+  const cancelBackgroundSyncWork = () => {
+    backgroundSyncGeneration += 1;
+  };
+
+  const canContinueBackgroundSync = (
+    generation: number
+  ): NonNullable<DailyNoteSyncControl["canContinue"]> => {
+    return () => generation === backgroundSyncGeneration;
+  };
+
+  const syncDirtyDraftsExceptSelected = async (): Promise<void> => {
+    const generation = backgroundSyncGeneration;
+    try {
+      await syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate), {
+        canContinue: canContinueBackgroundSync(generation)
+      });
+    } catch (error: unknown) {
+      if (isCancelledDailyNoteSyncError(error)) return;
+      throw error;
+    }
+  };
+
   const selectedDateDriveSync = createSelectedDateDriveSync({
     authenticated,
     authReconnectRequired,
@@ -427,7 +451,7 @@ export default function Home() {
       setSyncStatus("error");
     });
 
-    void syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate)).catch((error: unknown) => {
+    void syncDirtyDraftsExceptSelected().catch((error: unknown) => {
       if (handleRemoteError(error, { message: errorMessage(error), retry: "sync-dirty-drafts" })) return;
       setLastSyncError({ message: errorMessage(error), retry: "sync-dirty-drafts" });
       setSyncStatus("error");
@@ -933,7 +957,7 @@ export default function Home() {
     void selectedDateDriveSync.retryLastSyncError({
       saveSettings: () => updateSettings(settings()),
       syncDirtyDrafts: () => {
-        void syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate)).catch((syncError: unknown) => {
+        void syncDirtyDraftsExceptSelected().catch((syncError: unknown) => {
           if (handleRemoteError(syncError, { message: errorMessage(syncError), retry: "sync-dirty-drafts" })) return;
           setLastSyncError({ message: errorMessage(syncError), retry: "sync-dirty-drafts" });
           setSyncStatus("error");
@@ -1644,7 +1668,7 @@ export default function Home() {
       setAuthReconnectRequired(false);
       refreshAndScheduleToday();
       await selectedDateDriveSync.reconnect();
-      await syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate));
+      await syncDirtyDraftsExceptSelected();
       const date = selectedDate();
       if (date !== null && canEditDailyNoteDate(date, dateBoundEditorState()) && syncStatus() === "auth-required") {
         setSyncStatus("synced");
@@ -1665,6 +1689,7 @@ export default function Home() {
     }
 
     resetDatePickerState();
+    cancelBackgroundSyncWork();
     selectedDateDriveSync.cancelInFlightWork();
     await drafts.clearAll();
     if (runtime.kind === "google") {

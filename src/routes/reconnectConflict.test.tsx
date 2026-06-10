@@ -21,10 +21,18 @@ interface DelayedClearAll {
   readonly finish: Deferred<void>;
 }
 
+interface DelayedRemoteSave {
+  readonly date: IsoDate;
+  readonly started: Deferred<void>;
+  readonly finish: Deferred<void>;
+  consumed: boolean;
+}
+
 const testState = vi.hoisted(() => ({
   drafts: new Map<string, LocalDraft>(),
   delayedDraftLoad: null as DelayedDraftLoad | null,
   delayedClearAll: null as DelayedClearAll | null,
+  delayedRemoteSave: null as DelayedRemoteSave | null,
   remoteNote: null as null | {
     readonly date: string;
     readonly markdown: string;
@@ -291,6 +299,13 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
     }
 
     async saveDailyNote(input: SaveDailyNoteInput) {
+      const delayedSave = testState.delayedRemoteSave;
+      if (delayedSave !== null && !delayedSave.consumed && delayedSave.date === input.date) {
+        delayedSave.consumed = true;
+        delayedSave.started.resolve();
+        await delayedSave.finish.promise;
+      }
+
       if (testState.saveConflict) {
         return {
           type: "conflict" as const,
@@ -359,6 +374,7 @@ describe("Home reconnect and conflict handling", () => {
     testState.drafts.clear();
     testState.delayedDraftLoad = null;
     testState.delayedClearAll = null;
+    testState.delayedRemoteSave = null;
     testState.remoteNote = null;
     testState.remoteLoadInputs = [];
     testState.loadAuthError = false;
@@ -1001,6 +1017,37 @@ describe("Home reconnect and conflict handling", () => {
     }
   });
 
+  it("does not let background dirty-draft sync repopulate drafts after sign-out", async () => {
+    testState.drafts.set("2030-02-03", {
+      date: "2030-02-03",
+      markdown: "background dirty draft",
+      baselineMarkdown: "",
+      baselineRevisionId: null,
+      dirty: true,
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    });
+    testState.delayedRemoteSave = delayedRemoteSave("2030-02-03");
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await testState.delayedRemoteSave.started.promise;
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
+    await settle();
+    clickButton(host, "Sign out");
+    await settle();
+
+    expect(testState.drafts.size).toBe(0);
+
+    testState.delayedRemoteSave.finish.resolve();
+    await settle();
+
+    expect(testState.drafts.size).toBe(0);
+
+    dispose();
+  });
+
   it("disables undo and redo buttons when their history stacks are empty", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
@@ -1532,6 +1579,15 @@ function delayedClearAll(): DelayedClearAll {
   return {
     started: deferred<void>(),
     finish: deferred<void>()
+  };
+}
+
+function delayedRemoteSave(date: IsoDate): DelayedRemoteSave {
+  return {
+    date,
+    started: deferred<void>(),
+    finish: deferred<void>(),
+    consumed: false
   };
 }
 
