@@ -241,6 +241,9 @@ export default function Home() {
     return runtime.imageAttachments.getAvailableResolutions(picked);
   });
   const imageAttachmentFlowActive = createMemo(() => imageAttachmentStatus() !== "idle");
+  const canApplyImageAttachmentAsyncResult = (date: IsoDate): boolean => {
+    return imageAttachmentDate() === date && canApplyEditorAsyncResult(dateBoundEditorState(), date);
+  };
   const syncDelayed = createMemo(() => {
     syncWarningTick();
     return shouldShowUnsyncedWarning(syncStatus(), unsyncedSinceMs(), Date.now());
@@ -1268,12 +1271,14 @@ export default function Home() {
 
     try {
       const session = await runtime.imageAttachments.startPicking();
+      if (!canApplyImageAttachmentAsyncResult(date)) return;
       storeActiveImagePicker({ date, session, createdAtMs: Date.now() });
       setImagePickingSession(session);
       setImageAttachmentStatus("waiting");
       navigatePickerWindow(pickerWindow, session.pickerUri);
       void waitForPickedImage(session.id, date);
     } catch (error: unknown) {
+      if (!canApplyImageAttachmentAsyncResult(date)) return;
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("idle");
         return;
@@ -1290,22 +1295,25 @@ export default function Home() {
     try {
       for (let attempt = 0; attempt < 90; attempt += 1) {
         await delay(2000);
-        if (imagePickingSession()?.id !== sessionId || imageAttachmentDate() !== date) return;
+        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date)) return;
 
         const refreshedSession = preservePickerUri(
           imagePickingSession(),
           await runtime.imageAttachments.getPickingSession(sessionId)
         );
+        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date)) return;
         storeActiveImagePicker({ date, session: refreshedSession, createdAtMs: Date.now() });
         setImagePickingSession(refreshedSession);
         if (!refreshedSession.mediaItemsSet) continue;
 
         const picked = await runtime.imageAttachments.getFirstPickedImage(sessionId);
+        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date)) return;
         if (picked === null) {
           throw new Error("No image was selected in Google Photos.");
         }
 
         const reusable = await runtime.imageAttachments.findReusablePickedImage(picked);
+        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date)) return;
         setPickedImage(picked);
         setLocalImageSource(null);
         setReusableImageAttachment(reusable);
@@ -1316,7 +1324,7 @@ export default function Home() {
 
       throw new Error("Timed out waiting for a selected Google Photos image.");
     } catch (error: unknown) {
-      if (imagePickingSession()?.id !== sessionId || imageAttachmentDate() !== date) return;
+      if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date)) return;
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("idle");
         return;
@@ -1347,12 +1355,12 @@ export default function Home() {
             selectedResolution,
             altText: imageAttachmentAltText()
           })
-	    : await runtime.imageAttachments.importPickedImage({
-	            picked: picked!,
-	            selectedResolution,
-	            altText: imageAttachmentAltText()
-	          });
-      if (!canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
+        : await runtime.imageAttachments.importPickedImage({
+            picked: picked!,
+            selectedResolution,
+            altText: imageAttachmentAltText()
+          });
+      if (!canApplyImageAttachmentAsyncResult(date)) return;
       const insertion = commitImageAttachmentReferenceInsertion({
         editorState: dateBoundEditorState(),
         date,
@@ -1375,7 +1383,7 @@ export default function Home() {
       setImageAttachmentStatus("idle");
       await selectedDateDriveSync.saveAndSyncSnapshot(insertion.saveSnapshot);
     } catch (error: unknown) {
-      if (selectedDate() !== date || imageAttachmentDate() !== date) return;
+      if (!canApplyImageAttachmentAsyncResult(date)) return;
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("choosing");
         setImportingImageResolutionName(null);
@@ -1470,13 +1478,14 @@ export default function Home() {
         filename: file.name || "image",
         lastModified: file.lastModified
       });
-      if (!canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date)) return;
       setPickedImage(null);
       setLocalImageSource(source);
       setReusableImageAttachment(null);
       setImageAttachmentAltText(defaultLocalImageAltText(source));
       setImageAttachmentStatus("choosing");
     } catch (error: unknown) {
+      if (!canApplyImageAttachmentAsyncResult(date)) return;
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("idle");
         return;
@@ -1534,13 +1543,14 @@ export default function Home() {
           facingMode: { ideal: "environment" }
         }
       });
-      if (!canApplyEditorAsyncResult(dateBoundEditorState(), date)) {
+      if (!canApplyImageAttachmentAsyncResult(date)) {
         stopCameraStream(stream);
         return;
       }
       setCameraStream(stream);
       setImageAttachmentStatus("waiting");
     } catch (error: unknown) {
+      if (!canApplyImageAttachmentAsyncResult(date)) return;
       setImageAttachmentError(errorMessage(error));
       setImageAttachmentStatus("idle");
     }
@@ -1560,13 +1570,14 @@ export default function Home() {
         filename: `camera-${date}-${Date.now()}.jpg`,
         lastModified: Date.now()
       });
-      if (!canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date)) return;
       setPickedImage(null);
       setLocalImageSource(source);
       setReusableImageAttachment(null);
       setImageAttachmentAltText(defaultLocalImageAltText(source));
       setImageAttachmentStatus("choosing");
     } catch (error: unknown) {
+      if (!canApplyImageAttachmentAsyncResult(date)) return;
       setImageAttachmentError(errorMessage(error));
       setImageAttachmentStatus("waiting");
     }
@@ -1606,14 +1617,12 @@ export default function Home() {
         filename: file.name || `clipboard-image${extensionForMimeType(file.type)}`,
         lastModified: file.lastModified
       });
-      if (
-        imageAttachmentDate() !== date ||
-        !canApplyEditorAsyncResult(dateBoundEditorState(), date)
-      ) return;
+      if (!canApplyImageAttachmentAsyncResult(date)) return;
       setLocalImageSource(source);
       setImageAttachmentAltText(defaultLocalImageAltText(source));
       setImageAttachmentStatus("choosing");
     } catch (error: unknown) {
+      if (!canApplyImageAttachmentAsyncResult(date)) return;
       setImageAttachmentError(errorMessage(error));
       setImageAttachmentStatus("idle");
     }

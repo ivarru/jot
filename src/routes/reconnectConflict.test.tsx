@@ -848,6 +848,92 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("does not apply a stale local image preparation error after date navigation", async () => {
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "A original"));
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "B original"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+    await waitFor(() => {
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("A original");
+    });
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Insert image']")!.click();
+    await settle();
+    clickButton(host, "Upload from device");
+
+    const upload = host.querySelector<HTMLInputElement>("input.hidden-file-input");
+    expect(upload).not.toBeNull();
+    Object.defineProperty(upload!, "files", {
+      value: [new File(["not an image"], "not-image.txt", { type: "text/plain" })],
+      configurable: true
+    });
+    upload!.dispatchEvent(new Event("change", { bubbles: true }));
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Next day']")!.click();
+    await waitFor(() => {
+      expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")!.value).toBe("2030-02-03");
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("B original");
+    });
+    await settle();
+
+    expect(host.textContent).not.toContain("Jot can only attach image files.");
+
+    dispose();
+  });
+
+  it("does not apply a stale camera startup error after date navigation", async () => {
+    const cameraStarted = deferred<void>();
+    const cameraCanFail = deferred<void>();
+    const originalMediaDevices = navigator.mediaDevices;
+    Object.defineProperty(navigator, "mediaDevices", {
+      value: {
+        getUserMedia: vi.fn(async () => {
+          cameraStarted.resolve();
+          await cameraCanFail.promise;
+          throw new Error("Camera failed after navigation.");
+        })
+      },
+      configurable: true
+    });
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "A original"));
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "B original"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    try {
+      await settle();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("A original");
+      });
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Insert image']")!.click();
+      await settle();
+      clickButton(host, "Use camera");
+      await cameraStarted.promise;
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Next day']")!.click();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")!.value).toBe("2030-02-03");
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("B original");
+      });
+
+      cameraCanFail.resolve();
+      await settle();
+
+      expect(host.textContent).not.toContain("Camera failed after navigation.");
+    } finally {
+      dispose();
+      Object.defineProperty(navigator, "mediaDevices", {
+        value: originalMediaDevices,
+        configurable: true
+      });
+    }
+  });
+
   it("disables undo and redo buttons when their history stacks are empty", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
