@@ -702,7 +702,11 @@ export default function Home() {
     if (cameraVideo === undefined) return;
     cameraVideo.srcObject = stream;
     if (stream !== null) {
-      void cameraVideo.play().catch((error: unknown) => setImageAttachmentError(errorMessage(error)));
+      const date = imageAttachmentDate();
+      void cameraVideo.play().catch((error: unknown) => {
+        if (date === null || !canApplyImageAttachmentAsyncResult(date)) return;
+        setImageAttachmentError(errorMessage(error));
+      });
     }
   });
 

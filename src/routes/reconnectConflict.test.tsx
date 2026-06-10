@@ -934,6 +934,73 @@ describe("Home reconnect and conflict handling", () => {
     }
   });
 
+  it("does not apply a stale camera preview error after date navigation", async () => {
+    const cameraStarted = deferred<void>();
+    const previewPlayStarted = deferred<void>();
+    const previewPlayCanFail = deferred<void>();
+    const originalMediaDevices = navigator.mediaDevices;
+    const originalPlay = HTMLMediaElement.prototype.play;
+    const stream = {
+      getTracks: () => [{ stop: vi.fn() }]
+    } as unknown as MediaStream;
+    Object.defineProperty(navigator, "mediaDevices", {
+      value: {
+        getUserMedia: vi.fn(async () => {
+          cameraStarted.resolve();
+          return stream;
+        })
+      },
+      configurable: true
+    });
+    Object.defineProperty(HTMLMediaElement.prototype, "play", {
+      value: vi.fn(async () => {
+        previewPlayStarted.resolve();
+        await previewPlayCanFail.promise;
+        throw new Error("Camera preview failed after navigation.");
+      }),
+      configurable: true
+    });
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "A original"));
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "B original"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    try {
+      await settle();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("A original");
+      });
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Insert image']")!.click();
+      await settle();
+      clickButton(host, "Use camera");
+      await cameraStarted.promise;
+      await previewPlayStarted.promise;
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Next day']")!.click();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")!.value).toBe("2030-02-03");
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("B original");
+      });
+
+      previewPlayCanFail.resolve();
+      await settle();
+
+      expect(host.textContent).not.toContain("Camera preview failed after navigation.");
+    } finally {
+      dispose();
+      Object.defineProperty(navigator, "mediaDevices", {
+        value: originalMediaDevices,
+        configurable: true
+      });
+      Object.defineProperty(HTMLMediaElement.prototype, "play", {
+        value: originalPlay,
+        configurable: true
+      });
+    }
+  });
+
   it("disables undo and redo buttons when their history stacks are empty", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
