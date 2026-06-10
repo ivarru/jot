@@ -53,6 +53,12 @@ The model currently checks these properties:
 
 The strongest practical rule is: a local edit may only sync against a baseline revision that the user could have seen in the editor. If the app cannot prove that, it must keep the local draft dirty or produce a conflict instead of silently advancing the baseline.
 
+## Selected-Date Lifecycle Cancellation
+
+The selected-date route lifecycle has one additional invariant that sits outside the deterministic sync model: every async operation owned by the selected date must carry a generation check across write and apply boundaries. Sign-out, date teardown, or any other lifecycle reset must advance that generation before clearing IndexedDB-backed drafts, so delayed local loads, remote refreshes, local draft persists, saves, or conflict resolutions cannot repopulate draft state or update the visible editor after the reset.
+
+The implementation expresses this as `SelectedDateDriveSync.cancelInFlightWork()` plus `DailyNoteSyncControl.canContinue`. Focused coverage lives in `src/sync/selectedDateDriveSync.test.ts` for the lifecycle helper and `src/routes/reconnectConflict.test.tsx` for the route sign-out wiring. The route test intentionally holds `clearAll()` open after clearing the fake draft store, which catches regressions where cancellation is moved after the IndexedDB clear.
+
 ## Scope
 
 The current model covers Daily Note text sync. It does not model image attachment imports, Google Photos album behavior, OAuth expiry, Drive folder setup, or route/editor lifecycle events such as a previous date's editor blur firing after date navigation. Those flows should have focused tests of their own, and may later be incorporated into the model if their state interactions become sync-critical.
