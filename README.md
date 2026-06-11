@@ -90,6 +90,6 @@ Project terminology and decisions are documented in:
 - [CONTEXT.md](CONTEXT.md)
 - [NOTES.md](NOTES.md) for known issues, future work, and unsettled design questions
 - [docs/sync-model.md](docs/sync-model.md)
-- [docs/adr](docs/adr)
+- [docs/adr/README.md](docs/adr/README.md)
 
 The current deployment decision is captured in [docs/adr/0005-github-pages-hosting.md](docs/adr/0005-github-pages-hosting.md).
