@@ -17,11 +17,11 @@ Move stable decisions to `CONTEXT.md` or `docs/adr/`. Remove items when they are
 ## Future Work
 
 - Add an explicit cleanup workflow for Image Attachments that are no longer referenced by any Daily Note.
-- Inventory app-created media in the Jot Image Album before deciding whether to reuse image copies or remove album entries. This is related to duplicate detection and future album cleanup.
+- Inventory app-created media in the Jot Image Album before deciding whether to recover missing Attachment Metadata, reuse image copies when metadata is absent, or remove album entries. This is related to metadata repair and future album cleanup.
 - Consider deriving stored image filenames from a content hash rather than the Image Attachment ID. A content-addressed filename could make duplicate detection cheaper, but would need a deliberate migration.
 - Add configurable Daily Note templates. New Daily Notes currently start empty.
 - Add optional render-only support for useful Markdown extensions such as Mermaid diagrams, while keeping Daily Notes valid plain Markdown.
-- Add Playwright browser/PWA smoke tests covering mocked auth, app-shell/editor load, offline shell loading, date navigation, system theme behavior, local draft persistence across reload, and basic editor typing.
+- Broaden browser/PWA smoke coverage for app-shell/editor load, offline shell loading, date navigation, system theme behavior, local draft persistence across reload, and basic editor typing. Existing Chrome smoke scripts cover fake Daily Note upload, fake reconnect conflict, fake image upload, raw keyboard editing, and WYSIWYG URL paste.
 - Revisit whether Google Identity Services Authorization Code with PKCE can replace the current token-client flow cleanly on GitHub Pages.
 - If `drive.file` prevents automatic discovery of an existing manually-created Jot Folder, use explicit user selection/opening or Google Picker, or create a new app-owned folder; do not broaden to full Drive scope by default.
 - If static SolidStart output becomes a deployment or routing burden, reconsider whether plain Solid/Vite is a better fit.

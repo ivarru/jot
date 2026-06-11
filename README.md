@@ -9,13 +9,14 @@ The app is built with SolidStart's static output path and is intended to run on 
 - Date-based navigation with ISO dates, weekday display, and a jump-to-today indicator.
 - Milkdown WYSIWYG-style Markdown editing plus a plain text editor mode.
 - Local drafts before Drive sync, configurable sync intervals, and Git-style conflict markers.
+- Daily Note upload for existing `YYYY-MM-DD.md` files, with conflict choices when local or remote content already exists.
 - System light/dark theme.
 - Google Drive storage under the top-level `jot` folder.
 - Managed Drive `AGENTS.md` describing the Drive folder structure for agents.
 - Image attachments from Google Photos, device upload, camera, or clipboard paste.
 - Jot-owned Google Photos album named `jot` for copied image attachments.
 - Plain Markdown image references using `![alt](jot:image:<id>)`.
-- Development-only fake storage and fake image flow for local smoke testing.
+- Development-only fake storage, fake image flows, and browser smoke scripts for local testing.
 
 ## Local Development
 
@@ -62,7 +63,7 @@ VITE_ENABLE_FAKE_AUTH=true npm run build
 npm run preview
 ```
 
-`VITE_ENABLE_FAKE_AUTH=true` forces fake storage even when a Google client id is present. Normal production builds do not expose fake storage.
+`VITE_ENABLE_FAKE_AUTH=true` forces fake storage and fake image providers even when a Google client id is present. Normal production builds do not expose fake storage.
 
 ## GitHub Pages
 

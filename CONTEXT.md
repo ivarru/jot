@@ -88,6 +88,10 @@ _Avoid_: Save, backup, upload
 Jot-owned configuration that applies across the app, including Drive Sync timing. It is separate from **Daily Notes**.
 _Avoid_: User preferences, note settings, config cache
 
+**Daily Note Upload**:
+Importing external Plain Markdown Files named `YYYY-MM-DD.md` into their matching **Daily Notes**. Upload planning compares against visible editor content, Local Drafts, and Drive Sync state before applying a conflict choice.
+_Avoid_: Bulk sync, restore, migration
+
 ## Example Dialogue
 
 Dev: If the user opens Jot just after midnight while traveling, which Daily Note should appear?
@@ -112,7 +116,7 @@ Domain expert: No. Deleting the reference from the Daily Note does not delete th
 
 Dev: Can Jot always detect that a picked Google Photos image is already in the Jot Image Album?
 
-Domain expert: Not with the initial scopes. Future album cleanup and duplicate-avoidance work should inventory app-created media in the Jot Image Album before deciding whether to reuse or remove anything.
+Domain expert: Not from the current picker and album APIs alone. Future album cleanup and metadata-recovery work should inventory app-created media in the Jot Image Album before deciding whether to reuse or remove anything.
 
 Dev: If an Image Attachment was copied from Google Photos, does Jot remember the original?
 
@@ -161,3 +165,7 @@ Domain expert: No. A Local Draft protects edits first; Drive Sync replicates the
 Dev: Where do sync timing settings belong conceptually?
 
 Domain expert: In Jot Settings, not in Daily Notes.
+
+Dev: How should existing markdown notes be brought into Jot?
+
+Domain expert: Use Daily Note Upload with files named for their target dates, so conflicts are planned through the same Daily Note and Drive Sync rules as ordinary editing.
