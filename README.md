@@ -4,6 +4,8 @@ Jot is a static progressive web app for personal Daily Notes. Each Daily Note is
 
 The app is built with SolidStart's static output path and is intended to run on GitHub Pages without a backend. It uses Google OAuth in the browser, Google Drive for notes/settings/metadata, and Google Photos for image attachment copies.
 
+**NB:** Experimental software and development process. Use at your own risk.
+
 ## Features
 
 - Date-based navigation with ISO dates, weekday display, and a jump-to-today indicator.
