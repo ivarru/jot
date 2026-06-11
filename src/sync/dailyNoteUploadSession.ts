@@ -12,12 +12,17 @@ import {
   saveSelectedDailyNoteSnapshot,
   type SaveSelectedDailyNoteSnapshotResult
 } from "./selectedDailyNoteSession";
+import {
+  CancelledDailyNoteSyncError,
+  type DailyNoteSyncControl
+} from "./syncDailyNote";
 
 export interface BuildDailyNoteUploadPlanInput {
   readonly candidates: readonly DailyNoteUploadCandidate[];
   readonly drafts: LocalDraftStore;
   readonly remote: RemoteStorageProvider;
   readonly getState: () => DateBoundEditorState;
+  readonly canContinue?: DailyNoteSyncControl["canContinue"];
 }
 
 export interface SaveDailyNoteUploadPlanInput {
@@ -27,6 +32,7 @@ export interface SaveDailyNoteUploadPlanInput {
   readonly drafts: LocalDraftStore;
   readonly remote: RemoteStorageProvider;
   readonly getState: () => DateBoundEditorState;
+  readonly canContinue?: DailyNoteSyncControl["canContinue"];
 }
 
 export type SaveDailyNoteUploadPlanResult =
@@ -53,7 +59,8 @@ export async function buildDailyNoteUploadPlan(
         date: candidate.date,
         drafts: input.drafts,
         remote: input.remote,
-        getState: input.getState
+        getState: input.getState,
+        canContinue: input.canContinue
       })
     });
   }
@@ -71,7 +78,8 @@ export async function saveDailyNoteUploadPlan(
       date: item.date,
       drafts: input.drafts,
       remote: input.remote,
-      getState: input.getState
+      getState: input.getState,
+      canContinue: input.canContinue
     });
     const markdown = existingMarkdown === null
       ? item.uploadedMarkdown
@@ -91,7 +99,8 @@ export async function saveDailyNoteUploadPlan(
         authReconnectRequired: input.authReconnectRequired(),
         drafts: input.drafts,
         remote: input.remote,
-        getState: input.getState
+        getState: input.getState,
+        canContinue: input.canContinue
       });
     } catch (error: unknown) {
       return {
@@ -123,18 +132,25 @@ async function existingDailyNoteMarkdown(input: {
   readonly drafts: LocalDraftStore;
   readonly remote: RemoteStorageProvider;
   readonly getState: () => DateBoundEditorState;
+  readonly canContinue?: DailyNoteSyncControl["canContinue"];
 }): Promise<string | null> {
   const visibleSnapshot = captureVisibleDailyNoteSnapshot(input.getState());
   if (visibleSnapshot?.date === input.date) return nonEmptyMarkdown(visibleSnapshot.markdown);
 
   const localDraft = await input.drafts.load(input.date);
+  assertCanContinue(input);
   if (localDraft?.dirty) return nonEmptyMarkdown(localDraft.markdown);
 
   const remoteNote = await input.remote.loadDailyNote(input.date);
+  assertCanContinue(input);
   if (remoteNote !== null) return nonEmptyMarkdown(remoteNote.markdown);
 
   if (localDraft !== null) return nonEmptyMarkdown(localDraft.markdown);
   return null;
+}
+
+function assertCanContinue(input: { readonly canContinue?: DailyNoteSyncControl["canContinue"] }): void {
+  if (input.canContinue?.() === false) throw new CancelledDailyNoteSyncError();
 }
 
 function nonEmptyMarkdown(markdown: string): string | null {

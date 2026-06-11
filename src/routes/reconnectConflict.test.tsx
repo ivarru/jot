@@ -1048,6 +1048,48 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("does not let daily note upload repopulate drafts after sign-out", async () => {
+    testState.delayedRemoteSave = delayedRemoteSave("2030-02-04");
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
+    await settle();
+    clickButton(host, "Upload daily notes");
+
+    const upload = host.querySelector<HTMLInputElement>("input[accept='.md,text/markdown']");
+    expect(upload).not.toBeNull();
+    Object.defineProperty(upload!, "files", {
+      value: [{
+        name: "2030-02-04.md",
+        text: async () => "uploaded note"
+      }],
+      configurable: true
+    });
+    upload!.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await testState.delayedRemoteSave.started.promise;
+    expect(testState.drafts.get("2030-02-04")?.dirty).toBe(true);
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
+    await settle();
+    clickButton(host, "Sign out");
+    await settle();
+
+    expect(testState.drafts.size).toBe(0);
+
+    testState.delayedRemoteSave.finish.resolve();
+    await settle();
+
+    expect(testState.drafts.size).toBe(0);
+    expect(host.textContent).not.toContain("Uploaded 1 daily note.");
+
+    dispose();
+  });
+
   it("disables undo and redo buttons when their history stacks are empty", async () => {
     testState.remoteNote = {
       date: "2030-02-02",

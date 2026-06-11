@@ -209,6 +209,7 @@ export default function Home() {
   let rawHistoryPast: EditorHistoryEntry[] = [];
   let rawHistoryFuture: EditorHistoryEntry[] = [];
   let backgroundSyncGeneration = 0;
+  let dailyNoteUploadGeneration = 0;
 
   const dateBoundEditorState = (): DateBoundEditorState => ({
     selectedDate: selectedDate(),
@@ -391,6 +392,30 @@ export default function Home() {
     generation: number
   ): NonNullable<DailyNoteSyncControl["canContinue"]> => {
     return () => generation === backgroundSyncGeneration;
+  };
+
+  const startDailyNoteUploadWork = (): number => {
+    dailyNoteUploadGeneration += 1;
+    return dailyNoteUploadGeneration;
+  };
+
+  const cancelDailyNoteUploadWork = () => {
+    dailyNoteUploadGeneration += 1;
+  };
+
+  const isCurrentDailyNoteUploadGeneration = (generation: number): boolean => generation === dailyNoteUploadGeneration;
+
+  const canContinueDailyNoteUpload = (
+    generation: number
+  ): NonNullable<DailyNoteSyncControl["canContinue"]> => {
+    return () => isCurrentDailyNoteUploadGeneration(generation);
+  };
+
+  const resetDailyNoteUploadState = () => {
+    setDailyNoteUploadInProgress(false);
+    setDailyNoteUploadError(null);
+    setDailyNoteUploadMessage(null);
+    setPendingDailyNoteUpload(null);
   };
 
   const syncDirtyDraftsExceptSelected = async (): Promise<void> => {
@@ -858,6 +883,7 @@ export default function Home() {
   const handleDailyNoteUploadFiles = async (files: readonly File[]) => {
     if (files.length === 0) return;
 
+    const generation = startDailyNoteUploadWork();
     setDailyNoteUploadInProgress(true);
     setDailyNoteUploadError(null);
     setDailyNoteUploadMessage(null);
@@ -869,21 +895,24 @@ export default function Home() {
         candidates,
         drafts,
         remote: runtime.remote,
-        getState: dateBoundEditorState
+        getState: dateBoundEditorState,
+        canContinue: canContinueDailyNoteUpload(generation)
       }));
+      if (!isCurrentDailyNoteUploadGeneration(generation)) return;
       if (pending.conflictCount > 0) {
         setPendingDailyNoteUpload(pending);
         return;
       }
-      await savePendingDailyNoteUpload(pending, "replace");
+      await savePendingDailyNoteUpload(pending, "replace", generation);
     } catch (error: unknown) {
+      if (!isCurrentDailyNoteUploadGeneration(generation) || isCancelledDailyNoteSyncError(error)) return;
       if (handleRemoteError(error)) {
         setDailyNoteUploadError("Reconnect before uploading daily notes.");
       } else {
         setDailyNoteUploadError(errorMessage(error));
       }
     } finally {
-      setDailyNoteUploadInProgress(false);
+      if (isCurrentDailyNoteUploadGeneration(generation)) setDailyNoteUploadInProgress(false);
     }
   };
 
@@ -901,13 +930,15 @@ export default function Home() {
   };
 
   const cancelPendingDailyNoteUpload = () => {
+    cancelDailyNoteUploadWork();
     setPendingDailyNoteUpload(null);
     setDailyNoteUploadInProgress(false);
   };
 
   const savePendingDailyNoteUpload = async (
     pending: PendingDailyNoteUpload,
-    resolution: DailyNoteUploadConflictResolution
+    resolution: DailyNoteUploadConflictResolution,
+    generation = dailyNoteUploadGeneration
   ) => {
     setDailyNoteUploadInProgress(true);
     setDailyNoteUploadError(null);
@@ -920,8 +951,10 @@ export default function Home() {
         authReconnectRequired,
         drafts,
         remote: runtime.remote,
-        getState: dateBoundEditorState
+        getState: dateBoundEditorState,
+        canContinue: canContinueDailyNoteUpload(generation)
       });
+      if (!isCurrentDailyNoteUploadGeneration(generation)) return;
       for (const saveResult of result.saveResults) {
         selectedDateDriveSync.applySaveResult(saveResult);
       }
@@ -929,13 +962,14 @@ export default function Home() {
       setDailyNoteUploadMessage(`Uploaded ${result.count} daily note${result.count === 1 ? "" : "s"}.`);
       if (datePickerOpen()) void refreshExistingNoteDates();
     } catch (error: unknown) {
+      if (!isCurrentDailyNoteUploadGeneration(generation) || isCancelledDailyNoteSyncError(error)) return;
       if (handleRemoteError(error)) {
         setDailyNoteUploadError("Reconnect before uploading daily notes.");
       } else {
         setDailyNoteUploadError(errorMessage(error));
       }
     } finally {
-      setDailyNoteUploadInProgress(false);
+      if (isCurrentDailyNoteUploadGeneration(generation)) setDailyNoteUploadInProgress(false);
     }
   };
 
@@ -1690,6 +1724,8 @@ export default function Home() {
 
     resetDatePickerState();
     cancelBackgroundSyncWork();
+    cancelDailyNoteUploadWork();
+    resetDailyNoteUploadState();
     selectedDateDriveSync.cancelInFlightWork();
     await drafts.clearAll();
     if (runtime.kind === "google") {

@@ -14,6 +14,7 @@ import {
   buildDailyNoteUploadPlan,
   saveDailyNoteUploadPlan
 } from "./dailyNoteUploadSession";
+import { CancelledDailyNoteSyncError } from "./syncDailyNote";
 
 describe("daily note upload session", () => {
   it("uses the visible selected Daily Note as existing upload content", async () => {
@@ -74,6 +75,32 @@ describe("daily note upload session", () => {
       uploadedMarkdown: "uploaded",
       existingMarkdown: "dirty local"
     }]);
+  });
+
+  it("cancels upload planning between local draft load and remote follow-up", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    await drafts.save(createDraft("2030-02-02", "cached local", "cached local", "revision-1", false));
+    const loadDraft = drafts.load.bind(drafts);
+    let canContinue = true;
+    vi.spyOn(drafts, "load").mockImplementation(async (date) => {
+      const result = await loadDraft(date);
+      canContinue = false;
+      return result;
+    });
+
+    await expect(buildDailyNoteUploadPlan({
+      candidates: [{
+        date: "2030-02-02",
+        filename: "2030-02-02.md",
+        uploadedMarkdown: "uploaded"
+      }],
+      drafts,
+      remote,
+      getState: () => editorState({ selectedDate: "2030-02-03", loadedDate: "2030-02-03" }),
+      canContinue: () => canContinue
+    })).rejects.toBeInstanceOf(CancelledDailyNoteSyncError);
+    expect(remote.loadInputs).toEqual([]);
   });
 
   it("saves uploaded notes using the selected conflict resolution", async () => {
@@ -228,10 +255,12 @@ class MemoryDraftStore implements LocalDraftStore {
 }
 
 class RecordingRemoteStorageProvider implements RemoteStorageProvider {
+  readonly loadInputs: IsoDate[] = [];
   readonly savedInputs: SaveDailyNoteInput[] = [];
   note: RemoteDailyNote | null = null;
 
   async loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null> {
+    this.loadInputs.push(date);
     return this.note?.date === date ? this.note : null;
   }
 
