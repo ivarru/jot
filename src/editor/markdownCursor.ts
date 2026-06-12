@@ -71,6 +71,9 @@ function buildMarkdownCursorMapping(markdown: string): MarkdownCursorMapping {
   let rendered = 0;
 
   const showSourceText = (sourceStart: number, value: string) => {
+    if (value.length > 0) {
+      renderedToSource[rendered] = Math.max(0, Math.min(markdown.length, sourceStart));
+    }
     for (let index = 0; index < value.length; index += 1) {
       const source = sourceStart + index;
       if (source > markdown.length) break;

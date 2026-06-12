@@ -257,11 +257,11 @@ async function wysiwygContains(cdp, text) {
 }
 
 async function switchToRawMode(cdp) {
-  await waitForExpression(cdp, "document.querySelector('.raw-mode-toggle input') !== null");
+  await waitForExpression(cdp, "document.querySelector('button.raw-mode-toggle[aria-label=\"Toggle raw Markdown\"]') !== null");
   const switched = await evaluate(cdp, `(() => {
-    const input = document.querySelector('.raw-mode-toggle input');
-    if (!(input instanceof HTMLInputElement)) return false;
-    if (!input.checked) input.click();
+    const button = document.querySelector('button.raw-mode-toggle[aria-label="Toggle raw Markdown"]');
+    if (!(button instanceof HTMLButtonElement)) return false;
+    if (button.getAttribute("aria-pressed") !== "true") button.click();
     return true;
   })()`);
   assert(switched, "Could not switch to raw mode.");
@@ -269,11 +269,11 @@ async function switchToRawMode(cdp) {
 }
 
 async function switchToWysiwygMode(cdp) {
-  await waitForExpression(cdp, "document.querySelector('.raw-mode-toggle input') !== null");
+  await waitForExpression(cdp, "document.querySelector('button.raw-mode-toggle[aria-label=\"Toggle raw Markdown\"]') !== null");
   const switched = await evaluate(cdp, `(() => {
-    const input = document.querySelector('.raw-mode-toggle input');
-    if (!(input instanceof HTMLInputElement)) return false;
-    if (input.checked) input.click();
+    const button = document.querySelector('button.raw-mode-toggle[aria-label="Toggle raw Markdown"]');
+    if (!(button instanceof HTMLButtonElement)) return false;
+    if (button.getAttribute("aria-pressed") === "true") button.click();
     return true;
   })()`);
   assert(switched, "Could not switch to WYSIWYG mode.");

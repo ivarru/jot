@@ -44,6 +44,7 @@ const testState = vi.hoisted(() => ({
   saveConflict: false,
   wysiwygSelectionAvailable: true,
   inlineCodeToggleCount: 0,
+  inlineMarkToggleInputs: [] as Array<"italic" | "bold">,
   focusSelectionApplyCount: 0
 }));
 
@@ -72,21 +73,30 @@ vi.mock("~/components/MilkdownEditor", async () => {
       readonly applyStructuralTab: (shiftKey: boolean) => boolean;
       readonly closeHistory: () => void;
       readonly getHistoryAvailability: () => { readonly canUndo: boolean; readonly canRedo: boolean };
+      readonly getInlineFormatState: () => { readonly italic: boolean; readonly bold: boolean; readonly code: boolean };
       readonly getSelection: () => { readonly start: number; readonly end: number } | null;
       readonly redo: () => boolean;
       readonly toggleInlineCodeAtSelection: () => boolean;
+      readonly toggleInlineMarkAtSelection: (format: "italic" | "bold") => boolean;
       readonly undo: () => boolean;
     } | null) => void;
     readonly onHistoryAvailabilityChange?: (availability: { readonly canUndo: boolean; readonly canRedo: boolean }) => void;
+    readonly onInlineFormatStateChange?: (state: { readonly italic: boolean; readonly bold: boolean; readonly code: boolean }) => void;
   }) => {
     let textarea: HTMLTextAreaElement | undefined;
     let present = props.value;
     const past: string[] = [];
     const future: string[] = [];
+    const inlineFormatState = {
+      italic: false,
+      bold: false,
+      code: false
+    };
     const historyAvailability = () => ({
       canUndo: past.length > 0,
       canRedo: future.length > 0
     });
+    const reportInlineFormatState = () => props.onInlineFormatStateChange?.({ ...inlineFormatState });
     const reportHistoryAvailability = () => props.onHistoryAvailabilityChange?.(historyAvailability());
     const controllerSerializedMarkdown = (markdown: string) => markdown.endsWith(" ") ? `${markdown.trimEnd()}\n` : markdown;
 
@@ -163,6 +173,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
       applyStructuralTab,
       closeHistory: () => undefined,
       getHistoryAvailability: historyAvailability,
+      getInlineFormatState: () => ({ ...inlineFormatState }),
       getSelection: () =>
         textarea === undefined || !testState.wysiwygSelectionAvailable
           ? null
@@ -173,12 +184,33 @@ vi.mock("~/components/MilkdownEditor", async () => {
       redo,
       toggleInlineCodeAtSelection: () => {
         testState.inlineCodeToggleCount += 1;
+        if (textarea !== undefined && textarea.selectionStart !== textarea.selectionEnd) {
+          const start = textarea.selectionStart;
+          const end = textarea.selectionEnd;
+          const next = `${textarea.value.slice(0, start)}\`${textarea.value.slice(start, end)}\`${textarea.value.slice(end)}`;
+          recordUserEdit(next);
+          textarea.setSelectionRange(start + 1, end + 1);
+          reportInlineFormatState();
+          textarea.focus();
+          return true;
+        }
+
+        inlineFormatState.code = !inlineFormatState.code;
+        reportInlineFormatState();
+        textarea?.focus();
+        return true;
+      },
+      toggleInlineMarkAtSelection: (format) => {
+        testState.inlineMarkToggleInputs.push(format);
+        inlineFormatState[format] = !inlineFormatState[format];
+        reportInlineFormatState();
         textarea?.focus();
         return true;
       },
       undo
     });
     reportHistoryAvailability();
+    reportInlineFormatState();
 
     createEffect(() => {
       const value = props.value;
@@ -381,6 +413,7 @@ describe("Home reconnect and conflict handling", () => {
     testState.saveConflict = false;
     testState.wysiwygSelectionAvailable = true;
     testState.inlineCodeToggleCount = 0;
+    testState.inlineMarkToggleInputs = [];
     testState.focusSelectionApplyCount = 0;
     window.location.hash = "#/date/2030-02-02";
     localStorage.setItem("jot.fakeAuth", "true");
@@ -473,10 +506,9 @@ describe("Home reconnect and conflict handling", () => {
     clickButton(host, "Resolve manually");
     await settle();
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    expect(rawToggle!.checked).toBe(true);
-    expect(rawToggle!.disabled).toBe(true);
+    const rawToggle = rawModeButton(host);
+    expect(rawToggle.getAttribute("aria-pressed")).toBe("true");
+    expect(rawToggle.disabled).toBe(true);
     expect(host.querySelector<HTMLTextAreaElement>(".plain-text-editor")?.value).toContain("<<<<<<< Local Draft");
 
     dispose();
@@ -615,6 +647,32 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("uses the WYSIWYG mark command for multi-line bold selections", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "first\n\nsecond",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange(0, "first\n\nsecond".length);
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle bold format']")!.click();
+    await settle();
+
+    expect(testState.inlineMarkToggleInputs).toEqual(["bold"]);
+    expect(editor!.value).toBe("first\n\nsecond");
+
+    dispose();
+  });
+
   it("does not insert code markers at the start of the note when WYSIWYG selection is unavailable", async () => {
     testState.wysiwygSelectionAvailable = false;
     testState.remoteNote = {
@@ -654,9 +712,7 @@ describe("Home reconnect and conflict handling", () => {
     const dispose = render(() => <Home />, host);
     await settle();
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.click();
+    rawModeButton(host).click();
     await settle();
 
     const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
@@ -686,9 +742,7 @@ describe("Home reconnect and conflict handling", () => {
     const dispose = render(() => <Home />, host);
     await settle();
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.click();
+    rawModeButton(host).click();
     await settle();
 
     const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
@@ -709,6 +763,58 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("marks raw inline format buttons active at the current cursor position", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "Use *emphasis*, **strong**, and `code` today",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    rawModeButton(host).click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    const italic = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle italic format']");
+    const bold = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle bold format']");
+    const code = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']");
+    expect(editor).not.toBeNull();
+    expect(italic).not.toBeNull();
+    expect(bold).not.toBeNull();
+    expect(code).not.toBeNull();
+
+    editor!.setSelectionRange("Use *e".length, "Use *e".length);
+    editor!.dispatchEvent(new Event("select", { bubbles: true }));
+    await waitFor(() => {
+      expect(italic!.getAttribute("aria-pressed")).toBe("true");
+      expect(bold!.getAttribute("aria-pressed")).toBe("false");
+      expect(code!.getAttribute("aria-pressed")).toBe("false");
+    });
+
+    editor!.setSelectionRange("Use *emphasis*, **s".length, "Use *emphasis*, **s".length);
+    editor!.dispatchEvent(new Event("select", { bubbles: true }));
+    await waitFor(() => {
+      expect(italic!.getAttribute("aria-pressed")).toBe("false");
+      expect(bold!.getAttribute("aria-pressed")).toBe("true");
+      expect(code!.getAttribute("aria-pressed")).toBe("false");
+    });
+
+    editor!.setSelectionRange("Use *emphasis*, **strong**, and `c".length, "Use *emphasis*, **strong**, and `c".length);
+    editor!.dispatchEvent(new Event("select", { bubbles: true }));
+    await waitFor(() => {
+      expect(italic!.getAttribute("aria-pressed")).toBe("false");
+      expect(bold!.getAttribute("aria-pressed")).toBe("false");
+      expect(code!.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    dispose();
+  });
+
   it("undoes and redoes raw cursor code insertion without normalizing trailing spaces", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
@@ -722,9 +828,7 @@ describe("Home reconnect and conflict handling", () => {
     const dispose = render(() => <Home />, host);
     await settle();
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.click();
+    rawModeButton(host).click();
     await settle();
 
     const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
@@ -810,9 +914,7 @@ describe("Home reconnect and conflict handling", () => {
     const dispose = render(() => <Home />, host);
     await settle();
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.click();
+    rawModeButton(host).click();
     await settle();
 
     const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
@@ -833,7 +935,7 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
-  it("places the insert image button between dedent and raw mode controls", async () => {
+  it("orders toolbar buttons and places raw mode after the today pill", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
       markdown: "",
@@ -847,18 +949,50 @@ describe("Home reconnect and conflict handling", () => {
     await settle();
 
     const controls = Array.from(
-      host.querySelectorAll(".toolbar-editor-column button.icon-button, .toolbar-editor-column .raw-mode-toggle")
-    ).map((element) => element.matches("button") ? element.getAttribute("aria-label") : "Raw");
+      host.querySelectorAll(".toolbar-editor-column button.icon-button")
+    ).map((element) => element.getAttribute("aria-label"));
 
     expect(controls).toEqual([
       "Undo",
       "Redo",
-      "Toggle link format",
-      "Toggle code format",
       "Indent",
       "Dedent",
-      "Insert image",
-      "Raw"
+      "Toggle italic format",
+      "Toggle bold format",
+      "Toggle link format",
+      "Toggle code format",
+      "Insert image"
+    ]);
+    expect(Array.from(host.querySelectorAll(".date-context-row button")).map((element) => element.textContent)).toEqual([
+      "Not today",
+      "R"
+    ]);
+    expect(rawModeButton(host).title).toBe("Toggle raw Markdown (Ctrl/Cmd+Shift+M)");
+
+    dispose();
+  });
+
+  it("places About first in the application menu", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
+    await settle();
+
+    expect(Array.from(host.querySelectorAll(".top-menu-popover [role='menuitem']")).map((element) => element.textContent)).toEqual([
+      "About Jot",
+      "Upload daily notes",
+      "Settings",
+      "Sign out"
     ]);
 
     dispose();
@@ -1148,9 +1282,7 @@ describe("Home reconnect and conflict handling", () => {
     const dispose = render(() => <Home />, host);
     await settle();
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.click();
+    rawModeButton(host).click();
     await settle();
 
     const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
@@ -1195,9 +1327,7 @@ describe("Home reconnect and conflict handling", () => {
     const dispose = render(() => <Home />, host);
     await settle();
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.click();
+    rawModeButton(host).click();
     await settle();
 
     let editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
@@ -1247,11 +1377,10 @@ describe("Home reconnect and conflict handling", () => {
     await settle();
 
     const wysiwygEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
+    const rawToggle = rawModeButton(host);
     const undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
     const redo = host.querySelector<HTMLButtonElement>("button[aria-label='Redo']");
     expect(wysiwygEditor).not.toBeNull();
-    expect(rawToggle).not.toBeNull();
     expect(undo).not.toBeNull();
     expect(redo).not.toBeNull();
 
@@ -1264,7 +1393,7 @@ describe("Home reconnect and conflict handling", () => {
 
     expect(redo!.disabled).toBe(false);
 
-    rawToggle!.click();
+    rawToggle.click();
     await settle();
 
     expect(undo!.disabled).toBe(true);
@@ -1292,9 +1421,7 @@ describe("Home reconnect and conflict handling", () => {
     wysiwygEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
     await settle();
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.click();
+    rawModeButton(host).click();
     await settle();
 
     const rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
@@ -1336,9 +1463,7 @@ describe("Home reconnect and conflict handling", () => {
 
     expect(wysiwygEditor!.value).toBe("");
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.click();
+    rawModeButton(host).click();
     await settle();
 
     const rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
@@ -1410,9 +1535,7 @@ describe("Home reconnect and conflict handling", () => {
     const dispose = render(() => <Home />, host);
     await settle();
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.click();
+    rawModeButton(host).click();
     await settle();
 
     const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
@@ -1453,16 +1576,15 @@ describe("Home reconnect and conflict handling", () => {
     const wysiwygEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
     expect(wysiwygEditor).not.toBeNull();
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.click();
+    const rawToggle = rawModeButton(host);
+    rawToggle.click();
     await settle();
 
     const rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
     expect(rawEditor).not.toBeNull();
     expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")).toBe(wysiwygEditor);
 
-    rawToggle!.click();
+    rawToggle.click();
     await settle();
 
     expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")).toBe(rawEditor);
@@ -1491,11 +1613,10 @@ describe("Home reconnect and conflict handling", () => {
     await settle();
     wysiwygEditor!.setSelectionRange(2, 5);
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    const rawToggle = rawModeButton(host);
+    rawToggle.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     wysiwygEditor!.setSelectionRange(0, 0);
-    rawToggle!.click();
+    rawToggle.click();
     await settle();
 
     const rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
@@ -1526,9 +1647,8 @@ describe("Home reconnect and conflict handling", () => {
     wysiwygEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
     await settle();
 
-    const rawToggle = host.querySelector<HTMLInputElement>(".raw-mode-toggle input");
-    expect(rawToggle).not.toBeNull();
-    rawToggle!.click();
+    const rawToggle = rawModeButton(host);
+    rawToggle.click();
     await settle();
 
     const rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
@@ -1538,7 +1658,7 @@ describe("Home reconnect and conflict handling", () => {
     rawEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
     await settle();
 
-    rawToggle!.click();
+    rawToggle.click();
     await settle();
 
     expect(wysiwygEditor!.value).toBe("AB");
@@ -1571,6 +1691,12 @@ function clickButton(host: ParentNode, label: string): void {
   const element = button(host, label);
   expect(element).not.toBeNull();
   element!.click();
+}
+
+function rawModeButton(host: ParentNode): HTMLButtonElement {
+  const element = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle raw Markdown']");
+  expect(element).not.toBeNull();
+  return element!;
 }
 
 function pressUndo(editor: HTMLTextAreaElement): boolean {

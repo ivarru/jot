@@ -33,6 +33,15 @@ export function toggleCodeFormat(markdown: string, selection: MarkdownSelection)
   return addCodeFormat(markdown, normalized);
 }
 
+export function isCodeFormatActive(markdown: string, selection: MarkdownSelection): boolean {
+  const normalized = normalizeSelection(markdown, selection);
+  if (normalized.start === normalized.end) {
+    return codeRangeContainingCursor(markdown, normalized.start) !== null;
+  }
+
+  return codeRangeContainingSelection(markdown, normalized) !== null;
+}
+
 function insertInlineCodeMarkers(markdown: string, offset: number): CodeToggleResult {
   return {
     markdown: replaceRange(markdown, offset, offset, "``"),

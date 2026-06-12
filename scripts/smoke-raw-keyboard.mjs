@@ -224,13 +224,13 @@ async function assertSelectionSurvivesModeSwitches(cdp) {
 async function switchToRawMode(cdp) {
   await waitForEditorModeToggle(cdp);
   const switched = await evaluate(cdp, `(() => {
-    const input = document.querySelector('.raw-mode-toggle input');
-    if (!(input instanceof HTMLInputElement)) return false;
-    if (!input.checked) {
-      input.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }));
-      input.click();
+    const button = document.querySelector('button.raw-mode-toggle[aria-label="Toggle raw Markdown"]');
+    if (!(button instanceof HTMLButtonElement)) return false;
+    if (button.getAttribute("aria-pressed") !== "true") {
+      button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }));
+      button.click();
     }
-    return input.checked;
+    return button.getAttribute("aria-pressed") === "true";
   })()`);
   assert(switched, "Could not switch to raw mode.");
   await waitForExpression(cdp, `(() => {
@@ -243,13 +243,13 @@ async function switchToRawMode(cdp) {
 async function switchToWysiwygMode(cdp) {
   await waitForEditorModeToggle(cdp);
   const switched = await evaluate(cdp, `(() => {
-    const input = document.querySelector('.raw-mode-toggle input');
-    if (!(input instanceof HTMLInputElement)) return false;
-    if (input.checked) {
-      input.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }));
-      input.click();
+    const button = document.querySelector('button.raw-mode-toggle[aria-label="Toggle raw Markdown"]');
+    if (!(button instanceof HTMLButtonElement)) return false;
+    if (button.getAttribute("aria-pressed") === "true") {
+      button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }));
+      button.click();
     }
-    return !input.checked;
+    return button.getAttribute("aria-pressed") !== "true";
   })()`);
   assert(switched, "Could not switch to WYSIWYG mode.");
   await waitForExpression(cdp, `(() => {
@@ -260,8 +260,8 @@ async function switchToWysiwygMode(cdp) {
 
 async function waitForEditorModeToggle(cdp) {
   await waitForExpression(cdp, `(() => {
-    const input = document.querySelector('.raw-mode-toggle input');
-    return input instanceof HTMLInputElement && !input.disabled;
+    const button = document.querySelector('button.raw-mode-toggle[aria-label="Toggle raw Markdown"]');
+    return button instanceof HTMLButtonElement && !button.disabled;
   })()`);
 }
 

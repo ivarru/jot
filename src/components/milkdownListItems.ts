@@ -10,7 +10,7 @@ export function renderMilkdownListItemLabel({ label, listType, checked }: Milkdo
   }
 
   if (listType === "bullet") {
-    return '<span class="jot-list-marker" aria-hidden="true">&bull;</span>';
+    return '<span class="jot-list-marker jot-bullet-marker" aria-hidden="true"></span>';
   }
 
   return `<span class="jot-list-marker">${escapeHtml(label)}</span>`;

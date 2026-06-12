@@ -61,6 +61,12 @@ describe("markdown cursor mapping", () => {
     expect(renderedOffsetToMarkdownSourceOffset(markdown, rendered.indexOf("*") + 1)).toBe(markdown.indexOf("*") + 1);
   });
 
+  it("maps rendered inline code start boundaries to content instead of the opening marker", () => {
+    const markdown = "Use `foo` today";
+
+    expect(renderedOffsetToMarkdownSourceOffset(markdown, "Use ".length)).toBe("Use `".length);
+  });
+
   it("keeps Markdown prefixes inside indented code blocks visible", () => {
     const markdown = "    # not a heading\n    - not a list";
     const rendered = "# not a heading\n- not a list";

@@ -15,7 +15,7 @@ describe("milkdown list item rendering", () => {
       '<span class="jot-list-marker">1.</span>'
     );
     expect(renderMilkdownListItemLabel({ label: "ignored", listType: "bullet", checked: null })).toBe(
-      '<span class="jot-list-marker" aria-hidden="true">&bull;</span>'
+      '<span class="jot-list-marker jot-bullet-marker" aria-hidden="true"></span>'
     );
   });
 

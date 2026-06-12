@@ -8,13 +8,19 @@ import { createMilkdownStructuralTabKeymap } from "./milkdownStructuralTab";
 import { applyTextAreaStructuralTab, shouldHandleTextAreaStructuralTab } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 import {
+  inactiveInlineFormatState,
+  type InlineFormatState,
+  type InlineMarkFormat
+} from "~/editor/inlineFormatting";
+import {
   markdownSourceOffsetToRenderedOffset,
   renderedOffsetToMarkdownSourceOffset
 } from "~/editor/markdownCursor";
 import type { MarkdownSelection } from "~/editor/markdownSelection";
 import { diffChars } from "diff";
+import type { Ctx } from "@milkdown/kit/ctx";
 import type { Editor as MilkdownEditorInstance } from "@milkdown/kit/core";
-import type { Node as ProseNode } from "@milkdown/kit/prose/model";
+import type { MarkType, Node as ProseNode } from "@milkdown/kit/prose/model";
 import type { Selection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 
@@ -32,6 +38,7 @@ interface MilkdownEditorProps {
   readonly onBlur: (documentKey: string, markdown: string) => void;
   readonly onController?: (controller: MilkdownEditorController | null) => void;
   readonly onHistoryAvailabilityChange?: (availability: EditorHistoryAvailability) => void;
+  readonly onInlineFormatStateChange?: (state: InlineFormatState) => void;
   readonly onPasteImage?: (documentKey: string, file: File) => void;
 }
 
@@ -40,12 +47,14 @@ interface MilkdownEditorSession {
   readonly applyStructuralTab: (shiftKey: boolean) => boolean;
   readonly closeHistory: () => void;
   readonly getHistoryAvailability: () => EditorHistoryAvailability;
+  readonly getInlineFormatState: () => InlineFormatState;
   readonly getSelection: () => MarkdownSelection | null;
   readonly getMarkdown: () => string;
   readonly focus: (placement: FocusPlacement, onFocusApplied?: () => void) => void;
   readonly redo: () => boolean;
   readonly setReadOnly: (readOnly: boolean) => void;
   readonly toggleInlineCodeAtSelection: () => boolean;
+  readonly toggleInlineMarkAtSelection: (format: InlineMarkFormat) => boolean;
   readonly undo: () => boolean;
 }
 
@@ -63,9 +72,11 @@ export interface MilkdownEditorController {
   readonly applyStructuralTab: (shiftKey: boolean) => boolean;
   readonly closeHistory: () => void;
   readonly getHistoryAvailability: () => EditorHistoryAvailability;
+  readonly getInlineFormatState: () => InlineFormatState;
   readonly getSelection: () => MarkdownSelection | null;
   readonly redo: () => boolean;
   readonly toggleInlineCodeAtSelection: () => boolean;
+  readonly toggleInlineMarkAtSelection: (format: InlineMarkFormat) => boolean;
   readonly undo: () => boolean;
 }
 
@@ -166,11 +177,13 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             bulletListSchema,
             codeBlockSchema,
             commonmark,
+            emphasisSchema,
             headingSchema,
             imageSchema,
             inlineCodeSchema,
             listItemSchema,
-            paragraphSchema
+            paragraphSchema,
+            strongSchema
           },
           { gfm },
           { automd },
@@ -182,7 +195,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { closeHistory, redo, redoDepth, undo, undoDepth },
           { isInTable },
           { liftListItem, sinkListItem },
-          { wrapIn },
+          { toggleMark, wrapIn },
           { $prose, $useKeymap, $view, replaceAll }
         ] =
           await Promise.all([
@@ -206,9 +219,45 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           canUndo: undoDepth(view.state) > 0,
           canRedo: redoDepth(view.state) > 0
         });
+        const inlineFormatState = (view: EditorView): InlineFormatState =>
+          milkdownInlineFormatState(view, editor?.ctx ?? null, {
+            italic: emphasisSchema,
+            bold: strongSchema,
+            code: inlineCodeSchema
+          });
         const notifyHistoryAvailability = (view: EditorView) => {
           props.onHistoryAvailabilityChange?.(historyAvailability(view));
         };
+        const notifyInlineFormatState = (view: EditorView) => {
+          props.onInlineFormatStateChange?.(inlineFormatState(view));
+        };
+        const inlineFormatStateTracker = $prose((ctx) => new Plugin({
+          view: (view) => {
+            props.onInlineFormatStateChange?.(milkdownInlineFormatState(view, ctx, {
+              italic: emphasisSchema,
+              bold: strongSchema,
+              code: inlineCodeSchema
+            }));
+
+            return {
+              update: (updatedView, previousState) => {
+                if (
+                  updatedView.state.doc === previousState.doc &&
+                  updatedView.state.storedMarks === previousState.storedMarks &&
+                  updatedView.state.selection.eq(previousState.selection)
+                ) {
+                  return;
+                }
+
+                props.onInlineFormatStateChange?.(milkdownInlineFormatState(updatedView, ctx, {
+                  italic: emphasisSchema,
+                  bold: strongSchema,
+                  code: inlineCodeSchema
+                }));
+              }
+            };
+          }
+        }));
         const preserveListTightness = $prose(() => createListTightnessPlugin(Plugin));
         const structuralTabKeymap = createMilkdownStructuralTabKeymap({
           useKeymap: $useKeymap,
@@ -273,6 +322,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(automd)
           .use(clipboard)
           .use(structuralTabKeymap)
+          .use(inlineFormatStateTracker)
           .use(listItemBlockComponent)
           .use(preserveListTightness)
           .use(history)
@@ -324,6 +374,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               if (disposed || activeSession !== session || editor === null) return { canUndo: false, canRedo: false };
               return historyAvailability(editor.ctx.get(editorViewCtx));
             },
+            getInlineFormatState: () => {
+              if (disposed || activeSession !== session || editor === null) return inactiveInlineFormatState;
+              return inlineFormatState(editor.ctx.get(editorViewCtx));
+            },
             getSelection: () => {
               if (disposed || activeSession !== session || editor === null) return null;
               const view = editor.ctx.get(editorViewCtx);
@@ -350,6 +404,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               const view = editor.ctx.get(editorViewCtx);
               const applied = redo(view.state, view.dispatch, view);
               if (applied) notifyHistoryAvailability(view);
+              notifyInlineFormatState(view);
               return applied;
             },
             setReadOnly: (readOnly) => {
@@ -365,17 +420,20 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             toggleInlineCodeAtSelection: () => {
               if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
               const view = editor.ctx.get(editorViewCtx);
-              flushPendingEditorDomChanges(view);
-              const selection = view.state.selection;
-              if (!(selection instanceof TextSelection) || selection.$cursor === null) return false;
-              const markType = inlineCodeSchema.type(editor.ctx);
-              const active = markType.isInSet(view.state.storedMarks ?? selection.$cursor.marks());
-              const transaction = active
-                ? view.state.tr.removeStoredMark(markType)
-                : view.state.tr.addStoredMark(markType.create());
-              view.dispatch(transaction.setMeta("addToHistory", false));
-              view.focus();
+              const applied = toggleInlineMarkInView(view, TextSelection, inlineCodeSchema.type(editor.ctx), toggleMark);
+              if (!applied) return false;
               notifyHistoryAvailability(view);
+              notifyInlineFormatState(view);
+              return true;
+            },
+            toggleInlineMarkAtSelection: (format) => {
+              if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
+              const view = editor.ctx.get(editorViewCtx);
+              const markType = format === "bold" ? strongSchema.type(editor.ctx) : emphasisSchema.type(editor.ctx);
+              const applied = toggleInlineMarkInView(view, TextSelection, markType, toggleMark);
+              if (!applied) return false;
+              notifyHistoryAvailability(view);
+              notifyInlineFormatState(view);
               return true;
             },
             undo: () => {
@@ -383,6 +441,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               const view = editor.ctx.get(editorViewCtx);
               const applied = undo(view.state, view.dispatch, view);
               if (applied) notifyHistoryAvailability(view);
+              notifyInlineFormatState(view);
               return applied;
             }
           };
@@ -396,12 +455,15 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               session?.closeHistory();
             },
             getHistoryAvailability: () => session?.getHistoryAvailability() ?? { canUndo: false, canRedo: false },
+            getInlineFormatState: () => session?.getInlineFormatState() ?? inactiveInlineFormatState,
             getSelection: () => session?.getSelection() ?? null,
             redo: () => session?.redo() ?? false,
             toggleInlineCodeAtSelection: () => session?.toggleInlineCodeAtSelection() ?? false,
+            toggleInlineMarkAtSelection: (format) => session?.toggleInlineMarkAtSelection(format) ?? false,
             undo: () => session?.undo() ?? false
           });
           props.onHistoryAvailabilityChange?.(session.getHistoryAvailability());
+          props.onInlineFormatStateChange?.(session.getInlineFormatState());
           session.setReadOnly(props.readOnly === true);
           if (props.value !== markdownState.currentMarkdown) {
             session.applyExternalMarkdown(props.value, false);
@@ -550,6 +612,78 @@ function flushPendingEditorDomChanges(view: EditorView): void {
   (view as EditorViewWithDomObserver).domObserver?.flush?.();
 }
 
+interface MarkSchemaProvider {
+  readonly type: (ctx: Ctx) => MarkType;
+}
+
+function milkdownInlineFormatState(
+  view: EditorView,
+  ctx: Ctx | null,
+  schemas: {
+    readonly italic: MarkSchemaProvider;
+    readonly bold: MarkSchemaProvider;
+    readonly code: MarkSchemaProvider;
+  }
+): InlineFormatState {
+  if (ctx === null) return inactiveInlineFormatState;
+
+  const hasMark = (schema: MarkSchemaProvider) => selectionHasMark(view, schema.type(ctx));
+  return {
+    italic: hasMark(schemas.italic),
+    bold: hasMark(schemas.bold),
+    code: hasMark(schemas.code)
+  };
+}
+
+function selectionHasMark(view: EditorView, markType: MarkType): boolean {
+  const selection = view.state.selection;
+  if (selection.empty) {
+    return markType.isInSet(view.state.storedMarks ?? selection.$from.marks()) !== undefined;
+  }
+
+  let selectedTextFound = false;
+  let allSelectedTextHasMark = true;
+  view.state.doc.nodesBetween(selection.from, selection.to, (node, position) => {
+    if (!node.isText) return;
+
+    const start = Math.max(selection.from, position);
+    const end = Math.min(selection.to, position + node.nodeSize);
+    if (start >= end) return;
+
+    selectedTextFound = true;
+    if (markType.isInSet(node.marks) === undefined) {
+      allSelectedTextHasMark = false;
+    }
+  });
+
+  return selectedTextFound && allSelectedTextHasMark;
+}
+
+function toggleInlineMarkInView(
+  view: EditorView,
+  textSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
+  markType: MarkType,
+  toggleMarkCommand: typeof import("@milkdown/kit/prose/commands").toggleMark
+): boolean {
+  flushPendingEditorDomChanges(view);
+  const selection = view.state.selection;
+  if (!(selection instanceof textSelection)) return false;
+
+  if (selection.$cursor === null) {
+    const applied = toggleMarkCommand(markType)(view.state, view.dispatch, view);
+    if (applied) view.focus();
+    return applied;
+  }
+
+  const active = markType.isInSet(view.state.storedMarks ?? selection.$cursor.marks()) !== undefined;
+  const transaction = active
+    ? view.state.tr.removeStoredMark(markType)
+    : view.state.tr.addStoredMark(markType.create());
+  view.dispatch(transaction.setMeta("addToHistory", false));
+  view.focus();
+  return true;
+}
+
 function focusEditable(
   root: HTMLElement,
   placement: FocusPlacement,
@@ -632,9 +766,10 @@ export function editorSelectionToMarkdownSourceSelection(
   view: EditorView,
   serializer: MarkdownSerializer
 ): MarkdownSelection {
+  const bias = selection.empty ? "cursor" : null;
   return {
-    start: editorPositionToMarkdownSourceOffset(markdown, selection.from, view, serializer),
-    end: editorPositionToMarkdownSourceOffset(markdown, selection.to, view, serializer)
+    start: editorPositionToMarkdownSourceOffset(markdown, selection.from, bias ?? "start", view, serializer),
+    end: editorPositionToMarkdownSourceOffset(markdown, selection.to, bias ?? "end", view, serializer)
   };
 }
 
@@ -650,16 +785,19 @@ function editorDomSelectionToMarkdownSourceSelection(
   if (!containsSelectionNode(view.dom, range.commonAncestorContainer)) return null;
 
   try {
+    const bias = range.collapsed ? "cursor" : null;
     return {
       start: editorPositionToMarkdownSourceOffset(
         markdown,
         editorDomPositionToEditorPosition(view, range.startContainer, range.startOffset),
+        bias ?? "start",
         view,
         serializer
       ),
       end: editorPositionToMarkdownSourceOffset(
         markdown,
         editorDomPositionToEditorPosition(view, range.endContainer, range.endOffset),
+        bias ?? "end",
         view,
         serializer
       )
@@ -685,13 +823,28 @@ function editorDomPositionToEditorPosition(view: EditorView, node: Node, offset:
 function editorPositionToMarkdownSourceOffset(
   markdown: string,
   position: number,
+  bias: "start" | "end" | "cursor",
   view: EditorView,
   serializer: MarkdownSerializer
 ): number {
+  const renderedOffset = renderedTextOffsetBeforePosition(view.state.doc, position);
+  const renderedSourceOffset = renderedOffsetToMarkdownSourceOffset(markdown, renderedOffset);
   const serializedOffset = serializedEditorPositionToMarkdownSourceOffset(markdown, position, view, serializer);
-  if (serializedOffset !== null) return serializedOffset;
+  if (serializedOffset !== null) {
+    const serializedRenderedOffset = markdownSourceOffsetToRenderedOffset(markdown, serializedOffset);
+    if (
+      bias === "start" &&
+      serializedRenderedOffset === renderedOffset &&
+      serializedOffset > 0 &&
+      renderedSourceOffset > serializedOffset
+    ) {
+      return renderedSourceOffset;
+    }
 
-  return renderedOffsetToMarkdownSourceOffset(markdown, renderedTextOffsetBeforePosition(view.state.doc, position));
+    return serializedOffset;
+  }
+
+  return renderedSourceOffset;
 }
 
 function serializedEditorPositionToMarkdownSourceOffset(

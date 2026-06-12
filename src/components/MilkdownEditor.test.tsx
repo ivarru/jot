@@ -334,6 +334,159 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("toggles collapsed strong and emphasis state without writing literal markers", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getInlineFormatState!: () => { readonly italic: boolean; readonly bold: boolean; readonly code: boolean };
+    let toggleInlineMarkAtSelection!: (format: "italic" | "bold") => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value="Use  today"
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getInlineFormatState = nextController.getInlineFormatState;
+              toggleInlineMarkAtSelection = nextController.toggleInlineMarkAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      const cursor = "Use ".length;
+
+      await waitForEditable(host);
+      setSelection({ start: cursor, end: cursor });
+      await animationFrame();
+      await animationFrame();
+
+      expect(getInlineFormatState()).toEqual({ italic: false, bold: false, code: false });
+      expect(toggleInlineMarkAtSelection("bold")).toBe(true);
+      expect(getInlineFormatState()).toEqual({ italic: false, bold: true, code: false });
+      expect(toggleInlineMarkAtSelection("italic")).toBe(true);
+      expect(getInlineFormatState()).toEqual({ italic: true, bold: true, code: false });
+      await delay(300);
+
+      expect(changes).toEqual([]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("reports inline format state from the selected text instead of adjacent boundaries", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getInlineFormatState!: () => { readonly italic: boolean; readonly bold: boolean; readonly code: boolean };
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value="**a**b**c**"
+            focusSelection={selection()}
+            onChange={() => undefined}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getInlineFormatState = nextController.getInlineFormatState;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+
+      setSelection({ start: "**a**".length, end: "**a**b".length });
+      await animationFrame();
+      await animationFrame();
+      expect(getInlineFormatState()).toEqual({ italic: false, bold: false, code: false });
+
+      setSelection({ start: "**a**b**".length, end: "**a**b**c".length });
+      await animationFrame();
+      await animationFrame();
+      expect(getInlineFormatState()).toEqual({ italic: false, bold: true, code: false });
+    } finally {
+      dispose();
+    }
+  });
+
+  it("preserves the selected text when toggling WYSIWYG inline code", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+    let toggleInlineCodeAtSelection!: () => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value="Use foo today"
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getSelection = nextController.getSelection;
+              toggleInlineCodeAtSelection = nextController.toggleInlineCodeAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      setSelection({ start: "Use ".length, end: "Use foo".length });
+      await animationFrame();
+      await animationFrame();
+
+      expect(toggleInlineCodeAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("Use `foo` today\n");
+      expect(getSelection()).toEqual({
+        start: "Use `".length,
+        end: "Use `foo".length
+      });
+    } finally {
+      dispose();
+    }
+  });
+
   it("keeps a boundary space outside code after toggling collapsed inline-code and typing", async () => {
     const editor = await createMilkdownTestEditor("");
 

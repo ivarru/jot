@@ -58,6 +58,13 @@ import {
   type EditorMode
 } from "~/editor/editorModeShortcut";
 import { toggleCodeFormat } from "~/editor/codeToggle";
+import {
+  inactiveInlineFormatState,
+  markdownInlineFormatState,
+  toggleMarkdownInlineMark,
+  type InlineFormatState,
+  type InlineMarkFormat
+} from "~/editor/inlineFormatting";
 import { toggleLinkAtCursor } from "~/editor/linkToggle";
 import type { MarkdownSelection } from "~/editor/markdownSelection";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
@@ -182,6 +189,7 @@ export default function Home() {
     canUndo: false,
     canRedo: false
   });
+  const [inlineFormatState, setInlineFormatState] = createSignal<InlineFormatState>(inactiveInlineFormatState);
   const [imageAttachmentStatus, setImageAttachmentStatus] = createSignal<ImageAttachmentStatus>("idle");
   const [imageAttachmentError, setImageAttachmentError] = createSignal<string | null>(null);
   const [imageAttachmentDate, setImageAttachmentDate] = createSignal<IsoDate | null>(null);
@@ -1024,6 +1032,7 @@ export default function Home() {
       setEditorMode(mode);
     });
     refreshEditorHistoryAvailability();
+    queueMicrotask(refreshInlineFormatState);
   };
 
   const captureEditorModeSelection = () => {
@@ -1040,6 +1049,25 @@ export default function Home() {
     }
 
     return milkdownController?.getSelection() ?? null;
+  };
+
+  const currentInlineFormatState = (): InlineFormatState => {
+    const selection = currentEditorSelection();
+    if (selection === null) return inactiveInlineFormatState;
+
+    if (editorMode() === "text") {
+      return markdownInlineFormatState(plainTextEditorElement?.value ?? markdown(), selection);
+    }
+
+    return milkdownController?.getInlineFormatState() ?? markdownInlineFormatState(markdown(), selection);
+  };
+
+  const refreshInlineFormatState = () => {
+    setInlineFormatState(currentInlineFormatState());
+  };
+
+  const handleEditorSelectionChange = () => {
+    refreshInlineFormatState();
   };
 
   const rawHistoryAvailability = (): EditorHistoryAvailability => {
@@ -1063,6 +1091,17 @@ export default function Home() {
   const handleMilkdownHistoryAvailabilityChange = (availability: EditorHistoryAvailability) => {
     setEditorHistoryAvailability(editorMode() === "text" ? rawHistoryAvailability() : availability);
   };
+
+  const handleMilkdownInlineFormatStateChange = (state: InlineFormatState) => {
+    if (editorMode() === "wysiwyg") setInlineFormatState(state);
+  };
+
+  createEffect(
+    on(
+      () => [markdown(), editorMode(), selectedDate()] as const,
+      () => refreshInlineFormatState()
+    )
+  );
 
   const rawHistorySelectionFor = (markdownValue: string): MarkdownSelection => {
     if (plainTextEditorElement === null) {
@@ -1121,9 +1160,10 @@ export default function Home() {
 
     const selection = currentEditorSelection();
     if (selection === null) return;
-    if (editorMode() === "wysiwyg" && selection.start === selection.end) {
+    if (editorMode() === "wysiwyg" && isInlineSourceSelection(markdown(), selection)) {
       if (milkdownController?.toggleInlineCodeAtSelection() !== true) return;
       setEditorHistoryAvailability(milkdownController.getHistoryAvailability());
+      setInlineFormatState(milkdownController.getInlineFormatState());
       return;
     }
 
@@ -1132,6 +1172,28 @@ export default function Home() {
       : markdown();
     const result = toggleCodeFormat(sourceMarkdown, selection);
     applyUndoableMarkdownTransform(date, result.markdown, result.selection);
+    setInlineFormatState(markdownInlineFormatState(result.markdown, result.selection));
+  };
+
+  const toggleInlineMarkAtSelection = (format: InlineMarkFormat) => {
+    const date = selectedDate();
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
+
+    const selection = currentEditorSelection();
+    if (selection === null) return;
+    if (editorMode() === "wysiwyg") {
+      if (milkdownController?.toggleInlineMarkAtSelection(format) !== true) return;
+      setEditorHistoryAvailability(milkdownController.getHistoryAvailability());
+      setInlineFormatState(milkdownController.getInlineFormatState());
+      return;
+    }
+
+    const sourceMarkdown = editorMode() === "text" && plainTextEditorElement !== null
+      ? plainTextEditorElement.value
+      : markdown();
+    const result = toggleMarkdownInlineMark(sourceMarkdown, selection, format);
+    applyUndoableMarkdownTransform(date, result.markdown, result.selection);
+    setInlineFormatState(markdownInlineFormatState(result.markdown, result.selection));
   };
 
   const applyUndoableMarkdownTransform = (date: IsoDate, nextMarkdown: string, selection: MarkdownSelection) => {
@@ -1184,6 +1246,7 @@ export default function Home() {
       setFocusEditorSelection(options.focusSelection);
     }
     refreshEditorHistoryAvailability();
+    refreshInlineFormatState();
   };
 
   const applyStructuralTabShortcut = (shiftKey: boolean) => {
@@ -1914,6 +1977,19 @@ export default function Home() {
                 >
                   {selectedIsToday() ? "Today" : "Not today"}
                 </button>
+                <button
+                  type="button"
+                  class="icon-button format-toggle-button raw-mode-toggle"
+                  aria-label="Toggle raw Markdown"
+                  aria-keyshortcuts={EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS}
+                  aria-pressed={editorMode() === "text"}
+                  title={`Toggle raw Markdown (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
+                  disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                  onPointerDown={captureEditorModeSelection}
+                  onClick={() => updateEditorMode(nextEditorMode(editorMode()))}
+                >
+                  <span class="format-letter" aria-hidden="true">R</span>
+                </button>
               </div>
             </div>
             <div class="toolbar-column toolbar-editor-column">
@@ -1954,26 +2030,6 @@ export default function Home() {
               <button
                 type="button"
                 class="icon-button"
-                aria-label="Toggle link format"
-                title="Toggle link format"
-                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onClick={toggleLinkFormat}
-              >
-                <LinkFormatIcon />
-              </button>
-              <button
-                type="button"
-                class="icon-button"
-                aria-label="Toggle code format"
-                title="Toggle code format"
-                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onClick={toggleCodeFormatAtSelection}
-              >
-                <CodeFormatIcon />
-              </button>
-              <button
-                type="button"
-                class="icon-button"
                 aria-label="Indent"
                 aria-keyshortcuts="Tab"
                 title="Indent (Tab)"
@@ -1992,6 +2048,52 @@ export default function Home() {
                 onClick={() => applyStructuralTabShortcut(true)}
               >
                 <DedentIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button format-toggle-button"
+                classList={{ "is-active": inlineFormatState().italic }}
+                aria-label="Toggle italic format"
+                aria-pressed={inlineFormatState().italic}
+                title="Toggle italic format"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={() => toggleInlineMarkAtSelection("italic")}
+              >
+                <ItalicFormatIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button format-toggle-button"
+                classList={{ "is-active": inlineFormatState().bold }}
+                aria-label="Toggle bold format"
+                aria-pressed={inlineFormatState().bold}
+                title="Toggle bold format"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={() => toggleInlineMarkAtSelection("bold")}
+              >
+                <BoldFormatIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Toggle link format"
+                title="Toggle link format"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={toggleLinkFormat}
+              >
+                <LinkFormatIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button format-toggle-button"
+                classList={{ "is-active": inlineFormatState().code }}
+                aria-label="Toggle code format"
+                aria-pressed={inlineFormatState().code}
+                title="Toggle code format"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onClick={toggleCodeFormatAtSelection}
+              >
+                <CodeFormatIcon />
               </button>
               <Show when={runtime.imageAttachments !== null}>
                 <input
@@ -2045,21 +2147,6 @@ export default function Home() {
                   </Show>
                 </div>
               </Show>
-              <label
-                class="raw-mode-toggle"
-                data-tooltip={`Toggle raw Markdown (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
-                title={`Toggle raw Markdown (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
-              >
-                <input
-                  type="checkbox"
-                  checked={editorMode() === "text"}
-                  aria-keyshortcuts={EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS}
-                  disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                  onPointerDown={captureEditorModeSelection}
-                  onChange={(event) => updateEditorMode(event.currentTarget.checked ? "text" : "wysiwyg")}
-                />
-                <span>Raw</span>
-              </label>
               <Show when={authReconnectRequired()}>
                 <button
                   type="button"
@@ -2109,20 +2196,20 @@ export default function Home() {
                     <button
                       type="button"
                       role="menuitem"
-                      disabled={dailyNoteUploadInProgress()}
-                      onClick={startDailyNoteUpload}
-                    >
-                      {dailyNoteUploadInProgress() ? "Uploading daily notes..." : "Upload daily notes"}
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
                       onClick={() => {
                         setTopMenuOpen(false);
                         setAboutOpen(true);
                       }}
                     >
                       About Jot
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={dailyNoteUploadInProgress()}
+                      onClick={startDailyNoteUpload}
+                    >
+                      {dailyNoteUploadInProgress() ? "Uploading daily notes..." : "Upload daily notes"}
                     </button>
                     <button
                       type="button"
@@ -2493,6 +2580,7 @@ export default function Home() {
                   readOnly={editorReadOnly() || editorMode() !== "text" || !textFocusRestored()}
                   onChange={handleRawEditorChange}
                   onBlur={handleEditorBlur}
+                  onSelectionChange={handleEditorSelectionChange}
                   onUndo={undoEditorHistory}
                   onRedo={redoEditorHistory}
                 />
@@ -2517,8 +2605,10 @@ export default function Home() {
                   onController={(controller) => {
                     milkdownController = controller;
                     refreshEditorHistoryAvailability();
+                    refreshInlineFormatState();
                   }}
                   onHistoryAvailabilityChange={handleMilkdownHistoryAvailabilityChange}
+                  onInlineFormatStateChange={handleMilkdownInlineFormatStateChange}
                   onPasteImage={handleEditorImagePaste}
                 />
               </div>
@@ -2608,6 +2698,12 @@ function syncStatusLabel(status: SyncStatus): string {
     case "error":
       return "Sync error";
   }
+}
+
+function isInlineSourceSelection(markdown: string, selection: MarkdownSelection): boolean {
+  const start = Math.max(0, Math.min(markdown.length, selection.start));
+  const end = Math.max(0, Math.min(markdown.length, selection.end));
+  return !markdown.slice(Math.min(start, end), Math.max(start, end)).includes("\n");
 }
 
 function errorMessage(error: unknown): string {
@@ -2758,6 +2854,14 @@ function LinkFormatIcon() {
       <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />
     </svg>
   );
+}
+
+function ItalicFormatIcon() {
+  return <span class="format-letter format-letter-italic" aria-hidden="true">I</span>;
+}
+
+function BoldFormatIcon() {
+  return <span class="format-letter format-letter-bold" aria-hidden="true">B</span>;
 }
 
 function CodeFormatIcon() {

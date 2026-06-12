@@ -149,6 +149,10 @@ select {
   width: auto;
 }
 
+.date-context-row .raw-mode-toggle {
+  flex: 0 0 auto;
+}
+
 .toolbar-editor-column {
   justify-content: center;
 }
@@ -461,10 +465,10 @@ select {
 
 .icon-button {
   display: inline-grid;
-  width: 36px;
-  min-width: 36px;
-  height: 36px;
-  min-height: 36px;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
   padding: 0;
   place-items: center;
 }
@@ -472,20 +476,45 @@ select {
 .icon-menu-button {
   grid-template-columns: 18px 7px;
   column-gap: 2px;
-  width: 44px;
-  min-width: 44px;
+  width: 38px;
+  min-width: 38px;
   place-content: center;
 }
 
 .icon-button svg {
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .icon-button:disabled {
   cursor: default;
   opacity: 0.38;
+}
+
+.format-toggle-button[aria-pressed="true"],
+.format-toggle-button.is-active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.format-letter {
+  display: inline-grid;
+  min-width: 1em;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.format-letter-italic {
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+}
+
+.format-letter-bold {
+  font-weight: 800;
 }
 
 .dropdown-caret {
@@ -721,28 +750,6 @@ select {
   margin-top: 8px;
 }
 
-.raw-mode-toggle {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  min-height: 32px;
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--text);
-  white-space: nowrap;
-}
-
-.raw-mode-toggle input {
-  width: 14px;
-  height: 14px;
-  min-height: 0;
-  margin: 0 3px 0 0;
-  padding: 0;
-}
-
 .toolbar-reconnect-button {
   min-height: 32px;
   padding: 0 10px;
@@ -756,37 +763,6 @@ select {
 .toolbar-reconnect-button:hover:not(:disabled) {
   border-color: var(--reconnect-border);
   filter: brightness(1.06);
-}
-
-.raw-mode-toggle::after {
-  position: absolute;
-  left: 50%;
-  top: calc(100% + 8px);
-  z-index: 25;
-  display: none;
-  width: max-content;
-  max-width: min(240px, 80vw);
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
-  color: var(--text);
-  content: attr(data-tooltip);
-  font-size: 12px;
-  line-height: 1.3;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, -2px);
-  transition: opacity 120ms ease, transform 120ms ease;
-  white-space: nowrap;
-}
-
-.raw-mode-toggle:hover::after,
-.raw-mode-toggle:focus-within::after {
-  display: block;
-  opacity: 1;
-  transform: translate(-50%, 0);
 }
 
 .sync-delay-warning {
@@ -956,6 +932,22 @@ select {
   line-height: 1;
 }
 
+.milkdown-root .jot-bullet-marker::before {
+  content: "\2022";
+}
+
+.milkdown-root ul ul .jot-bullet-marker::before {
+  content: "\25E6";
+}
+
+.milkdown-root ul ul ul .jot-bullet-marker::before {
+  content: "\25AA";
+}
+
+.milkdown-root ul ul ul ul .jot-bullet-marker::before {
+  content: "\2022";
+}
+
 .milkdown-root .jot-task-checkbox {
   position: relative;
   display: inline-block;
@@ -1072,27 +1064,20 @@ select {
   }
 
   .icon-button {
-    width: 32px;
-    min-width: 32px;
-    height: 32px;
-    min-height: 32px;
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
   }
 
   .icon-menu-button {
-    width: 38px;
-    min-width: 38px;
+    width: 34px;
+    min-width: 34px;
   }
 
   .image-insert-menu-popover {
     left: 50%;
     transform: translateX(-50%);
-  }
-
-  .raw-mode-toggle,
-  .toolbar-reconnect-button {
-    min-height: 30px;
-    padding-right: 7px;
-    padding-left: 7px;
   }
 
   .toolbar-editor-column {

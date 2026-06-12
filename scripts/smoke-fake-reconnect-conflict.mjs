@@ -96,15 +96,15 @@ try {
 
     await clickButton(cdp, "Saved locally");
     await waitForExpression(cdp, "document.body.textContent.includes('Sync conflict')");
-    await waitForExpression(cdp, "document.querySelector('.raw-mode-toggle input')?.disabled === true");
+    await waitForExpression(cdp, "document.querySelector('button.raw-mode-toggle[aria-label=\"Toggle raw Markdown\"]')?.disabled === true");
 
     await clickButton(cdp, "Resolve manually");
     await waitForExpression(cdp, "document.querySelector('.plain-text-editor')?.value.includes('<<<<<<< Local Draft')");
-    await waitForExpression(cdp, "document.querySelector('.raw-mode-toggle input')?.checked === true");
-    await waitForExpression(cdp, "document.querySelector('.raw-mode-toggle input')?.disabled === true");
+    await waitForExpression(cdp, "document.querySelector('button.raw-mode-toggle[aria-label=\"Toggle raw Markdown\"]')?.getAttribute('aria-pressed') === 'true'");
+    await waitForExpression(cdp, "document.querySelector('button.raw-mode-toggle[aria-label=\"Toggle raw Markdown\"]')?.disabled === true");
 
     await setTextAreaValue(cdp, ".plain-text-editor", resolved);
-    await waitForExpression(cdp, "document.querySelector('.raw-mode-toggle input')?.disabled === false");
+    await waitForExpression(cdp, "document.querySelector('button.raw-mode-toggle[aria-label=\"Toggle raw Markdown\"]')?.disabled === false");
     await clickButton(cdp, "Conflict");
     const note = await waitForFakeRemoteNote(cdp, date, resolved);
     assert(note.markdown === resolved, `Expected resolved markdown ${JSON.stringify(resolved)}, got ${JSON.stringify(note.markdown)}.`);

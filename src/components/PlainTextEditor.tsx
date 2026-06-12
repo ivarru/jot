@@ -15,6 +15,7 @@ interface PlainTextEditorProps {
   readonly readOnly?: boolean;
   readonly onChange: (documentKey: string, markdown: string) => void;
   readonly onBlur: (documentKey: string, markdown: string) => void;
+  readonly onSelectionChange?: () => void;
   readonly onUndo?: () => boolean;
   readonly onRedo?: () => boolean;
 }
@@ -62,6 +63,7 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
           if (props.readOnly === true) return;
           resizeTextAreaToContents(event.currentTarget);
           props.onChange(props.documentKey, event.currentTarget.value);
+          props.onSelectionChange?.();
         }}
         onKeyDown={(event) => {
           if (props.readOnly === true) return;
@@ -88,7 +90,12 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
             (markdown) => props.onChange(props.documentKey, markdown)
           );
           resizeTextAreaToContents(event.currentTarget);
+          props.onSelectionChange?.();
         }}
+        onKeyUp={() => props.onSelectionChange?.()}
+        onMouseUp={() => props.onSelectionChange?.()}
+        onSelect={() => props.onSelectionChange?.()}
+        onFocus={() => props.onSelectionChange?.()}
         onBlur={(event) => {
           props.onBlur(props.documentKey, event.currentTarget.value);
         }}
