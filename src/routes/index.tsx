@@ -57,6 +57,12 @@ import {
   nextEditorMode,
   type EditorMode
 } from "~/editor/editorModeShortcut";
+import {
+  inactiveBlockFormatState,
+  markdownBlockFormatState,
+  toggleMarkdownBlockQuote,
+  type BlockFormatState
+} from "~/editor/blockFormatting";
 import { toggleCodeFormat } from "~/editor/codeToggle";
 import {
   inactiveInlineFormatState,
@@ -190,6 +196,7 @@ export default function Home() {
     canRedo: false
   });
   const [inlineFormatState, setInlineFormatState] = createSignal<InlineFormatState>(inactiveInlineFormatState);
+  const [blockFormatState, setBlockFormatState] = createSignal<BlockFormatState>(inactiveBlockFormatState);
   const [imageAttachmentStatus, setImageAttachmentStatus] = createSignal<ImageAttachmentStatus>("idle");
   const [imageAttachmentError, setImageAttachmentError] = createSignal<string | null>(null);
   const [imageAttachmentDate, setImageAttachmentDate] = createSignal<IsoDate | null>(null);
@@ -214,6 +221,7 @@ export default function Home() {
   let milkdownController: MilkdownEditorController | null = null;
   let plainTextEditorElement: HTMLTextAreaElement | null = null;
   let pendingEditorModeSelection: MarkdownSelection | null | undefined;
+  let pendingFormattingToolbarSelection: MarkdownSelection | null | undefined;
   let rawHistoryPast: EditorHistoryEntry[] = [];
   let rawHistoryFuture: EditorHistoryEntry[] = [];
   let backgroundSyncGeneration = 0;
@@ -1032,7 +1040,7 @@ export default function Home() {
       setEditorMode(mode);
     });
     refreshEditorHistoryAvailability();
-    queueMicrotask(refreshInlineFormatState);
+    queueMicrotask(refreshEditorFormatState);
   };
 
   const captureEditorModeSelection = () => {
@@ -1051,6 +1059,24 @@ export default function Home() {
     return milkdownController?.getSelection() ?? null;
   };
 
+  const preserveFormattingToolbarSelection = (event: PointerEvent) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const selection = currentEditorSelection();
+    pendingFormattingToolbarSelection = selection;
+    if (selection !== null) setFocusEditorSelection(selection);
+    event.preventDefault();
+  };
+
+  const takeFormattingToolbarSelection = (): MarkdownSelection | null => {
+    if (pendingFormattingToolbarSelection !== undefined) {
+      const selection = pendingFormattingToolbarSelection;
+      pendingFormattingToolbarSelection = undefined;
+      return selection;
+    }
+
+    return currentEditorSelection();
+  };
+
   const currentInlineFormatState = (): InlineFormatState => {
     const selection = currentEditorSelection();
     if (selection === null) return inactiveInlineFormatState;
@@ -1062,12 +1088,24 @@ export default function Home() {
     return milkdownController?.getInlineFormatState() ?? markdownInlineFormatState(markdown(), selection);
   };
 
-  const refreshInlineFormatState = () => {
+  const currentBlockFormatState = (): BlockFormatState => {
+    const selection = currentEditorSelection();
+    if (selection === null) return inactiveBlockFormatState;
+
+    if (editorMode() === "text") {
+      return markdownBlockFormatState(plainTextEditorElement?.value ?? markdown(), selection);
+    }
+
+    return milkdownController?.getBlockFormatState() ?? markdownBlockFormatState(markdown(), selection);
+  };
+
+  const refreshEditorFormatState = () => {
     setInlineFormatState(currentInlineFormatState());
+    setBlockFormatState(currentBlockFormatState());
   };
 
   const handleEditorSelectionChange = () => {
-    refreshInlineFormatState();
+    refreshEditorFormatState();
   };
 
   const rawHistoryAvailability = (): EditorHistoryAvailability => {
@@ -1096,10 +1134,14 @@ export default function Home() {
     if (editorMode() === "wysiwyg") setInlineFormatState(state);
   };
 
+  const handleMilkdownBlockFormatStateChange = (state: BlockFormatState) => {
+    if (editorMode() === "wysiwyg") setBlockFormatState(state);
+  };
+
   createEffect(
     on(
       () => [markdown(), editorMode(), selectedDate()] as const,
-      () => refreshInlineFormatState()
+      () => refreshEditorFormatState()
     )
   );
 
@@ -1138,10 +1180,11 @@ export default function Home() {
   };
 
   const toggleLinkFormat = () => {
+    const selection = takeFormattingToolbarSelection();
     const date = selectedDate();
     if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
 
-    const cursorOffset = currentEditorSelection()?.start ?? 0;
+    const cursorOffset = selection?.start ?? 0;
     const result = toggleLinkAtCursor(markdown(), cursorOffset);
     if (result === null) return;
 
@@ -1155,10 +1198,10 @@ export default function Home() {
   };
 
   const toggleCodeFormatAtSelection = () => {
+    const selection = takeFormattingToolbarSelection();
     const date = selectedDate();
     if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
 
-    const selection = currentEditorSelection();
     if (selection === null) return;
     if (editorMode() === "wysiwyg" && isInlineSourceSelection(markdown(), selection)) {
       if (milkdownController?.toggleInlineCodeAtSelection() !== true) return;
@@ -1176,10 +1219,10 @@ export default function Home() {
   };
 
   const toggleInlineMarkAtSelection = (format: InlineMarkFormat) => {
+    const selection = takeFormattingToolbarSelection();
     const date = selectedDate();
     if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
 
-    const selection = currentEditorSelection();
     if (selection === null) return;
     if (editorMode() === "wysiwyg") {
       if (milkdownController?.toggleInlineMarkAtSelection(format) !== true) return;
@@ -1194,6 +1237,27 @@ export default function Home() {
     const result = toggleMarkdownInlineMark(sourceMarkdown, selection, format);
     applyUndoableMarkdownTransform(date, result.markdown, result.selection);
     setInlineFormatState(markdownInlineFormatState(result.markdown, result.selection));
+  };
+
+  const toggleBlockQuoteAtSelection = () => {
+    const selection = takeFormattingToolbarSelection();
+    const date = selectedDate();
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
+
+    if (selection === null) return;
+    if (editorMode() === "wysiwyg") {
+      if (milkdownController?.toggleBlockQuoteAtSelection(selection) !== true) return;
+      setEditorHistoryAvailability(milkdownController.getHistoryAvailability());
+      setBlockFormatState(milkdownController.getBlockFormatState());
+      return;
+    }
+
+    const sourceMarkdown = editorMode() === "text" && plainTextEditorElement !== null
+      ? plainTextEditorElement.value
+      : markdown();
+    const result = toggleMarkdownBlockQuote(sourceMarkdown, selection);
+    applyUndoableMarkdownTransform(date, result.markdown, result.selection);
+    setBlockFormatState(markdownBlockFormatState(result.markdown, result.selection));
   };
 
   const applyUndoableMarkdownTransform = (date: IsoDate, nextMarkdown: string, selection: MarkdownSelection) => {
@@ -1246,7 +1310,7 @@ export default function Home() {
       setFocusEditorSelection(options.focusSelection);
     }
     refreshEditorHistoryAvailability();
-    refreshInlineFormatState();
+    refreshEditorFormatState();
   };
 
   const applyStructuralTabShortcut = (shiftKey: boolean) => {
@@ -2057,6 +2121,7 @@ export default function Home() {
                 aria-pressed={inlineFormatState().italic}
                 title="Toggle italic format"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onPointerDown={preserveFormattingToolbarSelection}
                 onClick={() => toggleInlineMarkAtSelection("italic")}
               >
                 <ItalicFormatIcon />
@@ -2069,19 +2134,23 @@ export default function Home() {
                 aria-pressed={inlineFormatState().bold}
                 title="Toggle bold format"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onPointerDown={preserveFormattingToolbarSelection}
                 onClick={() => toggleInlineMarkAtSelection("bold")}
               >
                 <BoldFormatIcon />
               </button>
               <button
                 type="button"
-                class="icon-button"
-                aria-label="Toggle link format"
-                title="Toggle link format"
+                class="icon-button format-toggle-button"
+                classList={{ "is-active": blockFormatState().quote }}
+                aria-label="Toggle block quote format"
+                aria-pressed={blockFormatState().quote}
+                title="Toggle block quote format"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onClick={toggleLinkFormat}
+                onPointerDown={preserveFormattingToolbarSelection}
+                onClick={toggleBlockQuoteAtSelection}
               >
-                <LinkFormatIcon />
+                <QuoteFormatIcon />
               </button>
               <button
                 type="button"
@@ -2091,9 +2160,21 @@ export default function Home() {
                 aria-pressed={inlineFormatState().code}
                 title="Toggle code format"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onPointerDown={preserveFormattingToolbarSelection}
                 onClick={toggleCodeFormatAtSelection}
               >
                 <CodeFormatIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Toggle link format"
+                title="Toggle link format"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onPointerDown={preserveFormattingToolbarSelection}
+                onClick={toggleLinkFormat}
+              >
+                <LinkFormatIcon />
               </button>
               <Show when={runtime.imageAttachments !== null}>
                 <input
@@ -2605,10 +2686,11 @@ export default function Home() {
                   onController={(controller) => {
                     milkdownController = controller;
                     refreshEditorHistoryAvailability();
-                    refreshInlineFormatState();
+                    refreshEditorFormatState();
                   }}
                   onHistoryAvailabilityChange={handleMilkdownHistoryAvailabilityChange}
                   onInlineFormatStateChange={handleMilkdownInlineFormatStateChange}
+                  onBlockFormatStateChange={handleMilkdownBlockFormatStateChange}
                   onPasteImage={handleEditorImagePaste}
                 />
               </div>
@@ -2862,6 +2944,10 @@ function ItalicFormatIcon() {
 
 function BoldFormatIcon() {
   return <span class="format-letter format-letter-bold" aria-hidden="true">B</span>;
+}
+
+function QuoteFormatIcon() {
+  return <span class="format-letter" aria-hidden="true">"</span>;
 }
 
 function CodeFormatIcon() {

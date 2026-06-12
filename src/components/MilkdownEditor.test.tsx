@@ -487,6 +487,346 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("toggles block quote formatting through the WYSIWYG controller", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getBlockFormatState!: () => { readonly quote: boolean };
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+    let toggleBlockQuoteAtSelection!: () => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value="quote me"
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getBlockFormatState = nextController.getBlockFormatState;
+              getSelection = nextController.getSelection;
+              toggleBlockQuoteAtSelection = nextController.toggleBlockQuoteAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      setSelection({ start: 0, end: "quote me".length });
+      await animationFrame();
+      await animationFrame();
+
+      expect(getBlockFormatState()).toEqual({ quote: false });
+      expect(toggleBlockQuoteAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("> quote me");
+      expect(getSelection()).toEqual({ start: 2, end: "> quote me".length });
+      expect(getBlockFormatState()).toEqual({ quote: true });
+
+      expect(toggleBlockQuoteAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("quote me");
+      expect(getSelection()).toEqual({ start: 0, end: "quote me".length });
+      expect(getBlockFormatState()).toEqual({ quote: false });
+    } finally {
+      dispose();
+    }
+  });
+
+  it("quotes only the selected WYSIWYG line when the source selection ends at a line break", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+    let toggleBlockQuoteAtSelection!: () => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value={"first\nsecond"}
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getSelection = nextController.getSelection;
+              toggleBlockQuoteAtSelection = nextController.toggleBlockQuoteAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      setSelection({ start: 0, end: "first\n".length });
+      await animationFrame();
+      await animationFrame();
+
+      expect(toggleBlockQuoteAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("> first\n\nsecond");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("quotes only the selected WYSIWYG list item before a following paragraph", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+    let toggleBlockQuoteAtSelection!: () => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value={"* abc\n\n123"}
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getSelection = nextController.getSelection;
+              toggleBlockQuoteAtSelection = nextController.toggleBlockQuoteAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      setSelection({ start: "* ".length, end: "* abc".length });
+      await animationFrame();
+      await animationFrame();
+
+      expect(toggleBlockQuoteAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("> * abc\n\n123");
+      expect(getSelection()).toEqual({ start: "> * ".length, end: "> * abc".length });
+    } finally {
+      dispose();
+    }
+  });
+
+  it("quotes the current WYSIWYG list item before a following paragraph from a collapsed cursor", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+    let toggleBlockQuoteAtSelection!: () => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value={"* abc\n\n123"}
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getSelection = nextController.getSelection;
+              toggleBlockQuoteAtSelection = nextController.toggleBlockQuoteAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      const cursor = "* ab".length;
+      setSelection({ start: cursor, end: cursor });
+      await animationFrame();
+      await animationFrame();
+
+      expect(toggleBlockQuoteAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("> * abc\n\n123");
+      expect(getSelection()).toEqual({ start: "> * ab".length, end: "> * ab".length });
+    } finally {
+      dispose();
+    }
+  });
+
+  it("uses the explicit source selection passed to the public block quote controller", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let toggleBlockQuoteAtSelection!: (selection?: { readonly start: number; readonly end: number }) => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value={"* abc\n\n123"}
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              toggleBlockQuoteAtSelection = nextController.toggleBlockQuoteAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      setSelection({ start: "* abc\n\n".length, end: "* abc\n\n123".length });
+      await animationFrame();
+      await animationFrame();
+
+      expect(toggleBlockQuoteAtSelection({ start: "* ".length, end: "* abc".length })).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("> * abc\n\n123");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("uses the last WYSIWYG pointer target for a collapsed block quote selection that drifts after a list", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let toggleBlockQuoteAtSelection!: (selection?: { readonly start: number; readonly end: number }) => boolean;
+
+    const dispose = render(
+      () => (
+        <MilkdownEditor
+          documentKey="2030-02-02"
+          value={"* abc\n\n123"}
+          onChange={(_documentKey, markdown) => changes.push(markdown)}
+          onBlur={() => undefined}
+          onController={(nextController) => {
+            if (nextController === null) return;
+            toggleBlockQuoteAtSelection = nextController.toggleBlockQuoteAtSelection;
+          }}
+        />
+      ),
+      host
+    );
+
+    try {
+      const editor = await waitForEditable(host);
+      const abcParagraph = Array.from(editor.querySelectorAll("p")).find((paragraph) => paragraph.textContent === "abc");
+      expect(abcParagraph).not.toBeUndefined();
+      abcParagraph!.dispatchEvent(pointerDownEvent());
+
+      const driftedCursor = "* abc\n\n123".length;
+      expect(toggleBlockQuoteAtSelection({ start: driftedCursor, end: driftedCursor })).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("> * abc\n\n123");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("unquotes a WYSIWYG block quote around a list without lifting list content", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+    let toggleBlockQuoteAtSelection!: () => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value="> * item"
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getSelection = nextController.getSelection;
+              toggleBlockQuoteAtSelection = nextController.toggleBlockQuoteAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      setSelection({ start: "> * ".length, end: "> * item".length });
+      await animationFrame();
+      await animationFrame();
+
+      expect(toggleBlockQuoteAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("* item");
+      expect(getSelection()).toEqual({ start: "* ".length, end: "* item".length });
+    } finally {
+      dispose();
+    }
+  });
+
   it("keeps a boundary space outside code after toggling collapsed inline-code and typing", async () => {
     const editor = await createMilkdownTestEditor("");
 
@@ -696,6 +1036,13 @@ function animationFrame(): Promise<void> {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function pointerDownEvent(): PointerEvent {
+  const event = new Event("pointerdown", { bubbles: true, cancelable: true }) as PointerEvent;
+  Object.defineProperty(event, "button", { value: 0 });
+  Object.defineProperty(event, "pointerType", { value: "mouse" });
+  return event;
 }
 
 async function createMilkdownTestEditor(markdown: string) {

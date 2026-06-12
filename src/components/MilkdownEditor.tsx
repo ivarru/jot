@@ -8,6 +8,11 @@ import { createMilkdownStructuralTabKeymap } from "./milkdownStructuralTab";
 import { applyTextAreaStructuralTab, shouldHandleTextAreaStructuralTab } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 import {
+  inactiveBlockFormatState,
+  toggleMarkdownBlockQuote,
+  type BlockFormatState
+} from "~/editor/blockFormatting";
+import {
   inactiveInlineFormatState,
   type InlineFormatState,
   type InlineMarkFormat
@@ -20,7 +25,7 @@ import type { MarkdownSelection } from "~/editor/markdownSelection";
 import { diffChars } from "diff";
 import type { Ctx } from "@milkdown/kit/ctx";
 import type { Editor as MilkdownEditorInstance } from "@milkdown/kit/core";
-import type { MarkType, Node as ProseNode } from "@milkdown/kit/prose/model";
+import type { MarkType, Node as ProseNode, NodeType } from "@milkdown/kit/prose/model";
 import type { Selection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 
@@ -39,6 +44,7 @@ interface MilkdownEditorProps {
   readonly onController?: (controller: MilkdownEditorController | null) => void;
   readonly onHistoryAvailabilityChange?: (availability: EditorHistoryAvailability) => void;
   readonly onInlineFormatStateChange?: (state: InlineFormatState) => void;
+  readonly onBlockFormatStateChange?: (state: BlockFormatState) => void;
   readonly onPasteImage?: (documentKey: string, file: File) => void;
 }
 
@@ -46,6 +52,7 @@ interface MilkdownEditorSession {
   readonly applyExternalMarkdown: (markdown: string, undoable: boolean) => void;
   readonly applyStructuralTab: (shiftKey: boolean) => boolean;
   readonly closeHistory: () => void;
+  readonly getBlockFormatState: () => BlockFormatState;
   readonly getHistoryAvailability: () => EditorHistoryAvailability;
   readonly getInlineFormatState: () => InlineFormatState;
   readonly getSelection: () => MarkdownSelection | null;
@@ -53,6 +60,7 @@ interface MilkdownEditorSession {
   readonly focus: (placement: FocusPlacement, onFocusApplied?: () => void) => void;
   readonly redo: () => boolean;
   readonly setReadOnly: (readOnly: boolean) => void;
+  readonly toggleBlockQuoteAtSelection: (selection?: MarkdownSelection) => boolean;
   readonly toggleInlineCodeAtSelection: () => boolean;
   readonly toggleInlineMarkAtSelection: (format: InlineMarkFormat) => boolean;
   readonly undo: () => boolean;
@@ -65,16 +73,23 @@ interface EditorViewWithDomObserver extends EditorView {
 }
 
 type MarkdownSerializer = (doc: ProseNode) => string;
+interface MarkdownSelectionMarkers {
+  readonly markdown: string;
+  readonly startMarker: string;
+  readonly endMarker: string | null;
+}
 let cursorMarkerSequence = 0;
 
 export interface MilkdownEditorController {
   readonly applyRawMarkdown: (markdown: string) => void;
   readonly applyStructuralTab: (shiftKey: boolean) => boolean;
   readonly closeHistory: () => void;
+  readonly getBlockFormatState: () => BlockFormatState;
   readonly getHistoryAvailability: () => EditorHistoryAvailability;
   readonly getInlineFormatState: () => InlineFormatState;
   readonly getSelection: () => MarkdownSelection | null;
   readonly redo: () => boolean;
+  readonly toggleBlockQuoteAtSelection: (selection?: MarkdownSelection) => boolean;
   readonly toggleInlineCodeAtSelection: () => boolean;
   readonly toggleInlineMarkAtSelection: (format: InlineMarkFormat) => boolean;
   readonly undo: () => boolean;
@@ -157,6 +172,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         let disposed = false;
         let editor: MilkdownEditorInstance | null = null;
         let session: MilkdownEditorSession | null = null;
+        let lastPointerBlockQuoteSelection: MarkdownSelection | null = null;
         let removeRootListeners: (() => void) | null = null;
         onCleanup(() => {
           disposed = true;
@@ -174,6 +190,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         const [
           { Editor, rootCtx, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, serializerCtx },
           {
+            blockquoteSchema,
             bulletListSchema,
             codeBlockSchema,
             commonmark,
@@ -225,11 +242,18 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             bold: strongSchema,
             code: inlineCodeSchema
           });
+        const blockFormatState = (view: EditorView): BlockFormatState =>
+          milkdownBlockFormatState(view, editor?.ctx ?? null, {
+            quote: blockquoteSchema
+          });
         const notifyHistoryAvailability = (view: EditorView) => {
           props.onHistoryAvailabilityChange?.(historyAvailability(view));
         };
         const notifyInlineFormatState = (view: EditorView) => {
           props.onInlineFormatStateChange?.(inlineFormatState(view));
+        };
+        const notifyBlockFormatState = (view: EditorView) => {
+          props.onBlockFormatStateChange?.(blockFormatState(view));
         };
         const inlineFormatStateTracker = $prose((ctx) => new Plugin({
           view: (view) => {
@@ -256,6 +280,47 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 }));
               }
             };
+          }
+        }));
+        const blockFormatStateTracker = $prose((ctx) => new Plugin({
+          view: (view) => {
+            props.onBlockFormatStateChange?.(milkdownBlockFormatState(view, ctx, {
+              quote: blockquoteSchema
+            }));
+
+            return {
+              update: (updatedView, previousState) => {
+                if (
+                  updatedView.state.doc === previousState.doc &&
+                  updatedView.state.selection.eq(previousState.selection)
+                ) {
+                  return;
+                }
+
+                props.onBlockFormatStateChange?.(milkdownBlockFormatState(updatedView, ctx, {
+                  quote: blockquoteSchema
+                }));
+              }
+            };
+          }
+        }));
+        const pointerBlockQuoteSelectionTracker = $prose((ctx) => new Plugin({
+          props: {
+            handleDOMEvents: {
+              pointerdown: (view, event) => {
+                lastPointerBlockQuoteSelection = pointerEventMarkdownSelection(
+                  markdownState.currentMarkdown,
+                  event,
+                  view,
+                  ctx.get(serializerCtx)
+                );
+                return false;
+              },
+              keydown: () => {
+                lastPointerBlockQuoteSelection = null;
+                return false;
+              }
+            }
           }
         }));
         const preserveListTightness = $prose(() => createListTightnessPlugin(Plugin));
@@ -323,6 +388,8 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(clipboard)
           .use(structuralTabKeymap)
           .use(inlineFormatStateTracker)
+          .use(blockFormatStateTracker)
+          .use(pointerBlockQuoteSelectionTracker)
           .use(listItemBlockComponent)
           .use(preserveListTightness)
           .use(history)
@@ -374,6 +441,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               if (disposed || activeSession !== session || editor === null) return { canUndo: false, canRedo: false };
               return historyAvailability(editor.ctx.get(editorViewCtx));
             },
+            getBlockFormatState: () => {
+              if (disposed || activeSession !== session || editor === null) return inactiveBlockFormatState;
+              return blockFormatState(editor.ctx.get(editorViewCtx));
+            },
             getInlineFormatState: () => {
               if (disposed || activeSession !== session || editor === null) return inactiveInlineFormatState;
               return inlineFormatState(editor.ctx.get(editorViewCtx));
@@ -405,6 +476,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               const applied = redo(view.state, view.dispatch, view);
               if (applied) notifyHistoryAvailability(view);
               notifyInlineFormatState(view);
+              notifyBlockFormatState(view);
               return applied;
             },
             setReadOnly: (readOnly) => {
@@ -416,6 +488,42 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               });
               view.dom.setAttribute("contenteditable", currentReadOnly ? "false" : "true");
               view.dom.setAttribute("aria-readonly", currentReadOnly ? "true" : "false");
+            },
+            toggleBlockQuoteAtSelection: (selection) => {
+              if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
+              const view = editor.ctx.get(editorViewCtx);
+              const serializer = editor.ctx.get(serializerCtx);
+              const sourceSelection = selection ?? editorSelectionToMarkdownSourceSelection(
+                markdownState.currentMarkdown,
+                view.state.selection,
+                view,
+                serializer
+              );
+              const blockQuoteSelection = blockQuoteSelectionWithPointerFallback(
+                markdownState.currentMarkdown,
+                sourceSelection,
+                lastPointerBlockQuoteSelection
+              );
+              lastPointerBlockQuoteSelection = null;
+              const result = toggleMarkdownBlockQuote(markdownState.currentMarkdown, blockQuoteSelection);
+              if (result.markdown === markdownState.currentMarkdown) return false;
+              const markedSelection = markdownWithSelectionMarkers(result.markdown, result.selection);
+
+              editor.action((ctx) => {
+                replaceAll(markedSelection.markdown, false)(ctx);
+                const updatedView = ctx.get(editorViewCtx);
+                if (!restoreSelectionFromMarkers(updatedView, TextSelection, markedSelection)) {
+                  replaceAll(result.markdown, false)(ctx);
+                  placeSelectionAtMarkdownSourceSelection(updatedView, TextSelection, result.markdown, result.selection);
+                }
+                updatedView.focus();
+              });
+              const updatedView = editor.ctx.get(editorViewCtx);
+              trackMilkdownExternalMarkdown(markdownState, result.markdown, serializer(updatedView.state.doc));
+              props.onChange(documentKey, result.markdown);
+              notifyHistoryAvailability(updatedView);
+              notifyBlockFormatState(updatedView);
+              return true;
             },
             toggleInlineCodeAtSelection: () => {
               if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
@@ -442,6 +550,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               const applied = undo(view.state, view.dispatch, view);
               if (applied) notifyHistoryAvailability(view);
               notifyInlineFormatState(view);
+              notifyBlockFormatState(view);
               return applied;
             }
           };
@@ -454,16 +563,19 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             closeHistory: () => {
               session?.closeHistory();
             },
+            getBlockFormatState: () => session?.getBlockFormatState() ?? inactiveBlockFormatState,
             getHistoryAvailability: () => session?.getHistoryAvailability() ?? { canUndo: false, canRedo: false },
             getInlineFormatState: () => session?.getInlineFormatState() ?? inactiveInlineFormatState,
             getSelection: () => session?.getSelection() ?? null,
             redo: () => session?.redo() ?? false,
+            toggleBlockQuoteAtSelection: (selection) => session?.toggleBlockQuoteAtSelection(selection) ?? false,
             toggleInlineCodeAtSelection: () => session?.toggleInlineCodeAtSelection() ?? false,
             toggleInlineMarkAtSelection: (format) => session?.toggleInlineMarkAtSelection(format) ?? false,
             undo: () => session?.undo() ?? false
           });
           props.onHistoryAvailabilityChange?.(session.getHistoryAvailability());
           props.onInlineFormatStateChange?.(session.getInlineFormatState());
+          props.onBlockFormatStateChange?.(session.getBlockFormatState());
           session.setReadOnly(props.readOnly === true);
           if (props.value !== markdownState.currentMarkdown) {
             session.applyExternalMarkdown(props.value, false);
@@ -616,6 +728,10 @@ interface MarkSchemaProvider {
   readonly type: (ctx: Ctx) => MarkType;
 }
 
+interface NodeSchemaProvider {
+  readonly type: (ctx: Ctx) => NodeType;
+}
+
 function milkdownInlineFormatState(
   view: EditorView,
   ctx: Ctx | null,
@@ -632,6 +748,20 @@ function milkdownInlineFormatState(
     italic: hasMark(schemas.italic),
     bold: hasMark(schemas.bold),
     code: hasMark(schemas.code)
+  };
+}
+
+function milkdownBlockFormatState(
+  view: EditorView,
+  ctx: Ctx | null,
+  schemas: {
+    readonly quote: NodeSchemaProvider;
+  }
+): BlockFormatState {
+  if (ctx === null) return inactiveBlockFormatState;
+
+  return {
+    quote: selectionHasAncestorNode(view, schemas.quote.type(ctx))
   };
 }
 
@@ -657,6 +787,35 @@ function selectionHasMark(view: EditorView, markType: MarkType): boolean {
   });
 
   return selectedTextFound && allSelectedTextHasMark;
+}
+
+function selectionHasAncestorNode(view: EditorView, nodeType: NodeType): boolean {
+  const selection = view.state.selection;
+  if (selection.empty) return resolvedPositionHasAncestor(selection.$from, nodeType);
+
+  let selectedTextBlockFound = false;
+  let allSelectedTextBlocksHaveAncestor = true;
+  view.state.doc.nodesBetween(selection.from, selection.to, (node, position) => {
+    if (!node.isTextblock) return;
+
+    const start = Math.max(selection.from, position);
+    const end = Math.min(selection.to, position + node.nodeSize);
+    if (start >= end) return;
+
+    selectedTextBlockFound = true;
+    if (!resolvedPositionHasAncestor(view.state.doc.resolve(position + 1), nodeType)) {
+      allSelectedTextBlocksHaveAncestor = false;
+    }
+  });
+
+  return selectedTextBlockFound && allSelectedTextBlocksHaveAncestor;
+}
+
+function resolvedPositionHasAncestor(position: Selection["$from"], nodeType: NodeType): boolean {
+  for (let depth = position.depth; depth > 0; depth -= 1) {
+    if (position.node(depth).type === nodeType) return true;
+  }
+  return false;
 }
 
 function toggleInlineMarkInView(
@@ -807,6 +966,65 @@ function editorDomSelectionToMarkdownSourceSelection(
   }
 }
 
+function pointerEventMarkdownSelection(
+  markdown: string,
+  event: Event,
+  view: EditorView,
+  serializer: MarkdownSerializer
+): MarkdownSelection | null {
+  const target = event.target;
+  if (!(target instanceof Node) || !view.dom.contains(target)) return null;
+
+  const targetNode = pointerSelectionNode(target);
+  try {
+    const sourceOffset = editorPositionToMarkdownSourceOffset(
+      markdown,
+      editorDomPositionToEditorPosition(view, targetNode, 0),
+      "cursor",
+      view,
+      serializer
+    );
+    return { start: sourceOffset, end: sourceOffset };
+  } catch {
+    return null;
+  }
+}
+
+function pointerSelectionNode(target: Node): Node {
+  if (target.nodeType === Node.TEXT_NODE) return target;
+  if (target instanceof Element) return firstTextDescendant(target) ?? target;
+  return target;
+}
+
+function firstTextDescendant(root: Element): Text | null {
+  for (const child of root.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE && child.textContent !== "") return child as Text;
+    if (child instanceof Element) {
+      const text = firstTextDescendant(child);
+      if (text !== null) return text;
+    }
+  }
+  return null;
+}
+
+function blockQuoteSelectionWithPointerFallback(
+  markdown: string,
+  selection: MarkdownSelection,
+  pointerSelection: MarkdownSelection | null
+): MarkdownSelection {
+  if (pointerSelection === null || selection.start !== selection.end) return selection;
+  if (markdownLineStartAt(markdown, pointerSelection.start) === markdownLineStartAt(markdown, selection.start)) {
+    return selection;
+  }
+
+  return pointerSelection;
+}
+
+function markdownLineStartAt(markdown: string, offset: number): number {
+  const clamped = Math.max(0, Math.min(markdown.length, offset));
+  return markdown.lastIndexOf("\n", Math.max(0, clamped - 1)) + 1;
+}
+
 function containsSelectionNode(root: HTMLElement, node: Node): boolean {
   return node === root || root.contains(node);
 }
@@ -880,6 +1098,77 @@ function cursorMarker(sequence: number): string {
   return `JOTCURSORMARKER${sequence}END`;
 }
 
+function markdownWithSelectionMarkers(markdown: string, selection: MarkdownSelection): MarkdownSelectionMarkers {
+  const start = Math.max(0, Math.min(markdown.length, Math.min(selection.start, selection.end)));
+  const end = Math.max(0, Math.min(markdown.length, Math.max(selection.start, selection.end)));
+  const startMarker = createCursorMarker(markdown);
+  if (start === end) {
+    return {
+      markdown: `${markdown.slice(0, start)}${startMarker}${markdown.slice(start)}`,
+      startMarker,
+      endMarker: null
+    };
+  }
+
+  const endMarker = createCursorMarker(`${markdown}${startMarker}`);
+  return {
+    markdown: `${markdown.slice(0, start)}${startMarker}${markdown.slice(start, end)}${endMarker}${markdown.slice(end)}`,
+    startMarker,
+    endMarker
+  };
+}
+
+function restoreSelectionFromMarkers(
+  view: EditorView,
+  textSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
+  markers: MarkdownSelectionMarkers
+): boolean {
+  const startPosition = textPositionInDocument(view.state.doc, markers.startMarker);
+  if (startPosition === null) return false;
+
+  if (markers.endMarker === null) {
+    const transaction = view.state.tr.delete(startPosition, startPosition + markers.startMarker.length);
+    const position = transaction.mapping.map(startPosition, -1);
+    view.dispatch(
+      transaction
+        .setSelection(textSelection.create(transaction.doc, position, position))
+        .scrollIntoView()
+    );
+    view.focus();
+    return true;
+  }
+
+  const endPosition = textPositionInDocument(view.state.doc, markers.endMarker);
+  if (endPosition === null) return false;
+
+  const transaction = view.state.tr
+    .delete(endPosition, endPosition + markers.endMarker.length)
+    .delete(startPosition, startPosition + markers.startMarker.length);
+  const selectionStart = transaction.mapping.map(startPosition, -1);
+  const selectionEnd = transaction.mapping.map(endPosition, -1);
+  view.dispatch(
+    transaction
+      .setSelection(textSelection.create(transaction.doc, selectionStart, selectionEnd))
+      .scrollIntoView()
+  );
+  view.focus();
+  return true;
+}
+
+function textPositionInDocument(doc: ProseNode, textToFind: string): number | null {
+  let found: number | null = null;
+  doc.descendants((node, position) => {
+    if (!node.isText || node.text === undefined) return true;
+
+    const index = node.text.indexOf(textToFind);
+    if (index === -1) return true;
+
+    found = position + index;
+    return false;
+  });
+  return found;
+}
+
 function mapStringOffset(from: string, to: string, offset: number): number {
   if (from === to) return Math.max(0, Math.min(to.length, offset));
 
@@ -922,26 +1211,11 @@ function placeSelectionAtMarkdownSourceSelection(
       .setSelection(textSelection.between(view.state.doc.resolve(start), view.state.doc.resolve(end)))
       .scrollIntoView()
   );
-  placeBrowserSelection(view, start, end);
+  view.focus();
 }
 
 function positionForMarkdownSourceOffset(doc: ProseNode, markdown: string, sourceOffset: number): number {
   return positionForRenderedTextOffset(doc, markdownSourceOffsetToRenderedOffset(markdown, sourceOffset));
-}
-
-function placeBrowserSelection(view: EditorView, start: number, end: number): void {
-  try {
-    const range = view.dom.ownerDocument.createRange();
-    const from = view.domAtPos(start);
-    const to = view.domAtPos(end);
-    range.setStart(from.node, from.offset);
-    range.setEnd(to.node, to.offset);
-    const selection = view.dom.ownerDocument.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-  } catch {
-    // ProseMirror positions can map to non-text DOM boundaries; the editor selection remains the source of truth.
-  }
 }
 
 function positionForRenderedTextOffset(doc: ProseNode, offset: number): number {

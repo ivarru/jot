@@ -45,6 +45,8 @@ const testState = vi.hoisted(() => ({
   wysiwygSelectionAvailable: true,
   inlineCodeToggleCount: 0,
   inlineMarkToggleInputs: [] as Array<"italic" | "bold">,
+  blockQuoteToggleCount: 0,
+  blockQuoteToggleSelections: [] as Array<{ readonly start: number; readonly end: number } | undefined>,
   focusSelectionApplyCount: 0
 }));
 
@@ -74,14 +76,17 @@ vi.mock("~/components/MilkdownEditor", async () => {
       readonly closeHistory: () => void;
       readonly getHistoryAvailability: () => { readonly canUndo: boolean; readonly canRedo: boolean };
       readonly getInlineFormatState: () => { readonly italic: boolean; readonly bold: boolean; readonly code: boolean };
+      readonly getBlockFormatState: () => { readonly quote: boolean };
       readonly getSelection: () => { readonly start: number; readonly end: number } | null;
       readonly redo: () => boolean;
+      readonly toggleBlockQuoteAtSelection: (selection?: { readonly start: number; readonly end: number }) => boolean;
       readonly toggleInlineCodeAtSelection: () => boolean;
       readonly toggleInlineMarkAtSelection: (format: "italic" | "bold") => boolean;
       readonly undo: () => boolean;
     } | null) => void;
     readonly onHistoryAvailabilityChange?: (availability: { readonly canUndo: boolean; readonly canRedo: boolean }) => void;
     readonly onInlineFormatStateChange?: (state: { readonly italic: boolean; readonly bold: boolean; readonly code: boolean }) => void;
+    readonly onBlockFormatStateChange?: (state: { readonly quote: boolean }) => void;
   }) => {
     let textarea: HTMLTextAreaElement | undefined;
     let present = props.value;
@@ -92,11 +97,15 @@ vi.mock("~/components/MilkdownEditor", async () => {
       bold: false,
       code: false
     };
+    const blockFormatState = {
+      quote: false
+    };
     const historyAvailability = () => ({
       canUndo: past.length > 0,
       canRedo: future.length > 0
     });
     const reportInlineFormatState = () => props.onInlineFormatStateChange?.({ ...inlineFormatState });
+    const reportBlockFormatState = () => props.onBlockFormatStateChange?.({ ...blockFormatState });
     const reportHistoryAvailability = () => props.onHistoryAvailabilityChange?.(historyAvailability());
     const controllerSerializedMarkdown = (markdown: string) => markdown.endsWith(" ") ? `${markdown.trimEnd()}\n` : markdown;
 
@@ -172,6 +181,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
       applyRawMarkdown: recordControllerMarkdown,
       applyStructuralTab,
       closeHistory: () => undefined,
+      getBlockFormatState: () => ({ ...blockFormatState }),
       getHistoryAvailability: historyAvailability,
       getInlineFormatState: () => ({ ...inlineFormatState }),
       getSelection: () =>
@@ -182,6 +192,14 @@ vi.mock("~/components/MilkdownEditor", async () => {
               end: textarea.selectionEnd
             },
       redo,
+      toggleBlockQuoteAtSelection: (selection) => {
+        testState.blockQuoteToggleCount += 1;
+        testState.blockQuoteToggleSelections.push(selection);
+        blockFormatState.quote = !blockFormatState.quote;
+        reportBlockFormatState();
+        textarea?.focus();
+        return true;
+      },
       toggleInlineCodeAtSelection: () => {
         testState.inlineCodeToggleCount += 1;
         if (textarea !== undefined && textarea.selectionStart !== textarea.selectionEnd) {
@@ -211,6 +229,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
     });
     reportHistoryAvailability();
     reportInlineFormatState();
+    reportBlockFormatState();
 
     createEffect(() => {
       const value = props.value;
@@ -414,6 +433,8 @@ describe("Home reconnect and conflict handling", () => {
     testState.wysiwygSelectionAvailable = true;
     testState.inlineCodeToggleCount = 0;
     testState.inlineMarkToggleInputs = [];
+    testState.blockQuoteToggleCount = 0;
+    testState.blockQuoteToggleSelections = [];
     testState.focusSelectionApplyCount = 0;
     window.location.hash = "#/date/2030-02-02";
     localStorage.setItem("jot.fakeAuth", "true");
@@ -673,6 +694,128 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("toggles block quote formatting at the WYSIWYG editor selection from the heading button", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "quote me",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange(0, "quote me".length);
+
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle block quote format']");
+    expect(toggle).not.toBeNull();
+    expect(toggle!.title).toBe("Toggle block quote format");
+    expect(toggle!.textContent).toBe('"');
+    toggle!.click();
+    await settle();
+
+    expect(testState.blockQuoteToggleCount).toBe(1);
+    expect(testState.blockQuoteToggleSelections).toEqual([{ start: 0, end: "quote me".length }]);
+    expect(toggle!.getAttribute("aria-pressed")).toBe("true");
+
+    dispose();
+  });
+
+  it("passes the selected WYSIWYG list item source range to the block quote controller", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "* abc\n\n123",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange("* ".length, "* abc".length);
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle block quote format']")!.click();
+    await settle();
+
+    expect(testState.blockQuoteToggleSelections).toEqual([{ start: "* ".length, end: "* abc".length }]);
+
+    dispose();
+  });
+
+  it("uses the WYSIWYG selection captured before the quote button takes focus", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "* abc\n\n123",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    const quoteButton = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle block quote format']");
+    expect(editor).not.toBeNull();
+    expect(quoteButton).not.toBeNull();
+
+    editor!.setSelectionRange("* ".length, "* abc".length);
+    expect(quoteButton!.dispatchEvent(pointerDownEvent())).toBe(false);
+    editor!.setSelectionRange("* abc\n\n".length, "* abc\n\n123".length);
+    quoteButton!.click();
+    await settle();
+
+    expect(testState.blockQuoteToggleSelections).toEqual([{ start: "* ".length, end: "* abc".length }]);
+
+    dispose();
+  });
+
+  it("prevents pointer focus transfer from formatting toolbar buttons", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "format me",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange(0, "format".length);
+
+    for (const label of [
+      "Toggle italic format",
+      "Toggle bold format",
+      "Toggle block quote format",
+      "Toggle code format",
+      "Toggle link format"
+    ]) {
+      const button = host.querySelector<HTMLButtonElement>(`button[aria-label='${label}']`);
+      expect(button).not.toBeNull();
+      const event = pointerDownEvent();
+      expect(button!.dispatchEvent(event)).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+    }
+
+    await settle();
+    expect(testState.focusSelectionApplyCount).toBeGreaterThan(0);
+
+    dispose();
+  });
+
   it("does not insert code markers at the start of the note when WYSIWYG selection is unavailable", async () => {
     testState.wysiwygSelectionAvailable = false;
     testState.remoteNote = {
@@ -725,6 +868,47 @@ describe("Home reconnect and conflict handling", () => {
     await settle();
 
     expect(editor!.value).toBe("```\nfirst\nsecond\n```");
+
+    dispose();
+  });
+
+  it("toggles block quote formatting at the raw editor selection from the heading button", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "first\nsecond",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    rawModeButton(host).click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange(0, "first\nsecond".length);
+
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle block quote format']");
+    expect(toggle).not.toBeNull();
+    toggle!.click();
+    await settle();
+
+    expect(editor!.value).toBe("> first\n> second");
+    expect(editor!.selectionStart).toBe(2);
+    expect(editor!.selectionEnd).toBe("> first\n> second".length);
+    expect(toggle!.getAttribute("aria-pressed")).toBe("true");
+
+    toggle!.click();
+    await settle();
+
+    expect(editor!.value).toBe("first\nsecond");
+    expect(editor!.selectionStart).toBe(0);
+    expect(editor!.selectionEnd).toBe("first\nsecond".length);
+    expect(toggle!.getAttribute("aria-pressed")).toBe("false");
 
     dispose();
   });
@@ -810,6 +994,42 @@ describe("Home reconnect and conflict handling", () => {
       expect(italic!.getAttribute("aria-pressed")).toBe("false");
       expect(bold!.getAttribute("aria-pressed")).toBe("false");
       expect(code!.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    dispose();
+  });
+
+  it("marks the raw block quote button active at the current cursor position", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "plain\n> quoted",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    rawModeButton(host).click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    const quote = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle block quote format']");
+    expect(editor).not.toBeNull();
+    expect(quote).not.toBeNull();
+
+    editor!.setSelectionRange("plain".length, "plain".length);
+    editor!.dispatchEvent(new Event("select", { bubbles: true }));
+    await waitFor(() => {
+      expect(quote!.getAttribute("aria-pressed")).toBe("false");
+    });
+
+    editor!.setSelectionRange("plain\n> quo".length, "plain\n> quo".length);
+    editor!.dispatchEvent(new Event("select", { bubbles: true }));
+    await waitFor(() => {
+      expect(quote!.getAttribute("aria-pressed")).toBe("true");
     });
 
     dispose();
@@ -959,8 +1179,9 @@ describe("Home reconnect and conflict handling", () => {
       "Dedent",
       "Toggle italic format",
       "Toggle bold format",
-      "Toggle link format",
+      "Toggle block quote format",
       "Toggle code format",
+      "Toggle link format",
       "Insert image"
     ]);
     expect(Array.from(host.querySelectorAll(".date-context-row button")).map((element) => element.textContent)).toEqual([
@@ -1720,6 +1941,13 @@ function pressRedo(editor: HTMLTextAreaElement): boolean {
   });
   editor.dispatchEvent(event);
   return event.defaultPrevented;
+}
+
+function pointerDownEvent(): PointerEvent {
+  const event = new Event("pointerdown", { bubbles: true, cancelable: true }) as PointerEvent;
+  Object.defineProperty(event, "button", { value: 0 });
+  Object.defineProperty(event, "pointerType", { value: "mouse" });
+  return event;
 }
 
 function draft(date: IsoDate, markdown: string): LocalDraft {
