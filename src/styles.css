@@ -932,20 +932,42 @@ select {
   line-height: 1;
 }
 
+.milkdown-root .jot-bullet-marker {
+  display: inline-grid;
+  width: 1em;
+  height: 1em;
+  place-items: center;
+}
+
 .milkdown-root .jot-bullet-marker::before {
-  content: "\2022";
+  content: "";
+  display: block;
+  box-sizing: border-box;
+  width: 0.48em;
+  height: 0.48em;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 .milkdown-root ul ul .jot-bullet-marker::before {
-  content: "\25E6";
+  width: 0.56em;
+  height: 0.56em;
+  border: 1.5px solid currentColor;
+  background: transparent;
 }
 
 .milkdown-root ul ul ul .jot-bullet-marker::before {
-  content: "\25AA";
+  width: 0.42em;
+  height: 0.42em;
+  border: 0;
+  border-radius: 2px;
+  background: currentColor;
 }
 
 .milkdown-root ul ul ul ul .jot-bullet-marker::before {
-  content: "\2022";
+  width: 0.48em;
+  height: 0.48em;
+  border-radius: 999px;
 }
 
 .milkdown-root .jot-task-checkbox {

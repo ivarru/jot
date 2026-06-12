@@ -17,6 +17,7 @@ This directory records durable architecture decisions for Jot. ADRs explain why 
 | [0003: Use CommonMark and GFM for Daily Notes](0003-jot-markdown-dialect.md) | Accepted | Jot Markdown portability baseline. |
 | [0004: Reference Image Attachments with markdown image syntax](0004-photo-attachment-references.md) | Accepted | Image Attachment references, metadata, and storage-provider identity separation. |
 | [0005: Host the static app on GitHub Pages](0005-github-pages-hosting.md) | Accepted | Hosting target and no-backend deployment constraints. |
+| [0006: Render List Bullets with CSS](0006-render-list-bullets-with-css.md) | Accepted | WYSIWYG list marker rendering and cross-platform font consistency. |
 
 ## Maintenance
 
