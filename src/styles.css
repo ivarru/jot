@@ -873,6 +873,13 @@ select {
   line-height: 1.6;
 }
 
+.milkdown-root blockquote {
+  margin: 1.25rem 0;
+  padding-left: 1rem;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
 .milkdown-root .ProseMirror :is(ul, ol) {
   padding-inline-start: 0;
 }
