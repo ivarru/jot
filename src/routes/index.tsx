@@ -3049,7 +3049,7 @@ function BoldFormatIcon() {
 }
 
 function QuoteFormatIcon() {
-  return <span class="format-letter" aria-hidden="true">"</span>;
+  return <span class="format-letter format-letter-quote" aria-hidden="true">"</span>;
 }
 
 function TaskCheckboxFormatIcon() {

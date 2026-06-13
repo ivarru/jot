@@ -18,7 +18,8 @@
   --editor-default-height: 65vh;
   --editor-padding: 24px;
   --editor-vertical-padding: 48px;
-  --toolbar-compact-button-width: 38px;
+  --toolbar-compact-button-width: 28px;
+  --sync-status-size: 26px;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -343,10 +344,11 @@ select {
 
 .sync-status {
   display: inline-grid;
-  width: var(--toolbar-compact-button-width);
-  min-width: var(--toolbar-compact-button-width);
-  height: var(--toolbar-compact-button-width);
-  min-height: var(--toolbar-compact-button-width);
+  width: var(--sync-status-size);
+  min-width: var(--sync-status-size);
+  height: var(--sync-status-size);
+  min-height: var(--sync-status-size);
+  margin: 1px;
   padding: 0;
   place-items: center;
   border-radius: 999px;
@@ -526,6 +528,10 @@ select {
 
 .format-letter-bold {
   font-weight: 800;
+}
+
+.format-letter-quote {
+  font-size: 18px;
 }
 
 .task-checkbox-format-icon {

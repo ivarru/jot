@@ -1292,6 +1292,9 @@ describe("Home reconnect and conflict handling", () => {
     ]);
     expect(host.querySelector<HTMLButtonElement>(`button[aria-label='Jump to today, ${todayIsoDate()}']`)!.disabled).toBe(false);
     expect(rawModeButton(host).title).toBe("Toggle raw Markdown (Ctrl/Cmd+Shift+M)");
+    expect(
+      host.querySelector("button[aria-label='Toggle block quote format'] .format-letter-quote")
+    ).not.toBeNull();
 
     dispose();
   });

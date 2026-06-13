@@ -17,11 +17,14 @@ describe("mobile editor layout styles", () => {
     expect(mobileStyles()).not.toMatch(/max-height:\s*var\(--editor-default-height\)/);
   });
 
-  it("keeps the sync status and compact menu at a stable shared size when stacked", () => {
-    expect(styles).toContain("--toolbar-compact-button-width: 38px;");
+  it("keeps the sync status aligned with the compact menu footprint when stacked", () => {
+    expect(styles).toContain("--toolbar-compact-button-width: 28px;");
+    expect(styles).toContain("--sync-status-size: 26px;");
     expect(mobileStyles()).not.toContain("--toolbar-compact-button-width:");
-    expect(blockFor(".sync-status")).toContain("width: var(--toolbar-compact-button-width);");
-    expect(blockFor(".sync-status")).toContain("height: var(--toolbar-compact-button-width);");
+    expect(mobileStyles()).not.toContain("--sync-status-size:");
+    expect(blockFor(".sync-status")).toContain("width: var(--sync-status-size);");
+    expect(blockFor(".sync-status")).toContain("height: var(--sync-status-size);");
+    expect(blockFor(".sync-status")).toContain("margin: 1px;");
     expect(blockIncluding(".icon-button.icon-menu-button")).toContain("width: var(--toolbar-compact-button-width);");
     expect(blockIncluding(".icon-button.icon-menu-button")).toContain("height: var(--toolbar-compact-button-width);");
     expect(blockIncluding(".toolbar-status-column .top-menu > .icon-button")).toContain(
@@ -30,6 +33,13 @@ describe("mobile editor layout styles", () => {
     expect(blockIncluding(".toolbar-status-column .top-menu > .icon-button")).toContain(
       "height: var(--toolbar-compact-button-width);"
     );
+  });
+
+  it("uses a larger quote glyph without changing the shared icon button size", () => {
+    expect(blockFor(".format-letter")).toContain("font-size: 14px;");
+    expect(blockFor(".format-letter-quote")).toContain("font-size: 18px;");
+    expect(mobileStyles()).toContain("width: 28px;");
+    expect(mobileStyles()).toContain("height: 28px;");
   });
 
   function mobileStyles(): string {
