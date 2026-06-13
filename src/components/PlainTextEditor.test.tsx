@@ -196,6 +196,42 @@ describe("PlainTextEditor", () => {
     dispose();
   });
 
+  it("lifts a top-level task list item to plain text when pressing shift-tab", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: Array<readonly [string, string]> = [];
+
+    const dispose = render(
+      () => PlainTextEditor({
+        documentKey: "2030-02-01",
+        value: "* [ ] item",
+        onChange: (documentKey, markdown) => changes.push([documentKey, markdown]),
+        onBlur: () => undefined
+      }),
+      host
+    );
+
+    const textarea = host.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    textarea!.setSelectionRange("* [ ] item".length, "* [ ] item".length);
+    const tabEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Tab",
+      shiftKey: true
+    });
+
+    textarea!.dispatchEvent(tabEvent);
+
+    expect(tabEvent.defaultPrevented).toBe(true);
+    expect(textarea!.value).toBe("item");
+    expect(textarea!.selectionStart).toBe("item".length);
+    expect(textarea!.selectionEnd).toBe("item".length);
+    expect(changes).toEqual([["2030-02-01", "item"]]);
+
+    dispose();
+  });
+
   it("decreases and increases heading depth with tab and shift-tab", () => {
     const host = document.createElement("div");
     document.body.append(host);

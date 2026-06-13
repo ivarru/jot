@@ -55,7 +55,7 @@ export function dateToFilename(date: IsoDate): `${IsoDate}.md` {
 
 export function dayOfWeek(date: IsoDate, locale = undefined as string | undefined): string {
   const [year, month, day] = splitIsoDate(date).map(Number) as [number, number, number];
-  return new Intl.DateTimeFormat(locale, { weekday: "long" }).format(new Date(year, month - 1, day));
+  return new Intl.DateTimeFormat(locale, { weekday: "short" }).format(new Date(year, month - 1, day));
 }
 
 export function isToday(date: IsoDate, now = new Date()): boolean {

@@ -89,10 +89,10 @@ try {
     await waitForExpression(cdp, "document.readyState === 'complete'");
 
     await clickButton(cdp, "Use development storage");
-    await waitForExpression(cdp, "document.body.textContent.includes('Local only') || document.body.textContent.includes('Synced')");
+    await waitForExpression(cdp, "document.querySelector('.sync-status[aria-label*=\"Local only\"], .sync-status[aria-label*=\"Synced\"]') !== null");
     await seedConflictState(cdp);
     await cdp.send("Page.navigate", { url: new URL(`#/date/${date}`, baseUrl).href });
-    await waitForExpression(cdp, "document.body.textContent.includes('Saved locally')");
+    await waitForExpression(cdp, "document.querySelector('.sync-status[aria-label*=\"Saved locally\"]') !== null");
 
     await clickButton(cdp, "Saved locally");
     await waitForExpression(cdp, "document.body.textContent.includes('Sync conflict')");

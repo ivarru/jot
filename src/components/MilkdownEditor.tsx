@@ -18,6 +18,12 @@ import {
   type InlineMarkFormat
 } from "~/editor/inlineFormatting";
 import {
+  inactiveListItemFormatState,
+  markdownListItemFormatState,
+  toggleMarkdownTaskListItem,
+  type ListItemFormatState
+} from "~/editor/listFormatting";
+import {
   markdownSourceOffsetToRenderedOffset,
   renderedOffsetToMarkdownSourceOffset
 } from "~/editor/markdownCursor";
@@ -45,6 +51,7 @@ interface MilkdownEditorProps {
   readonly onHistoryAvailabilityChange?: (availability: EditorHistoryAvailability) => void;
   readonly onInlineFormatStateChange?: (state: InlineFormatState) => void;
   readonly onBlockFormatStateChange?: (state: BlockFormatState) => void;
+  readonly onListItemFormatStateChange?: (state: ListItemFormatState) => void;
   readonly onPasteImage?: (documentKey: string, file: File) => void;
 }
 
@@ -55,6 +62,7 @@ interface MilkdownEditorSession {
   readonly getBlockFormatState: () => BlockFormatState;
   readonly getHistoryAvailability: () => EditorHistoryAvailability;
   readonly getInlineFormatState: () => InlineFormatState;
+  readonly getListItemFormatState: () => ListItemFormatState;
   readonly getSelection: () => MarkdownSelection | null;
   readonly getMarkdown: () => string;
   readonly focus: (placement: FocusPlacement, onFocusApplied?: () => void) => void;
@@ -63,6 +71,7 @@ interface MilkdownEditorSession {
   readonly toggleBlockQuoteAtSelection: (selection?: MarkdownSelection) => boolean;
   readonly toggleInlineCodeAtSelection: () => boolean;
   readonly toggleInlineMarkAtSelection: (format: InlineMarkFormat) => boolean;
+  readonly toggleTaskListItemAtSelection: (selection?: MarkdownSelection) => boolean;
   readonly undo: () => boolean;
 }
 
@@ -87,11 +96,13 @@ export interface MilkdownEditorController {
   readonly getBlockFormatState: () => BlockFormatState;
   readonly getHistoryAvailability: () => EditorHistoryAvailability;
   readonly getInlineFormatState: () => InlineFormatState;
+  readonly getListItemFormatState: () => ListItemFormatState;
   readonly getSelection: () => MarkdownSelection | null;
   readonly redo: () => boolean;
   readonly toggleBlockQuoteAtSelection: (selection?: MarkdownSelection) => boolean;
   readonly toggleInlineCodeAtSelection: () => boolean;
   readonly toggleInlineMarkAtSelection: (format: InlineMarkFormat) => boolean;
+  readonly toggleTaskListItemAtSelection: (selection?: MarkdownSelection) => boolean;
   readonly undo: () => boolean;
 }
 
@@ -172,7 +183,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         let disposed = false;
         let editor: MilkdownEditorInstance | null = null;
         let session: MilkdownEditorSession | null = null;
-        let lastPointerBlockQuoteSelection: MarkdownSelection | null = null;
+        let lastPointerMarkdownSelection: MarkdownSelection | null = null;
         let removeRootListeners: (() => void) | null = null;
         onCleanup(() => {
           disposed = true;
@@ -246,6 +257,16 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           milkdownBlockFormatState(view, editor?.ctx ?? null, {
             quote: blockquoteSchema
           });
+        const listItemFormatState = (view: EditorView): ListItemFormatState => {
+          if (editor === null) return inactiveListItemFormatState;
+          const selection = editorSelectionToMarkdownSourceSelection(
+            markdownState.currentMarkdown,
+            view.state.selection,
+            view,
+            editor.ctx.get(serializerCtx)
+          );
+          return markdownListItemFormatState(markdownState.currentMarkdown, selection);
+        };
         const notifyHistoryAvailability = (view: EditorView) => {
           props.onHistoryAvailabilityChange?.(historyAvailability(view));
         };
@@ -254,6 +275,9 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         };
         const notifyBlockFormatState = (view: EditorView) => {
           props.onBlockFormatStateChange?.(blockFormatState(view));
+        };
+        const notifyListItemFormatState = (view: EditorView) => {
+          props.onListItemFormatStateChange?.(listItemFormatState(view));
         };
         const inlineFormatStateTracker = $prose((ctx) => new Plugin({
           view: (view) => {
@@ -287,6 +311,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             props.onBlockFormatStateChange?.(milkdownBlockFormatState(view, ctx, {
               quote: blockquoteSchema
             }));
+            props.onListItemFormatStateChange?.(listItemFormatState(view));
 
             return {
               update: (updatedView, previousState) => {
@@ -300,6 +325,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 props.onBlockFormatStateChange?.(milkdownBlockFormatState(updatedView, ctx, {
                   quote: blockquoteSchema
                 }));
+                props.onListItemFormatStateChange?.(listItemFormatState(updatedView));
               }
             };
           }
@@ -308,7 +334,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           props: {
             handleDOMEvents: {
               pointerdown: (view, event) => {
-                lastPointerBlockQuoteSelection = pointerEventMarkdownSelection(
+                lastPointerMarkdownSelection = pointerEventMarkdownSelection(
                   markdownState.currentMarkdown,
                   event,
                   view,
@@ -317,7 +343,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 return false;
               },
               keydown: () => {
-                lastPointerBlockQuoteSelection = null;
+                lastPointerMarkdownSelection = null;
                 return false;
               }
             }
@@ -449,6 +475,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               if (disposed || activeSession !== session || editor === null) return inactiveInlineFormatState;
               return inlineFormatState(editor.ctx.get(editorViewCtx));
             },
+            getListItemFormatState: () => {
+              if (disposed || activeSession !== session || editor === null) return inactiveListItemFormatState;
+              return listItemFormatState(editor.ctx.get(editorViewCtx));
+            },
             getSelection: () => {
               if (disposed || activeSession !== session || editor === null) return null;
               const view = editor.ctx.get(editorViewCtx);
@@ -477,6 +507,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               if (applied) notifyHistoryAvailability(view);
               notifyInlineFormatState(view);
               notifyBlockFormatState(view);
+              notifyListItemFormatState(view);
               return applied;
             },
             setReadOnly: (readOnly) => {
@@ -499,12 +530,12 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 view,
                 serializer
               );
-              const blockQuoteSelection = blockQuoteSelectionWithPointerFallback(
+              const blockQuoteSelection = selectionWithPointerFallback(
                 markdownState.currentMarkdown,
                 sourceSelection,
-                lastPointerBlockQuoteSelection
+                lastPointerMarkdownSelection
               );
-              lastPointerBlockQuoteSelection = null;
+              lastPointerMarkdownSelection = null;
               const result = toggleMarkdownBlockQuote(markdownState.currentMarkdown, blockQuoteSelection);
               if (result.markdown === markdownState.currentMarkdown) return false;
               const markedSelection = markdownWithSelectionMarkers(result.markdown, result.selection);
@@ -523,6 +554,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               props.onChange(documentKey, result.markdown);
               notifyHistoryAvailability(updatedView);
               notifyBlockFormatState(updatedView);
+              notifyListItemFormatState(updatedView);
               return true;
             },
             toggleInlineCodeAtSelection: () => {
@@ -544,6 +576,42 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               notifyInlineFormatState(view);
               return true;
             },
+            toggleTaskListItemAtSelection: (selection) => {
+              if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
+              const view = editor.ctx.get(editorViewCtx);
+              const serializer = editor.ctx.get(serializerCtx);
+              const sourceSelection = selection ?? editorSelectionToMarkdownSourceSelection(
+                markdownState.currentMarkdown,
+                view.state.selection,
+                view,
+                serializer
+              );
+              const listItemSelection = selectionWithPointerFallback(
+                markdownState.currentMarkdown,
+                sourceSelection,
+                lastPointerMarkdownSelection
+              );
+              lastPointerMarkdownSelection = null;
+              const result = toggleMarkdownTaskListItem(markdownState.currentMarkdown, listItemSelection);
+              if (result === null || result.markdown === markdownState.currentMarkdown) return false;
+              const markedSelection = markdownWithSelectionMarkers(result.markdown, result.selection);
+
+              editor.action((ctx) => {
+                replaceAll(markedSelection.markdown, false)(ctx);
+                const updatedView = ctx.get(editorViewCtx);
+                if (!restoreSelectionFromMarkers(updatedView, TextSelection, markedSelection)) {
+                  replaceAll(result.markdown, false)(ctx);
+                  placeSelectionAtMarkdownSourceSelection(updatedView, TextSelection, result.markdown, result.selection);
+                }
+                updatedView.focus();
+              });
+              const updatedView = editor.ctx.get(editorViewCtx);
+              trackMilkdownExternalMarkdown(markdownState, result.markdown, serializer(updatedView.state.doc));
+              props.onChange(documentKey, result.markdown);
+              notifyHistoryAvailability(updatedView);
+              notifyListItemFormatState(updatedView);
+              return true;
+            },
             undo: () => {
               if (disposed || activeSession !== session || editor === null) return false;
               const view = editor.ctx.get(editorViewCtx);
@@ -551,6 +619,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               if (applied) notifyHistoryAvailability(view);
               notifyInlineFormatState(view);
               notifyBlockFormatState(view);
+              notifyListItemFormatState(view);
               return applied;
             }
           };
@@ -566,16 +635,19 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             getBlockFormatState: () => session?.getBlockFormatState() ?? inactiveBlockFormatState,
             getHistoryAvailability: () => session?.getHistoryAvailability() ?? { canUndo: false, canRedo: false },
             getInlineFormatState: () => session?.getInlineFormatState() ?? inactiveInlineFormatState,
+            getListItemFormatState: () => session?.getListItemFormatState() ?? inactiveListItemFormatState,
             getSelection: () => session?.getSelection() ?? null,
             redo: () => session?.redo() ?? false,
             toggleBlockQuoteAtSelection: (selection) => session?.toggleBlockQuoteAtSelection(selection) ?? false,
             toggleInlineCodeAtSelection: () => session?.toggleInlineCodeAtSelection() ?? false,
             toggleInlineMarkAtSelection: (format) => session?.toggleInlineMarkAtSelection(format) ?? false,
+            toggleTaskListItemAtSelection: (selection) => session?.toggleTaskListItemAtSelection(selection) ?? false,
             undo: () => session?.undo() ?? false
           });
           props.onHistoryAvailabilityChange?.(session.getHistoryAvailability());
           props.onInlineFormatStateChange?.(session.getInlineFormatState());
           props.onBlockFormatStateChange?.(session.getBlockFormatState());
+          props.onListItemFormatStateChange?.(session.getListItemFormatState());
           session.setReadOnly(props.readOnly === true);
           if (props.value !== markdownState.currentMarkdown) {
             session.applyExternalMarkdown(props.value, false);
@@ -1007,7 +1079,7 @@ function firstTextDescendant(root: Element): Text | null {
   return null;
 }
 
-function blockQuoteSelectionWithPointerFallback(
+function selectionWithPointerFallback(
   markdown: string,
   selection: MarkdownSelection,
   pointerSelection: MarkdownSelection | null
@@ -1128,10 +1200,9 @@ function restoreSelectionFromMarkers(
 
   if (markers.endMarker === null) {
     const transaction = view.state.tr.delete(startPosition, startPosition + markers.startMarker.length);
-    const position = transaction.mapping.map(startPosition, -1);
     view.dispatch(
       transaction
-        .setSelection(textSelection.create(transaction.doc, position, position))
+        .setSelection(textSelection.create(transaction.doc, startPosition, startPosition))
         .scrollIntoView()
     );
     view.focus();

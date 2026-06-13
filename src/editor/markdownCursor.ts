@@ -178,7 +178,7 @@ function buildMarkdownCursorMapping(markdown: string): MarkdownCursorMapping {
     });
   };
   const showListItem = (node: ListItem) => {
-    showBlocks(node.children, "\n");
+    showBlocks(node.children, "\n\n");
   };
   const showFootnoteDefinition = (node: FootnoteDefinition) => {
     showBlocks(node.children, "\n\n");

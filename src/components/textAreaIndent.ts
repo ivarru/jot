@@ -188,7 +188,7 @@ function currentLine(markdown: string, offset: number): CurrentLine {
 }
 
 function listItemPrefix(lineText: string): ListItemPrefix | null {
-  const match = lineText.match(/^( *)(?:[*+-]|\d+[.)])([ \t]+|$)/);
+  const match = lineText.match(/^( *)(?:[*+-]|\d+[.)])(?:[ \t]+\[[ xX]\])?([ \t]+|$)/);
   if (match === null) return null;
   const indentation = match[1] ?? "";
   return {

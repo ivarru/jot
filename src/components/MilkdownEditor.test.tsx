@@ -827,6 +827,118 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("toggles the current nested WYSIWYG bullet into a task item", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getListItemFormatState!: () => { readonly task: boolean };
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+    let toggleTaskListItemAtSelection!: () => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value={"* parent\n  * child\n* after"}
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getListItemFormatState = nextController.getListItemFormatState;
+              getSelection = nextController.getSelection;
+              toggleTaskListItemAtSelection = nextController.toggleTaskListItemAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      const cursor = "* parent\n  * chi".length;
+      setSelection({ start: cursor, end: cursor });
+      await animationFrame();
+      await animationFrame();
+
+      expect(getListItemFormatState()).toEqual({ task: false });
+      expect(toggleTaskListItemAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("* parent\n  * [ ] child\n* after");
+      expect(getSelection()).toEqual({
+        start: "* parent\n  * [ ] chi".length,
+        end: "* parent\n  * [ ] chi".length
+      });
+      expect(getListItemFormatState()).toEqual({ task: true });
+    } finally {
+      dispose();
+    }
+  });
+
+  it("removes an existing checked task marker through the WYSIWYG controller", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+    let toggleTaskListItemAtSelection!: () => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value={"* parent\n  * [x] child\n* after"}
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getSelection = nextController.getSelection;
+              toggleTaskListItemAtSelection = nextController.toggleTaskListItemAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      setSelection({
+        start: "* parent\n  * [x] ".length,
+        end: "* parent\n  * [x] child".length
+      });
+      await animationFrame();
+      await animationFrame();
+
+      expect(toggleTaskListItemAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("* parent\n  * child\n* after");
+      expect(getSelection()).toEqual({
+        start: "* parent\n  * ".length,
+        end: "* parent\n  * child".length
+      });
+    } finally {
+      dispose();
+    }
+  });
+
   it("keeps a boundary space outside code after toggling collapsed inline-code and typing", async () => {
     const editor = await createMilkdownTestEditor("");
 
@@ -943,6 +1055,29 @@ describe("MilkdownEditor", () => {
       )).toEqual({
         start: markdown.indexOf("one") + "one".length,
         end: markdown.indexOf("one") + "one".length
+      });
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("maps a WYSIWYG task-list cursor through Milkdown serialization to the raw Markdown range", async () => {
+    const markdown = "* parent\n  * [ ] child\n* after";
+    const editor = await createMilkdownTestEditor(markdown);
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const position = findTextNodePosition(view.state.doc, "child")! + "chi".length;
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, position)));
+
+      expect(editorSelectionToMarkdownSourceSelection(
+        markdown,
+        view.state.selection,
+        view,
+        editor.ctx.get(serializerCtx)
+      )).toEqual({
+        start: "* parent\n  * [ ] chi".length,
+        end: "* parent\n  * [ ] chi".length
       });
     } finally {
       await editor.destroy();

@@ -18,6 +18,23 @@ describe("markdown cursor mapping", () => {
     expect(renderedOffsetToMarkdownSourceOffset(markdown, "first\n\nsecond".length)).toBe(markdown.length);
   });
 
+  it("maps task list checkbox markers as hidden syntax", () => {
+    const markdown = "- [ ] first\n  - [x] second";
+
+    expect(markdownSourceOffsetToRenderedOffset(markdown, markdown.indexOf("second"))).toBe("first\n\n".length);
+    expect(renderedOffsetToMarkdownSourceOffset(markdown, "first\n\nsec".length)).toBe(
+      markdown.indexOf("second") + "sec".length
+    );
+  });
+
+  it("maps rendered task list content back after hidden checkbox markers", () => {
+    const markdown = "* parent\n  * [ ] child\n* after";
+
+    expect(renderedOffsetToMarkdownSourceOffset(markdown, "parent\n\nchi".length)).toBe(
+      "* parent\n  * [ ] chi".length
+    );
+  });
+
   it("does not accumulate list item cursor drift across long lists", () => {
     const items = Array.from({ length: 12 }, (_item, index) => `- item ${index + 1}`);
     const markdown = items.join("\n");

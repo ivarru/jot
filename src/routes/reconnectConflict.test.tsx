@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import type { IsoDate } from "~/domain/dates";
+import { todayIsoDate, type IsoDate } from "~/domain/dates";
 import type { LocalDraft, SaveDailyNoteInput } from "~/storage/types";
 import Home from "./index";
 
@@ -47,6 +47,8 @@ const testState = vi.hoisted(() => ({
   inlineMarkToggleInputs: [] as Array<"italic" | "bold">,
   blockQuoteToggleCount: 0,
   blockQuoteToggleSelections: [] as Array<{ readonly start: number; readonly end: number } | undefined>,
+  taskListItemToggleCount: 0,
+  taskListItemToggleSelections: [] as Array<{ readonly start: number; readonly end: number } | undefined>,
   focusSelectionApplyCount: 0
 }));
 
@@ -77,16 +79,19 @@ vi.mock("~/components/MilkdownEditor", async () => {
       readonly getHistoryAvailability: () => { readonly canUndo: boolean; readonly canRedo: boolean };
       readonly getInlineFormatState: () => { readonly italic: boolean; readonly bold: boolean; readonly code: boolean };
       readonly getBlockFormatState: () => { readonly quote: boolean };
+      readonly getListItemFormatState: () => { readonly task: boolean };
       readonly getSelection: () => { readonly start: number; readonly end: number } | null;
       readonly redo: () => boolean;
       readonly toggleBlockQuoteAtSelection: (selection?: { readonly start: number; readonly end: number }) => boolean;
       readonly toggleInlineCodeAtSelection: () => boolean;
       readonly toggleInlineMarkAtSelection: (format: "italic" | "bold") => boolean;
+      readonly toggleTaskListItemAtSelection: (selection?: { readonly start: number; readonly end: number }) => boolean;
       readonly undo: () => boolean;
     } | null) => void;
     readonly onHistoryAvailabilityChange?: (availability: { readonly canUndo: boolean; readonly canRedo: boolean }) => void;
     readonly onInlineFormatStateChange?: (state: { readonly italic: boolean; readonly bold: boolean; readonly code: boolean }) => void;
     readonly onBlockFormatStateChange?: (state: { readonly quote: boolean }) => void;
+    readonly onListItemFormatStateChange?: (state: { readonly task: boolean }) => void;
   }) => {
     let textarea: HTMLTextAreaElement | undefined;
     let present = props.value;
@@ -100,12 +105,16 @@ vi.mock("~/components/MilkdownEditor", async () => {
     const blockFormatState = {
       quote: false
     };
+    const listItemFormatState = {
+      task: false
+    };
     const historyAvailability = () => ({
       canUndo: past.length > 0,
       canRedo: future.length > 0
     });
     const reportInlineFormatState = () => props.onInlineFormatStateChange?.({ ...inlineFormatState });
     const reportBlockFormatState = () => props.onBlockFormatStateChange?.({ ...blockFormatState });
+    const reportListItemFormatState = () => props.onListItemFormatStateChange?.({ ...listItemFormatState });
     const reportHistoryAvailability = () => props.onHistoryAvailabilityChange?.(historyAvailability());
     const controllerSerializedMarkdown = (markdown: string) => markdown.endsWith(" ") ? `${markdown.trimEnd()}\n` : markdown;
 
@@ -184,6 +193,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
       getBlockFormatState: () => ({ ...blockFormatState }),
       getHistoryAvailability: historyAvailability,
       getInlineFormatState: () => ({ ...inlineFormatState }),
+      getListItemFormatState: () => ({ ...listItemFormatState }),
       getSelection: () =>
         textarea === undefined || !testState.wysiwygSelectionAvailable
           ? null
@@ -225,11 +235,20 @@ vi.mock("~/components/MilkdownEditor", async () => {
         textarea?.focus();
         return true;
       },
+      toggleTaskListItemAtSelection: (selection) => {
+        testState.taskListItemToggleCount += 1;
+        testState.taskListItemToggleSelections.push(selection);
+        listItemFormatState.task = !listItemFormatState.task;
+        reportListItemFormatState();
+        textarea?.focus();
+        return true;
+      },
       undo
     });
     reportHistoryAvailability();
     reportInlineFormatState();
     reportBlockFormatState();
+    reportListItemFormatState();
 
     createEffect(() => {
       const value = props.value;
@@ -435,6 +454,8 @@ describe("Home reconnect and conflict handling", () => {
     testState.inlineMarkToggleInputs = [];
     testState.blockQuoteToggleCount = 0;
     testState.blockQuoteToggleSelections = [];
+    testState.taskListItemToggleCount = 0;
+    testState.taskListItemToggleSelections = [];
     testState.focusSelectionApplyCount = 0;
     window.location.hash = "#/date/2030-02-02";
     localStorage.setItem("jot.fakeAuth", "true");
@@ -779,6 +800,37 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("passes the captured WYSIWYG selection to the task checkbox controller", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "* abc",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    const checkboxButton = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle task checkbox']");
+    expect(editor).not.toBeNull();
+    expect(checkboxButton).not.toBeNull();
+
+    editor!.setSelectionRange("* ".length, "* abc".length);
+    expect(checkboxButton!.dispatchEvent(pointerDownEvent())).toBe(false);
+    editor!.setSelectionRange(0, 0);
+    checkboxButton!.click();
+    await settle();
+
+    expect(testState.taskListItemToggleCount).toBe(1);
+    expect(testState.taskListItemToggleSelections).toEqual([{ start: "* ".length, end: "* abc".length }]);
+    expect(checkboxButton!.getAttribute("aria-pressed")).toBe("true");
+
+    dispose();
+  });
+
   it("prevents pointer focus transfer from formatting toolbar buttons", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
@@ -800,6 +852,7 @@ describe("Home reconnect and conflict handling", () => {
       "Toggle italic format",
       "Toggle bold format",
       "Toggle block quote format",
+      "Toggle task checkbox",
       "Toggle code format",
       "Toggle link format"
     ]) {
@@ -909,6 +962,39 @@ describe("Home reconnect and conflict handling", () => {
     expect(editor!.selectionStart).toBe(0);
     expect(editor!.selectionEnd).toBe("first\nsecond".length);
     expect(toggle!.getAttribute("aria-pressed")).toBe("false");
+
+    dispose();
+  });
+
+  it("toggles a nested raw bullet into a task checkbox item", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "* parent\n  * child\n* after",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    rawModeButton(host).click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle task checkbox']");
+    expect(editor).not.toBeNull();
+    expect(toggle).not.toBeNull();
+    editor!.setSelectionRange("* parent\n  * chi".length, "* parent\n  * chi".length);
+
+    toggle!.click();
+    await settle();
+
+    expect(editor!.value).toBe("* parent\n  * [ ] child\n* after");
+    expect(editor!.selectionStart).toBe("* parent\n  * [ ] chi".length);
+    expect(editor!.selectionEnd).toBe("* parent\n  * [ ] chi".length);
+    expect(toggle!.getAttribute("aria-pressed")).toBe("true");
 
     dispose();
   });
@@ -1152,10 +1238,22 @@ describe("Home reconnect and conflict handling", () => {
 
     expect(editor!.value).toBe("before");
 
+    editor!.value = "* [ ] Item";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    editor!.setSelectionRange("* [ ] Item".length, "* [ ] Item".length);
+    host.querySelector<HTMLButtonElement>("button[aria-label='Dedent']")!.click();
+    await settle();
+
+    expect(editor!.value).toBe("Item");
+    expect(editor!.selectionStart).toBe("Item".length);
+    expect(editor!.selectionEnd).toBe("Item".length);
+
     dispose();
   });
 
-  it("orders toolbar buttons and places raw mode after the today pill", async () => {
+  it("orders toolbar buttons and places raw mode after the today button", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
       markdown: "",
@@ -1176,6 +1274,7 @@ describe("Home reconnect and conflict handling", () => {
       "Undo",
       "Redo",
       "Indent",
+      "Toggle task checkbox",
       "Dedent",
       "Toggle italic format",
       "Toggle bold format",
@@ -1184,11 +1283,59 @@ describe("Home reconnect and conflict handling", () => {
       "Toggle link format",
       "Insert image"
     ]);
-    expect(Array.from(host.querySelectorAll(".date-context-row button")).map((element) => element.textContent)).toEqual([
-      "Not today",
-      "R"
+    const dateContextLabels = Array.from(host.querySelectorAll(".date-context-row button")).map((element) =>
+      element.getAttribute("aria-label")
+    );
+    expect(dateContextLabels).toEqual([
+      `Jump to today, ${todayIsoDate()}`,
+      "Toggle raw Markdown"
     ]);
+    expect(host.querySelector<HTMLButtonElement>(`button[aria-label='Jump to today, ${todayIsoDate()}']`)!.disabled).toBe(false);
     expect(rawModeButton(host).title).toBe("Toggle raw Markdown (Ctrl/Cmd+Shift+M)");
+
+    dispose();
+  });
+
+  it("disables the today button at today's date", async () => {
+    const today = todayIsoDate();
+    testState.remoteNote = {
+      date: today,
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    window.location.hash = `#/date/${today}`;
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const todayButton = host.querySelector<HTMLButtonElement>("button[aria-label='Selected date is today']");
+    expect(todayButton).not.toBeNull();
+    expect(todayButton!.disabled).toBe(true);
+
+    dispose();
+  });
+
+  it("renders sync status as an accessible colored circle", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const sync = host.querySelector<HTMLButtonElement>(".sync-status");
+    expect(sync).not.toBeNull();
+    expect(sync!.textContent).toBe("");
+    expect(sync!.getAttribute("aria-label")).toContain("Synced");
+    expect(sync!.classList.contains("sync-status-remote")).toBe(true);
 
     dispose();
   });
@@ -1905,7 +2052,9 @@ function dialog(host: ParentNode, title: string): Element | null {
 }
 
 function button(host: ParentNode, label: string): HTMLButtonElement | null {
-  return Array.from(host.querySelectorAll("button")).find((element) => element.textContent === label) ?? null;
+  return Array.from(host.querySelectorAll("button")).find((element) =>
+    element.textContent === label || element.getAttribute("aria-label")?.includes(label)
+  ) ?? null;
 }
 
 function clickButton(host: ParentNode, label: string): void {

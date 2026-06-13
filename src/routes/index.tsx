@@ -71,6 +71,12 @@ import {
   type InlineFormatState,
   type InlineMarkFormat
 } from "~/editor/inlineFormatting";
+import {
+  inactiveListItemFormatState,
+  markdownListItemFormatState,
+  toggleMarkdownTaskListItem,
+  type ListItemFormatState
+} from "~/editor/listFormatting";
 import { toggleLinkAtCursor } from "~/editor/linkToggle";
 import type { MarkdownSelection } from "~/editor/markdownSelection";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
@@ -197,6 +203,7 @@ export default function Home() {
   });
   const [inlineFormatState, setInlineFormatState] = createSignal<InlineFormatState>(inactiveInlineFormatState);
   const [blockFormatState, setBlockFormatState] = createSignal<BlockFormatState>(inactiveBlockFormatState);
+  const [listItemFormatState, setListItemFormatState] = createSignal<ListItemFormatState>(inactiveListItemFormatState);
   const [imageAttachmentStatus, setImageAttachmentStatus] = createSignal<ImageAttachmentStatus>("idle");
   const [imageAttachmentError, setImageAttachmentError] = createSignal<string | null>(null);
   const [imageAttachmentDate, setImageAttachmentDate] = createSignal<IsoDate | null>(null);
@@ -1099,9 +1106,21 @@ export default function Home() {
     return milkdownController?.getBlockFormatState() ?? markdownBlockFormatState(markdown(), selection);
   };
 
+  const currentListItemFormatState = (): ListItemFormatState => {
+    const selection = currentEditorSelection();
+    if (selection === null) return inactiveListItemFormatState;
+
+    if (editorMode() === "text") {
+      return markdownListItemFormatState(plainTextEditorElement?.value ?? markdown(), selection);
+    }
+
+    return milkdownController?.getListItemFormatState() ?? markdownListItemFormatState(markdown(), selection);
+  };
+
   const refreshEditorFormatState = () => {
     setInlineFormatState(currentInlineFormatState());
     setBlockFormatState(currentBlockFormatState());
+    setListItemFormatState(currentListItemFormatState());
   };
 
   const handleEditorSelectionChange = () => {
@@ -1131,11 +1150,21 @@ export default function Home() {
   };
 
   const handleMilkdownInlineFormatStateChange = (state: InlineFormatState) => {
-    if (editorMode() === "wysiwyg") setInlineFormatState(state);
+    if (editorMode() === "wysiwyg") {
+      setInlineFormatState(state);
+      setListItemFormatState(currentListItemFormatState());
+    }
   };
 
   const handleMilkdownBlockFormatStateChange = (state: BlockFormatState) => {
-    if (editorMode() === "wysiwyg") setBlockFormatState(state);
+    if (editorMode() === "wysiwyg") {
+      setBlockFormatState(state);
+      setListItemFormatState(currentListItemFormatState());
+    }
+  };
+
+  const handleMilkdownListItemFormatStateChange = (state: ListItemFormatState) => {
+    if (editorMode() === "wysiwyg") setListItemFormatState(state);
   };
 
   createEffect(
@@ -1258,6 +1287,28 @@ export default function Home() {
     const result = toggleMarkdownBlockQuote(sourceMarkdown, selection);
     applyUndoableMarkdownTransform(date, result.markdown, result.selection);
     setBlockFormatState(markdownBlockFormatState(result.markdown, result.selection));
+  };
+
+  const toggleTaskListItemAtSelection = () => {
+    const selection = takeFormattingToolbarSelection();
+    const date = selectedDate();
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
+
+    if (selection === null) return;
+    if (editorMode() === "wysiwyg") {
+      if (milkdownController?.toggleTaskListItemAtSelection(selection) !== true) return;
+      setEditorHistoryAvailability(milkdownController.getHistoryAvailability());
+      setListItemFormatState(milkdownController.getListItemFormatState());
+      return;
+    }
+
+    const sourceMarkdown = editorMode() === "text" && plainTextEditorElement !== null
+      ? plainTextEditorElement.value
+      : markdown();
+    const result = toggleMarkdownTaskListItem(sourceMarkdown, selection);
+    if (result === null) return;
+    applyUndoableMarkdownTransform(date, result.markdown, result.selection);
+    setListItemFormatState(markdownListItemFormatState(result.markdown, result.selection));
   };
 
   const applyUndoableMarkdownTransform = (date: IsoDate, nextMarkdown: string, selection: MarkdownSelection) => {
@@ -2033,13 +2084,13 @@ export default function Home() {
                 <span class="weekday-label">{weekday()}</span>
                 <button
                   type="button"
-                  class={`today-jump-button ${selectedIsToday() ? "is-today" : ""}`}
-                  onClick={() => {
-                    if (!selectedIsToday()) void navigateToDate(today());
-                  }}
+                  class="icon-button today-jump-button"
+                  disabled={selectedIsToday()}
+                  onClick={() => void navigateToDate(today())}
                   aria-label={selectedIsToday() ? "Selected date is today" : `Jump to today, ${today()}`}
+                  title={selectedIsToday() ? "Today" : `Jump to today (${today()})`}
                 >
-                  {selectedIsToday() ? "Today" : "Not today"}
+                  <TodayIcon />
                 </button>
                 <button
                   type="button"
@@ -2101,6 +2152,19 @@ export default function Home() {
                 onClick={() => applyStructuralTabShortcut(false)}
               >
                 <IndentIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button format-toggle-button"
+                classList={{ "is-active": listItemFormatState().task }}
+                aria-label="Toggle task checkbox"
+                aria-pressed={listItemFormatState().task}
+                title="Toggle task checkbox"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onPointerDown={preserveFormattingToolbarSelection}
+                onClick={toggleTaskListItemAtSelection}
+              >
+                <TaskCheckboxFormatIcon />
               </button>
               <button
                 type="button"
@@ -2242,14 +2306,12 @@ export default function Home() {
             <div class="toolbar-column toolbar-status-column">
               <button
                 type="button"
-                class={`sync-status sync-${syncStatus()}`}
-                aria-label="Force synchronization"
-                title="Force synchronization"
+                class={`sync-status ${syncStatusClass(syncStatus())}`}
+                aria-label={`Sync status: ${syncStatusLabel(syncStatus())}. Force synchronization`}
+                title={`Sync status: ${syncStatusLabel(syncStatus())}. Force synchronization`}
                 disabled={!selectedDateDriveSync.canSyncSelectedDateOnDemand()}
                 onClick={() => void selectedDateDriveSync.syncSelectedDateOnDemand()}
-              >
-                {syncStatusLabel(syncStatus())}
-              </button>
+              />
               <Show when={syncDelayed()}>
                 <span
                   class="sync-delay-warning"
@@ -2691,6 +2753,7 @@ export default function Home() {
                   onHistoryAvailabilityChange={handleMilkdownHistoryAvailabilityChange}
                   onInlineFormatStateChange={handleMilkdownInlineFormatStateChange}
                   onBlockFormatStateChange={handleMilkdownBlockFormatStateChange}
+                  onListItemFormatStateChange={handleMilkdownListItemFormatStateChange}
                   onPasteImage={handleEditorImagePaste}
                 />
               </div>
@@ -2779,6 +2842,22 @@ function syncStatusLabel(status: SyncStatus): string {
       return "Conflict";
     case "error":
       return "Sync error";
+  }
+}
+
+function syncStatusClass(status: SyncStatus): string {
+  switch (status) {
+    case "synced":
+      return "sync-status-remote";
+    case "local-only":
+    case "saved-locally":
+      return "sync-status-local";
+    case "syncing":
+    case "offline":
+    case "auth-required":
+    case "conflict":
+    case "error":
+      return "sync-status-alert";
   }
 }
 
@@ -2938,6 +3017,29 @@ function LinkFormatIcon() {
   );
 }
 
+function TodayIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <rect x="4" y="5" width="16" height="15" rx="2" />
+      <path d="M8 3v4" />
+      <path d="M16 3v4" />
+      <path d="M4 10h16" />
+      <path d="M12 14h.01" />
+      <path d="M12 17h.01" />
+    </svg>
+  );
+}
+
 function ItalicFormatIcon() {
   return <span class="format-letter format-letter-italic" aria-hidden="true">I</span>;
 }
@@ -2948,6 +3050,14 @@ function BoldFormatIcon() {
 
 function QuoteFormatIcon() {
   return <span class="format-letter" aria-hidden="true">"</span>;
+}
+
+function TaskCheckboxFormatIcon() {
+  return (
+    <span class="task-checkbox-format-icon" aria-hidden="true">
+      <span />
+    </span>
+  );
 }
 
 function CodeFormatIcon() {
