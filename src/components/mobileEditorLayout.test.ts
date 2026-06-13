@@ -17,11 +17,50 @@ describe("mobile editor layout styles", () => {
     expect(mobileStyles()).not.toMatch(/max-height:\s*var\(--editor-default-height\)/);
   });
 
+  it("keeps the sync status and compact menu at a stable shared size when stacked", () => {
+    expect(styles).toContain("--toolbar-compact-button-width: 38px;");
+    expect(mobileStyles()).not.toContain("--toolbar-compact-button-width:");
+    expect(blockFor(".sync-status")).toContain("width: var(--toolbar-compact-button-width);");
+    expect(blockFor(".sync-status")).toContain("height: var(--toolbar-compact-button-width);");
+    expect(blockIncluding(".icon-button.icon-menu-button")).toContain("width: var(--toolbar-compact-button-width);");
+    expect(blockIncluding(".icon-button.icon-menu-button")).toContain("height: var(--toolbar-compact-button-width);");
+    expect(blockIncluding(".toolbar-status-column .top-menu > .icon-button")).toContain(
+      "width: var(--toolbar-compact-button-width);"
+    );
+    expect(blockIncluding(".toolbar-status-column .top-menu > .icon-button")).toContain(
+      "height: var(--toolbar-compact-button-width);"
+    );
+  });
+
   function mobileStyles(): string {
     const start = styles.indexOf("@media (max-width: 720px)");
     const end = styles.indexOf("@media (max-width: 560px)");
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     return styles.slice(start, end);
+  }
+
+  function blockFor(selector: string): string {
+    const start = styles.startsWith(`${selector} {`)
+      ? 0
+      : lineStartFor(selector);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = styles.indexOf("}", start);
+    expect(end).toBeGreaterThan(start);
+    return styles.slice(start, end + 1);
+  }
+
+  function lineStartFor(selector: string): number {
+    const index = styles.indexOf(`\n${selector} {`);
+    return index === -1 ? -1 : index + 1;
+  }
+
+  function blockIncluding(selector: string): string {
+    for (const match of styles.matchAll(/(^|\n)([^{}]+)\s\{[^{}]*\}/g)) {
+      const selectorText = match[2] ?? "";
+      const selectors = selectorText.split(",").map((part) => part.trim());
+      if (selectors.includes(selector)) return match[0] ?? "";
+    }
+    throw new Error(`CSS block not found for selector: ${selector}`);
   }
 });

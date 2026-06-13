@@ -478,11 +478,17 @@ select {
   place-items: center;
 }
 
-.icon-menu-button {
-  grid-template-columns: 18px 7px;
-  column-gap: 2px;
+.icon-button.icon-menu-button,
+.toolbar-status-column .top-menu > .icon-button {
   width: var(--toolbar-compact-button-width);
   min-width: var(--toolbar-compact-button-width);
+  height: var(--toolbar-compact-button-width);
+  min-height: var(--toolbar-compact-button-width);
+}
+
+.icon-button.icon-menu-button {
+  grid-template-columns: 18px 7px;
+  column-gap: 2px;
   place-content: center;
 }
 
@@ -1073,7 +1079,6 @@ select {
     --editor-default-height: 50dvh;
     --editor-padding: 16px;
     --editor-vertical-padding: 32px;
-    --toolbar-compact-button-width: 28px;
   }
 
   .app {
