@@ -585,6 +585,224 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("inserts a Daily Note section link at the preserved WYSIWYG selection", async () => {
+    testState.drafts.set("2030-02-01", draft("2030-02-01", "# Decisions\n\nBody"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.value = "See that decision";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    editor!.setSelectionRange("See ".length, "See that decision".length);
+
+    const insertButton = host.querySelector<HTMLButtonElement>("button[aria-label='Insert Daily Note section link']");
+    expect(insertButton).not.toBeNull();
+    insertButton!.dispatchEvent(pointerDownEvent());
+    insertButton!.click();
+    await settle();
+
+    await waitFor(() => expect(sectionLinkDateButton(host, "2030-02-01").classList.contains("has-note")).toBe(true));
+    sectionLinkDateButton(host, "2030-02-01").click();
+    await settle();
+
+    sectionHeadingButton(host, "Decisions").click();
+    await settle();
+
+    expect(editor!.value).toBe("See [that decision](#/date/2030-02-01#decisions)");
+
+    dispose();
+  });
+
+  it("disables Daily Note section link insertion when the raw selection overlaps a link or code", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "See [decision](#/date/2030-02-01#decisions), `code`, and plain text.",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    rawModeButton(host).click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    const insertButton = host.querySelector<HTMLButtonElement>("button[aria-label='Insert Daily Note section link']");
+    expect(editor).not.toBeNull();
+    expect(insertButton).not.toBeNull();
+
+    setRawSelection(editor!, editor!.value.indexOf("plain"), editor!.value.indexOf("plain"));
+    await waitFor(() => expect(insertButton!.disabled).toBe(false));
+
+    setRawSelection(editor!, editor!.value.indexOf("decision"), editor!.value.indexOf("decision"));
+    await waitFor(() => expect(insertButton!.disabled).toBe(true));
+
+    setRawSelection(editor!, editor!.value.indexOf("`code`") + 1, editor!.value.indexOf("`code`") + 1);
+    await waitFor(() => expect(insertButton!.disabled).toBe(true));
+
+    setRawSelection(editor!, editor!.value.indexOf("See "), editor!.value.indexOf("decision") + "decision".length);
+    await waitFor(() => expect(insertButton!.disabled).toBe(true));
+
+    dispose();
+  });
+
+  it("inserts a relative section link when the target heading is in the same Daily Note", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "# Decisions\n\nSee that decision",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange("# Decisions\n\nSee ".length, "# Decisions\n\nSee that decision".length);
+
+    const insertButton = host.querySelector<HTMLButtonElement>("button[aria-label='Insert Daily Note section link']");
+    expect(insertButton).not.toBeNull();
+    insertButton!.dispatchEvent(pointerDownEvent());
+    insertButton!.click();
+    await settle();
+
+    sectionHeadingButton(host, "Decisions").click();
+    await settle();
+
+    expect(editor!.value).toBe("# Decisions\n\nSee [that decision](#decisions)");
+
+    dispose();
+  });
+
+  it("does not insert a section link into a different selected date after a delayed heading load", async () => {
+    testState.delayedDraftLoad = delayedDraftLoad("2030-02-01", draft("2030-02-01", "# Decisions\n\nBody"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.value = "A source";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    editor!.setSelectionRange("A ".length, "A source".length);
+
+    const insertButton = host.querySelector<HTMLButtonElement>("button[aria-label='Insert Daily Note section link']");
+    expect(insertButton).not.toBeNull();
+    insertButton!.dispatchEvent(pointerDownEvent());
+    insertButton!.click();
+    await settle();
+
+    sectionLinkDateButton(host, "2030-02-01").click();
+    await testState.delayedDraftLoad.started.promise;
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Next day']")!.click();
+    await settle();
+    testState.delayedDraftLoad.finish.resolve();
+    await settle();
+
+    sectionHeadingButton(host, "Decisions").click();
+    await settle();
+
+    expect(host.textContent).toContain("The source Daily Note changed. Reopen the picker.");
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).not.toContain("#/date/2030-02-01#decisions");
+
+    dispose();
+  });
+
+  it("opens the internal section link under the raw editor cursor with Ctrl+Enter", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "See [decision](#/date/2030-02-01#decisions)",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    testState.drafts.set("2030-02-01", draft("2030-02-01", "# Decisions\n\nBody"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    rawModeButton(host).click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange("See [dec".length, "See [dec".length);
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Enter",
+      ctrlKey: true
+    });
+    editor!.dispatchEvent(event);
+    await waitFor(() => expect(window.location.hash).toBe("#/date/2030-02-01#decisions"));
+    let targetEditor!: HTMLTextAreaElement;
+    await waitFor(() => {
+      targetEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!;
+      expect(targetEditor.value).toBe("# Decisions\n\nBody");
+    });
+
+    expect(event.defaultPrevented).toBe(true);
+    await waitFor(() => {
+      expect(targetEditor.selectionStart).toBe("# ".length);
+      expect(targetEditor.selectionEnd).toBe("# Decisions".length);
+    });
+
+    dispose();
+  });
+
+  it("opens external links with app-route-looking hashes outside Jot", async () => {
+    const href = "https://example.com/#/date/2030-02-01#decisions";
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: `Read [external](${href})`,
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    try {
+      await settle();
+
+      rawModeButton(host).click();
+      await settle();
+
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+      expect(editor).not.toBeNull();
+      editor!.setSelectionRange("Read [external".length, "Read [external".length);
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "Enter",
+        ctrlKey: true
+      });
+      editor!.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(openSpy).toHaveBeenCalledWith(href, "_blank", "noopener,noreferrer");
+      expect(window.location.hash).toBe("#/date/2030-02-02");
+    } finally {
+      dispose();
+      openSpy.mockRestore();
+    }
+  });
+
   it("toggles code formatting at the WYSIWYG editor selection from the heading button", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
@@ -1281,6 +1499,7 @@ describe("Home reconnect and conflict handling", () => {
       "Toggle block quote format",
       "Toggle code format",
       "Toggle link format",
+      "Insert Daily Note section link",
       "Insert image"
     ]);
     const dateContextLabels = Array.from(host.querySelectorAll(".date-context-row button")).map((element) =>
@@ -2066,6 +2285,22 @@ function clickButton(host: ParentNode, label: string): void {
   element!.click();
 }
 
+function sectionHeadingButton(host: ParentNode, heading: string): HTMLButtonElement {
+  const element = Array.from(host.querySelectorAll<HTMLButtonElement>(".section-link-heading-button")).find((candidate) =>
+    candidate.textContent?.includes(heading)
+  );
+  expect(element).not.toBeNull();
+  return element!;
+}
+
+function sectionLinkDateButton(host: ParentNode, date: IsoDate): HTMLButtonElement {
+  const element = Array.from(host.querySelectorAll<HTMLButtonElement>(".section-link-date-picker .date-picker-day")).find((candidate) =>
+    candidate.getAttribute("aria-label")?.startsWith(date)
+  );
+  expect(element).not.toBeNull();
+  return element!;
+}
+
 function rawModeButton(host: ParentNode): HTMLButtonElement {
   const element = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle raw Markdown']");
   expect(element).not.toBeNull();
@@ -2093,6 +2328,11 @@ function pressRedo(editor: HTMLTextAreaElement): boolean {
   });
   editor.dispatchEvent(event);
   return event.defaultPrevented;
+}
+
+function setRawSelection(editor: HTMLTextAreaElement, start: number, end: number): void {
+  editor.setSelectionRange(start, end);
+  editor.dispatchEvent(new Event("select", { bubbles: true }));
 }
 
 function pointerDownEvent(): PointerEvent {

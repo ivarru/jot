@@ -2,13 +2,15 @@ import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { defaultValueCtx, Editor, editorViewCtx, serializerCtx } from "@milkdown/kit/core";
 import type { Node as ProseMirrorNode } from "@milkdown/kit/prose/model";
-import { TextSelection } from "@milkdown/kit/prose/state";
-import { commonmark, inlineCodeSchema } from "@milkdown/kit/preset/commonmark";
+import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
+import { commonmark, inlineCodeSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { toggleMark } from "@milkdown/kit/prose/commands";
+import { $prose } from "@milkdown/kit/utils";
 import {
   applyMilkdownUpdatedMarkdown,
   createMilkdownMarkdownSyncState,
+  createLinkBoundaryTypingPlugin,
   editorSelectionToMarkdownSourceSelection,
   MilkdownEditor,
   trackMilkdownExternalMarkdown,
@@ -778,6 +780,73 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("opens a rendered Markdown link through the app handler on plain click", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const opened: Array<readonly [string, string]> = [];
+
+    const dispose = render(
+      () => (
+        <MilkdownEditor
+          documentKey="2030-02-02"
+          value="See [decision](#/date/2030-02-01#decisions)"
+          onChange={() => undefined}
+          onBlur={() => undefined}
+          onOpenLink={(documentKey, href) => {
+            opened.push([documentKey, href]);
+            return true;
+          }}
+        />
+      ),
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      const link = host.querySelector<HTMLAnchorElement>("a[href='#/date/2030-02-01#decisions']");
+      expect(link).not.toBeNull();
+
+      const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+      link!.dispatchEvent(event);
+
+      expect(opened).toEqual([["2030-02-02", "#/date/2030-02-01#decisions"]]);
+      expect(event.defaultPrevented).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("suppresses rendered Markdown link clicks when the app handler declines them", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(
+      () => (
+        <MilkdownEditor
+          documentKey="2030-02-02"
+          value="See [decision](#/date/2030-02-01#decisions)"
+          onChange={() => undefined}
+          onBlur={() => undefined}
+          onOpenLink={() => false}
+        />
+      ),
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      const link = host.querySelector<HTMLAnchorElement>("a[href='#/date/2030-02-01#decisions']");
+      expect(link).not.toBeNull();
+
+      const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+      link!.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
   it("unquotes a WYSIWYG block quote around a list without lifting list content", async () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -953,6 +1022,40 @@ describe("MilkdownEditor", () => {
       view.dispatch(view.state.tr.insertText("def"));
 
       expect(serializer(view.state.doc)).toBe("abc `def`\n");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("keeps text typed after a link outside that link", async () => {
+    const editor = await createMilkdownTestEditor("See [decision](#/date/2030-02-01#decisions)");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const serializer = editor.ctx.get(serializerCtx);
+      const cursor = findTextEndPosition(view.state.doc, "decision");
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor)));
+
+      view.dispatch(view.state.tr.insertText(" after"));
+
+      expect(serializer(view.state.doc)).toBe("See [decision](#/date/2030-02-01#decisions) after\n");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("keeps text typed inside a link in that link", async () => {
+    const editor = await createMilkdownTestEditor("See [decision](#/date/2030-02-01#decisions)");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const serializer = editor.ctx.get(serializerCtx);
+      const cursor = findTextNodePosition(view.state.doc, "decision")! + "deci".length;
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor)));
+
+      view.dispatch(view.state.tr.insertText("X"));
+
+      expect(serializer(view.state.doc)).toBe("See [deciXsion](#/date/2030-02-01#decisions)\n");
     } finally {
       await editor.destroy();
     }
@@ -1187,6 +1290,7 @@ async function createMilkdownTestEditor(markdown: string) {
     })
     .use(commonmark)
     .use(gfm)
+    .use($prose((ctx) => createLinkBoundaryTypingPlugin(Plugin, linkSchema.type(ctx))))
     .create();
 }
 

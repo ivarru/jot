@@ -7,6 +7,7 @@ import { renderMilkdownListItemLabel } from "./milkdownListItems";
 import { createMilkdownStructuralTabKeymap } from "./milkdownStructuralTab";
 import { applyTextAreaStructuralTab, shouldHandleTextAreaStructuralTab } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
+import { markdownLinkAtOffset } from "~/domain/dailyNoteLinks";
 import {
   inactiveBlockFormatState,
   toggleMarkdownBlockQuote,
@@ -32,8 +33,9 @@ import { diffChars } from "diff";
 import type { Ctx } from "@milkdown/kit/ctx";
 import type { Editor as MilkdownEditorInstance } from "@milkdown/kit/core";
 import type { MarkType, Node as ProseNode, NodeType } from "@milkdown/kit/prose/model";
-import type { Selection } from "@milkdown/kit/prose/state";
+import type { EditorState, Selection, Transaction } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
+import type { InlineSyncConfig } from "@milkdown/plugin-automd";
 
 interface MilkdownEditorProps {
   readonly documentKey: string;
@@ -52,6 +54,7 @@ interface MilkdownEditorProps {
   readonly onInlineFormatStateChange?: (state: InlineFormatState) => void;
   readonly onBlockFormatStateChange?: (state: BlockFormatState) => void;
   readonly onListItemFormatStateChange?: (state: ListItemFormatState) => void;
+  readonly onOpenLink?: (documentKey: string, href: string) => boolean;
   readonly onPasteImage?: (documentKey: string, file: File) => void;
 }
 
@@ -209,12 +212,13 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             headingSchema,
             imageSchema,
             inlineCodeSchema,
+            linkSchema,
             listItemSchema,
             paragraphSchema,
             strongSchema
           },
           { gfm },
-          { automd },
+          { automd, inlineSyncConfig },
           { clipboard },
           { history },
           { listener, listenerCtx },
@@ -349,6 +353,9 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             }
           }
         }));
+        const preventLinkBoundaryTyping = $prose((ctx) =>
+          createLinkBoundaryTypingPlugin(Plugin, linkSchema.type(ctx))
+        );
         const preserveListTightness = $prose(() => createListTightnessPlugin(Plugin));
         const structuralTabKeymap = createMilkdownStructuralTabKeymap({
           useKeymap: $useKeymap,
@@ -395,13 +402,17 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               ...config,
               renderLabel: renderMilkdownListItemLabel
             }));
+            ctx.update(inlineSyncConfig.key, (config) => ({
+              ...config,
+              shouldSyncNode: shouldSyncMilkdownInlineMarkdown(config.shouldSyncNode)
+            }));
             ctx.get(listenerCtx).updated((ctx, doc) => {
               if (disposed || activeSession !== session) return;
 
               notifyHistoryAvailability(ctx.get(editorViewCtx));
 
               const serializer = ctx.get(serializerCtx);
-              const markdown = serializer(doc);
+              const markdown = serializeMilkdownMarkdown(serializer, doc);
               if (!applyMilkdownUpdatedMarkdown(markdownState, markdown)) return;
 
               props.onChange(documentKey, markdown);
@@ -413,6 +424,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(automd)
           .use(clipboard)
           .use(structuralTabKeymap)
+          .use(preventLinkBoundaryTyping)
           .use(inlineFormatStateTracker)
           .use(blockFormatStateTracker)
           .use(pointerBlockQuoteSelectionTracker)
@@ -440,7 +452,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 replaceAll(markdown, !undoable)(ctx);
                 const view = ctx.get(editorViewCtx);
                 const serializer = ctx.get(serializerCtx);
-                replacedMarkdown = serializer(view.state.doc);
+                replacedMarkdown = serializeMilkdownMarkdown(serializer, view.state.doc);
               });
               trackMilkdownExternalMarkdown(markdownState, markdown, replacedMarkdown);
               notifyHistoryAvailability(editor.ctx.get(editorViewCtx));
@@ -550,7 +562,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 updatedView.focus();
               });
               const updatedView = editor.ctx.get(editorViewCtx);
-              trackMilkdownExternalMarkdown(markdownState, result.markdown, serializer(updatedView.state.doc));
+              trackMilkdownExternalMarkdown(markdownState, result.markdown, serializeMilkdownMarkdown(serializer, updatedView.state.doc));
               props.onChange(documentKey, result.markdown);
               notifyHistoryAvailability(updatedView);
               notifyBlockFormatState(updatedView);
@@ -606,7 +618,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 updatedView.focus();
               });
               const updatedView = editor.ctx.get(editorViewCtx);
-              trackMilkdownExternalMarkdown(markdownState, result.markdown, serializer(updatedView.state.doc));
+              trackMilkdownExternalMarkdown(markdownState, result.markdown, serializeMilkdownMarkdown(serializer, updatedView.state.doc));
               props.onChange(documentKey, result.markdown);
               notifyHistoryAvailability(updatedView);
               notifyListItemFormatState(updatedView);
@@ -653,13 +665,34 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             session.applyExternalMarkdown(props.value, false);
           }
           const view = editor.ctx.get(editorViewCtx);
-          trackMilkdownSerializedMarkdown(markdownState, editor.ctx.get(serializerCtx)(view.state.doc));
+          trackMilkdownSerializedMarkdown(markdownState, serializeMilkdownMarkdown(editor.ctx.get(serializerCtx), view.state.doc));
           if (props.focusEnabled !== false) {
             session.focus(focusPlacement(focusAtEnd, focusSelection), props.onFocusApplied);
           }
         }
 
         const blurListener = () => props.onBlur(documentKey, markdownState.currentMarkdown);
+        const clickLinkListener = (event: MouseEvent) => {
+          if (event.button !== 0) return;
+          const href = linkHrefFromEvent(event, root);
+          if (href === null) return;
+          if (props.onOpenLink === undefined) return;
+
+          props.onOpenLink(documentKey, href);
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        };
+        const openLinkShortcutListener = (event: KeyboardEvent) => {
+          if (!isOpenLinkShortcut(event)) return;
+          const session = activeSession;
+          const selection = session?.getSelection() ?? null;
+          if (selection === null) return;
+          const link = markdownLinkAtOffset(session!.getMarkdown(), selection.start);
+          if (link === null || props.onOpenLink?.(documentKey, link.destination) !== true) return;
+
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        };
         const pasteListener = (event: ClipboardEvent) => {
           if (props.onPasteImage === undefined) return;
           const file = firstClipboardImageFile(event.clipboardData?.items);
@@ -670,9 +703,13 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           props.onPasteImage(documentKey, file);
         };
         root.addEventListener("focusout", blurListener);
+        root.addEventListener("click", clickLinkListener, { capture: true });
+        root.addEventListener("keydown", openLinkShortcutListener, { capture: true });
         root.addEventListener("paste", pasteListener, { capture: true });
         removeRootListeners = () => {
           root.removeEventListener("focusout", blurListener);
+          root.removeEventListener("click", clickLinkListener, { capture: true });
+          root.removeEventListener("keydown", openLinkShortcutListener, { capture: true });
           root.removeEventListener("paste", pasteListener, { capture: true });
         };
       },
@@ -754,6 +791,45 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
       </Show>
     </div>
   );
+}
+
+function isOpenLinkShortcut(event: KeyboardEvent): boolean {
+  return event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && !event.isComposing;
+}
+
+function serializeMilkdownMarkdown(serializer: MarkdownSerializer, doc: ProseNode): string {
+  return serializer(doc).replaceAll("\u00a0", " ");
+}
+
+function linkHrefFromEvent(event: Event, root: HTMLElement): string | null {
+  const target = event.target;
+  if (!(target instanceof Element) || !root.contains(target)) return null;
+  const anchor = target.closest("a[href]");
+  if (!(anchor instanceof HTMLAnchorElement) || !root.contains(anchor)) return null;
+  return anchor.getAttribute("href");
+}
+
+const FULL_MARKDOWN_LINK_PATTERN = /\[[^\]\n]+]\([^\s\]\n]+\)/;
+
+function shouldSyncMilkdownInlineMarkdown(
+  defaultShouldSyncNode: InlineSyncConfig["shouldSyncNode"]
+): InlineSyncConfig["shouldSyncNode"] {
+  return (context) => {
+    if (hasLinkMark(context.prevNode) && FULL_MARKDOWN_LINK_PATTERN.test(context.text)) return false;
+    return defaultShouldSyncNode(context);
+  };
+}
+
+function hasLinkMark(node: ProseNode): boolean {
+  let found = false;
+  node.descendants((child) => {
+    if (child.marks.some((mark) => mark.type.name === "link")) {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
 }
 
 type FocusPlacement =
@@ -913,6 +989,40 @@ function toggleInlineMarkInView(
   view.dispatch(transaction.setMeta("addToHistory", false));
   view.focus();
   return true;
+}
+
+export function createLinkBoundaryTypingPlugin(
+  Plugin: typeof import("@milkdown/kit/prose/state").Plugin,
+  linkType: MarkType
+) {
+  return new Plugin({
+    appendTransaction: (_transactions, _oldState, newState): Transaction | null =>
+      clearLinkBoundaryStoredMarkTransaction(newState, linkType)
+  });
+}
+
+function clearLinkBoundaryStoredMarkTransaction(state: EditorState, linkType: MarkType): Transaction | null {
+  const selection = state.selection;
+  if (!selection.empty) return null;
+  if (!isAtLinkRightBoundary(selection, linkType)) return null;
+
+  const currentMarks = state.storedMarks ?? selection.$from.marks();
+  const nextMarks = currentMarks.filter((mark) => mark.type !== linkType);
+  if (nextMarks.length === currentMarks.length) return null;
+
+  return state.tr.setStoredMarks(nextMarks).setMeta("addToHistory", false);
+}
+
+function isAtLinkRightBoundary(selection: Selection, linkType: MarkType): boolean {
+  const before = selection.$from.nodeBefore;
+  if (before === null) return false;
+
+  const beforeLink = linkType.isInSet(before.marks);
+  if (beforeLink === undefined) return false;
+
+  const after = selection.$from.nodeAfter;
+  const afterLink = after === null ? undefined : linkType.isInSet(after.marks);
+  return afterLink === undefined || !afterLink.eq(beforeLink);
 }
 
 function focusEditable(
@@ -1146,7 +1256,7 @@ function serializedEditorPositionToMarkdownSourceOffset(
   const marker = createCursorMarker(markdown);
   try {
     const tr = view.state.tr.insertText(marker, position, position);
-    const markedMarkdown = serializer(tr.doc);
+    const markedMarkdown = serializeMilkdownMarkdown(serializer, tr.doc);
     const serializedOffset = markedMarkdown.indexOf(marker);
     if (serializedOffset === -1) return null;
 

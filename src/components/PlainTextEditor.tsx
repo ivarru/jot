@@ -1,6 +1,7 @@
 import { createEffect, createRenderEffect, on, onCleanup } from "solid-js";
 import { applyTextAreaStructuralTab, shouldHandleTextAreaStructuralTab } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
+import { markdownLinkAtOffset } from "~/domain/dailyNoteLinks";
 import type { MarkdownSelection } from "~/editor/markdownSelection";
 
 interface PlainTextEditorProps {
@@ -15,6 +16,7 @@ interface PlainTextEditorProps {
   readonly readOnly?: boolean;
   readonly onChange: (documentKey: string, markdown: string) => void;
   readonly onBlur: (documentKey: string, markdown: string) => void;
+  readonly onOpenLink?: (documentKey: string, href: string) => boolean;
   readonly onSelectionChange?: () => void;
   readonly onUndo?: () => boolean;
   readonly onRedo?: () => boolean;
@@ -67,6 +69,14 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
         }}
         onKeyDown={(event) => {
           if (props.readOnly === true) return;
+          if (isOpenLinkShortcut(event)) {
+            const link = markdownLinkAtOffset(event.currentTarget.value, event.currentTarget.selectionStart);
+            if (link !== null && props.onOpenLink?.(props.documentKey, link.destination) === true) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              return;
+            }
+          }
           if (isPlainUndoShortcut(event)) {
             if (props.onUndo?.() === true) {
               event.preventDefault();
@@ -104,6 +114,10 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
       />
     </div>
   );
+}
+
+function isOpenLinkShortcut(event: KeyboardEvent): boolean {
+  return event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && !event.isComposing;
 }
 
 type FocusPlacement =
@@ -165,6 +179,16 @@ function focusTextArea(element: HTMLTextAreaElement, placement: FocusPlacement, 
   element.focus();
   placeTextAreaSelection(element, placement);
   onFocusApplied?.();
+
+  queueMicrotask(() => {
+    element.focus();
+    placeTextAreaSelection(element, placement);
+  });
+
+  window.setTimeout(() => {
+    element.focus();
+    placeTextAreaSelection(element, placement);
+  }, 0);
 
   requestAnimationFrame(() => {
     element.focus();

@@ -18,6 +18,18 @@ import {
   type PendingDailyNoteUpload,
   type UploadedDailyNoteFile
 } from "~/domain/dailyNoteUpload";
+import {
+  dailyNoteSectionLinkHref,
+  dailyNoteSectionHref,
+  extractDailyNoteHeadings,
+  findDailyNoteHeadingBySlug,
+  insertMarkdownLinkAtSelection,
+  isSafeExternalHref,
+  parseDailyNoteLinkTarget,
+  selectionOverlapsMarkdownLinkOrCode,
+  type DailyNoteHeading,
+  type DailyNoteLinkTarget
+} from "~/domain/dailyNoteLinks";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
 import {
   addDays,
@@ -146,8 +158,14 @@ interface StoredActiveImagePicker {
   readonly createdAtMs: number;
 }
 
+interface SectionLinkSource {
+  readonly date: IsoDate;
+  readonly selection: MarkdownSelection;
+}
+
 export default function Home() {
   const runtime = createStorageRuntime();
+  const initialRoute = routeFromHash();
   const redirectAuthResult = runtime.kind === "google"
     ? runtime.tokenProvider.consumeRedirectAccessToken()
     : { type: "none" as const };
@@ -169,8 +187,13 @@ export default function Home() {
   const [authReconnectRequired, setAuthReconnectRequired] = createSignal(false);
   const [reconnectingAuth, setReconnectingAuth] = createSignal(false);
   const [reconnectPromptDismissed, setReconnectPromptDismissed] = createSignal(false);
-  const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(dateFromHash());
-  const [invalidDate, setInvalidDate] = createSignal<string | null>(invalidDateFromHash());
+  const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(initialRoute.date);
+  const [invalidDate, setInvalidDate] = createSignal<string | null>(initialRoute.invalidDate);
+  const [pendingSectionLinkNavigation, setPendingSectionLinkNavigation] = createSignal<DailyNoteLinkTarget | null>(
+    initialRoute.date !== null && initialRoute.headingSlug !== null
+      ? { date: initialRoute.date, headingSlug: initialRoute.headingSlug }
+      : null
+  );
   const [markdown, setMarkdown] = createSignal("");
   const [cleanEditorMarkdown, setCleanEditorMarkdown] = createSignal<string | null>(null);
   const [loadedDate, setLoadedDate] = createSignal<IsoDate | null>(null);
@@ -192,6 +215,16 @@ export default function Home() {
   const [pendingDailyNoteUpload, setPendingDailyNoteUpload] = createSignal<PendingDailyNoteUpload | null>(null);
   const [editorMode, setEditorMode] = createSignal<EditorMode>("wysiwyg");
   const [insertImageMenuOpen, setInsertImageMenuOpen] = createSignal(false);
+  const [sectionLinkPickerOpen, setSectionLinkPickerOpen] = createSignal(false);
+  const [sectionLinkSource, setSectionLinkSource] = createSignal<SectionLinkSource | null>(null);
+  const [sectionLinkTargetDate, setSectionLinkTargetDate] = createSignal<IsoDate | null>(initialRoute.date);
+  const [sectionLinkDatePickerMonth, setSectionLinkDatePickerMonth] = createSignal<YearMonth>(
+    monthOfIsoDate(initialRoute.date ?? todayIsoDate())
+  );
+  const [sectionLinkTargetHeadings, setSectionLinkTargetHeadings] = createSignal<readonly DailyNoteHeading[]>([]);
+  const [sectionLinkTargetLoading, setSectionLinkTargetLoading] = createSignal(false);
+  const [sectionLinkTargetError, setSectionLinkTargetError] = createSignal<string | null>(null);
+  const [sectionLinkInsertionBlocked, setSectionLinkInsertionBlocked] = createSignal(false);
   const [editorResetKey, setEditorResetKey] = createSignal(0);
   const [focusEditorAtEnd, setFocusEditorAtEnd] = createSignal(false);
   const [focusEditorSelection, setFocusEditorSelection] = createSignal<MarkdownSelection | null>(null);
@@ -229,10 +262,12 @@ export default function Home() {
   let plainTextEditorElement: HTMLTextAreaElement | null = null;
   let pendingEditorModeSelection: MarkdownSelection | null | undefined;
   let pendingFormattingToolbarSelection: MarkdownSelection | null | undefined;
+  let pendingSectionLinkSourceSelection: MarkdownSelection | null | undefined;
   let rawHistoryPast: EditorHistoryEntry[] = [];
   let rawHistoryFuture: EditorHistoryEntry[] = [];
   let backgroundSyncGeneration = 0;
   let dailyNoteUploadGeneration = 0;
+  let sectionLinkTargetLoadGeneration = 0;
 
   const dateBoundEditorState = (): DateBoundEditorState => ({
     selectedDate: selectedDate(),
@@ -252,6 +287,8 @@ export default function Home() {
   });
   const datePickerCalendar = createMemo(() => calendarMonth(datePickerMonth()));
   const datePickerMonthLabel = createMemo(() => monthLabel(datePickerMonth()));
+  const sectionLinkDatePickerCalendar = createMemo(() => calendarMonth(sectionLinkDatePickerMonth()));
+  const sectionLinkDatePickerMonthLabel = createMemo(() => monthLabel(sectionLinkDatePickerMonth()));
   const selectedDateCanEdit = createMemo(() => canEditSelectedDate(dateBoundEditorState()));
   const manualConflictMarkersPresent = createMemo(() => containsDailyNoteConflictMarkers(markdown()));
   const editorReadOnly = createMemo(() => reconnectingAuth() || resolvingSyncConflict() || pendingSyncConflict() !== null);
@@ -340,7 +377,7 @@ export default function Home() {
   };
 
   const canApplyDatePickerRefresh = (generation: number): boolean => {
-    return generation === datePickerRefreshGeneration && authenticated() && datePickerOpen();
+    return generation === datePickerRefreshGeneration && authenticated() && (datePickerOpen() || sectionLinkPickerOpen());
   };
 
   const refreshExistingNoteDates = async () => {
@@ -546,12 +583,18 @@ export default function Home() {
 
   createEffect(
     on(
-      () => [authenticated(), datePickerOpen()] as const,
-      ([isAuthenticated, pickerOpen]) => {
-        if (!isAuthenticated || !pickerOpen) return;
+      () => [authenticated(), datePickerOpen(), sectionLinkPickerOpen()] as const,
+      ([isAuthenticated, pickerOpen, linkPickerOpen]) => {
+        if (!isAuthenticated || (!pickerOpen && !linkPickerOpen)) return;
 
-        const date = selectedDate();
-        if (date !== null) setDatePickerMonth(monthOfIsoDate(date));
+        if (pickerOpen) {
+          const date = selectedDate();
+          if (date !== null) setDatePickerMonth(monthOfIsoDate(date));
+        }
+        if (linkPickerOpen) {
+          const date = sectionLinkTargetDate();
+          if (date !== null) setSectionLinkDatePickerMonth(monthOfIsoDate(date));
+        }
         void refreshExistingNoteDates();
       }
     )
@@ -723,12 +766,36 @@ export default function Home() {
 
   createEffect(() => {
     const onHashChange = () => {
-      setSelectedDate(dateFromHash());
-      setInvalidDate(invalidDateFromHash());
+      const route = routeFromHash();
+      setSelectedDate(route.date);
+      setInvalidDate(route.invalidDate);
+      setPendingSectionLinkNavigation(
+        route.date !== null && route.headingSlug !== null
+          ? { date: route.date, headingSlug: route.headingSlug }
+          : null
+      );
     };
     window.addEventListener("hashchange", onHashChange);
     onCleanup(() => window.removeEventListener("hashchange", onHashChange));
   });
+
+  createEffect(
+    on(
+      () => [selectedDate(), loadedDate(), markdown(), pendingSectionLinkNavigation()] as const,
+      ([date, loaded, value, pending]) => {
+        if (date === null || loaded !== date || pending === null || pending.date !== date || pending.headingSlug === null) return;
+
+        const heading = findDailyNoteHeadingBySlug(value, pending.headingSlug);
+        if (heading === null) return;
+
+        setPendingSectionLinkNavigation(null);
+        setFocusEditorAtEnd(false);
+        setFocusEditorSelection(heading.selection);
+        setEditorResetKey((key) => key + 1);
+      },
+      { defer: true }
+    )
+  );
 
   createEffect(() => {
     const onVisibilityChange = () => {
@@ -886,10 +953,15 @@ export default function Home() {
     )
   );
 
-  const navigateToDate = async (date: IsoDate) => {
+  const navigateToDate = async (date: IsoDate, headingSlug: string | null = null) => {
     closeDatePicker();
     void selectedDateDriveSync.saveCurrentEditorSnapshot();
-    window.location.hash = `/date/${date}`;
+    const nextHash = dailyNoteRouteHash(date, headingSlug);
+    if (window.location.hash === nextHash) {
+      setPendingSectionLinkNavigation(headingSlug === null ? null : { date, headingSlug });
+      return;
+    }
+    window.location.hash = nextHash.slice(1);
   };
 
   const startDailyNoteUpload = () => {
@@ -1066,6 +1138,16 @@ export default function Home() {
     return milkdownController?.getSelection() ?? null;
   };
 
+  const currentEditorMarkdown = (): string =>
+    editorMode() === "text" && plainTextEditorElement !== null
+      ? plainTextEditorElement.value
+      : markdown();
+
+  const currentSectionLinkInsertionBlocked = (): boolean => {
+    const selection = currentEditorSelection();
+    return selection !== null && selectionOverlapsMarkdownLinkOrCode(currentEditorMarkdown(), selection);
+  };
+
   const preserveFormattingToolbarSelection = (event: PointerEvent) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const selection = currentEditorSelection();
@@ -1082,6 +1164,126 @@ export default function Home() {
     }
 
     return currentEditorSelection();
+  };
+
+  const captureSectionLinkSourceSelection = (event: PointerEvent) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const selection = currentEditorSelection();
+    pendingSectionLinkSourceSelection = selection;
+    if (selection !== null) setFocusEditorSelection(selection);
+    event.preventDefault();
+  };
+
+  const openSectionLinkPicker = () => {
+    const date = selectedDate();
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
+
+    const selection = pendingSectionLinkSourceSelection !== undefined
+      ? pendingSectionLinkSourceSelection
+      : currentEditorSelection();
+    pendingSectionLinkSourceSelection = undefined;
+    const sourceMarkdown = currentEditorMarkdown();
+    if (selection !== null && selectionOverlapsMarkdownLinkOrCode(sourceMarkdown, selection)) {
+      setSectionLinkInsertionBlocked(true);
+      return;
+    }
+
+    const sourceSelection = selection ?? { start: sourceMarkdown.length, end: sourceMarkdown.length };
+    setSectionLinkSource({ date, selection: sourceSelection });
+    setSectionLinkTargetDate(date);
+    setSectionLinkDatePickerMonth(monthOfIsoDate(date));
+    setSectionLinkTargetError(null);
+    setSectionLinkPickerOpen(true);
+    void loadSectionLinkTargetHeadings(date);
+  };
+
+  const closeSectionLinkPicker = () => {
+    sectionLinkTargetLoadGeneration += 1;
+    pendingSectionLinkSourceSelection = undefined;
+    setSectionLinkPickerOpen(false);
+    setSectionLinkTargetLoading(false);
+  };
+
+  const canApplySectionLinkTargetLoad = (generation: number, date: IsoDate): boolean =>
+    generation === sectionLinkTargetLoadGeneration && sectionLinkPickerOpen() && sectionLinkTargetDate() === date;
+
+  const loadSectionLinkTargetHeadings = async (date: IsoDate) => {
+    const generation = sectionLinkTargetLoadGeneration + 1;
+    sectionLinkTargetLoadGeneration = generation;
+    setSectionLinkTargetLoading(true);
+    setSectionLinkTargetError(null);
+
+    try {
+      const targetMarkdown = await loadSectionLinkTargetMarkdown(date);
+      if (!canApplySectionLinkTargetLoad(generation, date)) return;
+      setSectionLinkTargetHeadings(extractDailyNoteHeadings(targetMarkdown));
+    } catch (error: unknown) {
+      if (!canApplySectionLinkTargetLoad(generation, date)) return;
+      setSectionLinkTargetHeadings([]);
+      if (handleRemoteError(error)) {
+        setSectionLinkTargetError("Reconnect to load remote note headings.");
+      } else {
+        setSectionLinkTargetError(errorMessage(error));
+      }
+    } finally {
+      if (generation === sectionLinkTargetLoadGeneration) setSectionLinkTargetLoading(false);
+    }
+  };
+
+  const loadSectionLinkTargetMarkdown = async (date: IsoDate): Promise<string> => {
+    if (date === selectedDate()) return markdown();
+
+    const localDraft = await drafts.load(date);
+    if (localDraft !== null) return localDraft.markdown;
+
+    if (authReconnectRequired()) return "";
+    return (await runtime.remote.loadDailyNote(date))?.markdown ?? "";
+  };
+
+  const selectSectionLinkTargetDate = (date: IsoDate) => {
+    setSectionLinkTargetDate(date);
+    setSectionLinkDatePickerMonth(monthOfIsoDate(date));
+    setSectionLinkTargetError(null);
+    void loadSectionLinkTargetHeadings(date);
+  };
+
+  const insertSectionLink = (heading: DailyNoteHeading) => {
+    const source = sectionLinkSource();
+    const targetDate = sectionLinkTargetDate();
+    const currentDate = selectedDate();
+    if (source === null || targetDate === null || currentDate === null) return;
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent()) return;
+    if (source.date !== currentDate) {
+      setSectionLinkTargetError("The source Daily Note changed. Reopen the picker.");
+      return;
+    }
+
+    const sourceMarkdown = currentEditorMarkdown();
+    if (selectionOverlapsMarkdownLinkOrCode(sourceMarkdown, source.selection)) {
+      setSectionLinkTargetError("Move the cursor outside existing links or code, then reopen the picker.");
+      return;
+    }
+    const result = insertMarkdownLinkAtSelection(
+      sourceMarkdown,
+      source.selection,
+      heading.text,
+      dailyNoteSectionLinkHref(source.date, targetDate, heading.slug)
+    );
+    applyUndoableMarkdownTransform(source.date, result.markdown, result.selection);
+    closeSectionLinkPicker();
+  };
+
+  const openEditorLink = (documentKey: string, href: string): boolean => {
+    const sourceDate = parseIsoDate(documentKey);
+    const target = parseDailyNoteLinkTarget(href, sourceDate, window.location.origin);
+    if (target !== null) {
+      void navigateToDate(target.date, target.headingSlug);
+      return true;
+    }
+
+    if (!isSafeExternalHref(href, window.location.origin)) return false;
+    window.open(href, "_blank", "noopener,noreferrer");
+    return true;
   };
 
   const currentInlineFormatState = (): InlineFormatState => {
@@ -1121,6 +1323,7 @@ export default function Home() {
     setInlineFormatState(currentInlineFormatState());
     setBlockFormatState(currentBlockFormatState());
     setListItemFormatState(currentListItemFormatState());
+    setSectionLinkInsertionBlocked(currentSectionLinkInsertionBlocked());
   };
 
   const handleEditorSelectionChange = () => {
@@ -1153,6 +1356,7 @@ export default function Home() {
     if (editorMode() === "wysiwyg") {
       setInlineFormatState(state);
       setListItemFormatState(currentListItemFormatState());
+      setSectionLinkInsertionBlocked(currentSectionLinkInsertionBlocked());
     }
   };
 
@@ -1160,11 +1364,15 @@ export default function Home() {
     if (editorMode() === "wysiwyg") {
       setBlockFormatState(state);
       setListItemFormatState(currentListItemFormatState());
+      setSectionLinkInsertionBlocked(currentSectionLinkInsertionBlocked());
     }
   };
 
   const handleMilkdownListItemFormatStateChange = (state: ListItemFormatState) => {
-    if (editorMode() === "wysiwyg") setListItemFormatState(state);
+    if (editorMode() === "wysiwyg") {
+      setListItemFormatState(state);
+      setSectionLinkInsertionBlocked(currentSectionLinkInsertionBlocked());
+    }
   };
 
   createEffect(
@@ -2240,6 +2448,18 @@ export default function Home() {
               >
                 <LinkFormatIcon />
               </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Insert Daily Note section link"
+                aria-keyshortcuts="Control+Enter Meta+Enter"
+                title="Insert Daily Note section link"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent() || sectionLinkInsertionBlocked()}
+                onPointerDown={captureSectionLinkSourceSelection}
+                onClick={openSectionLinkPicker}
+              >
+                <SectionLinkIcon />
+              </button>
               <Show when={runtime.imageAttachments !== null}>
                 <input
                   ref={uploadImageInput}
@@ -2472,6 +2692,107 @@ export default function Home() {
                 </div>
               </div>
             )}
+          </Show>
+
+          <Show when={sectionLinkPickerOpen()}>
+            <div class="modal-backdrop" role="presentation">
+              <div
+                class="section-link-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="section-link-modal-title"
+                onKeyDown={(event) => {
+                  if (isEscapeKey(event)) closeSectionLinkPicker();
+                }}
+              >
+                <div class="section-link-modal-header">
+                  <h2 id="section-link-modal-title">Insert section link</h2>
+                </div>
+                <div class="section-link-picker-body">
+                  <div class="section-link-date-picker" aria-label="Section link target date">
+                    <div class="date-picker-header">
+                      <button
+                        type="button"
+                        aria-label="Previous target month"
+                        onClick={() => setSectionLinkDatePickerMonth((month) => addMonths(month, -1))}
+                      >
+                        ‹
+                      </button>
+                      <span class="date-picker-month-label">{sectionLinkDatePickerMonthLabel()}</span>
+                      <button
+                        type="button"
+                        aria-label="Next target month"
+                        onClick={() => setSectionLinkDatePickerMonth((month) => addMonths(month, 1))}
+                      >
+                        ›
+                      </button>
+                    </div>
+                    <div class="date-picker-weekdays" aria-hidden="true">
+                      {CALENDAR_WEEKDAY_LABELS.map((label) => <span>{label}</span>)}
+                    </div>
+                    <div class="date-picker-grid">
+                      {sectionLinkDatePickerCalendar().weeks.flatMap((week) =>
+                        week.map((day) => day === null
+                          ? <span class="date-picker-empty" aria-hidden="true" />
+                          : (
+                            <button
+                              type="button"
+                              class="date-picker-day"
+                              classList={{
+                                "has-note": existingNoteDates().has(day.date),
+                                "is-selected": day.date === sectionLinkTargetDate()
+                              }}
+                              aria-label={`${day.date}${existingNoteDates().has(day.date) ? ", has note" : ""}`}
+                              aria-current={day.date === sectionLinkTargetDate() ? "date" : undefined}
+                              onClick={() => selectSectionLinkTargetDate(day.date)}
+                            >
+                              <span>{day.dayOfMonth}</span>
+                              <span class="date-note-dot" aria-hidden="true" />
+                            </button>
+                          ))
+                      )}
+                    </div>
+                    <Show when={existingNoteDatesLoading()}>
+                      <p class="date-picker-status">Loading note dates...</p>
+                    </Show>
+                    <Show when={existingNoteDatesError()}>
+                      {(message) => <p class="date-picker-error">{message()}</p>}
+                    </Show>
+                  </div>
+                  <div class="section-link-heading-list" role="list" aria-label="Headings">
+                    <Show when={sectionLinkTargetHeadings().length > 0}>
+                      {sectionLinkTargetHeadings().map((heading) => (
+                        <button
+                          type="button"
+                          role="listitem"
+                          class="section-link-heading-button"
+                          style={{ "padding-left": `${10 + Math.max(0, heading.depth - 1) * 14}px` }}
+                          disabled={sectionLinkTargetLoading()}
+                          onClick={() => insertSectionLink(heading)}
+                        >
+                          <span class="section-link-heading-level">H{heading.depth}</span>
+                          <span>{heading.text}</span>
+                        </button>
+                      ))}
+                    </Show>
+                    <Show when={!sectionLinkTargetLoading() && sectionLinkTargetError() === null && sectionLinkTargetHeadings().length === 0}>
+                      <p class="section-link-empty">No headings found.</p>
+                    </Show>
+                  </div>
+                </div>
+                <Show when={sectionLinkTargetLoading()}>
+                  <p class="section-link-status">Loading headings...</p>
+                </Show>
+                <Show when={sectionLinkTargetError()}>
+                  {(message) => <p class="section-link-error">{message()}</p>}
+                </Show>
+                <div class="modal-actions">
+                  <button type="button" onClick={closeSectionLinkPicker}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
           </Show>
 
           <Show when={syncStatus() === "conflict" && manualConflictMarkersPresent()}>
@@ -2723,6 +3044,7 @@ export default function Home() {
                   readOnly={editorReadOnly() || editorMode() !== "text" || !textFocusRestored()}
                   onChange={handleRawEditorChange}
                   onBlur={handleEditorBlur}
+                  onOpenLink={openEditorLink}
                   onSelectionChange={handleEditorSelectionChange}
                   onUndo={undoEditorHistory}
                   onRedo={redoEditorHistory}
@@ -2754,6 +3076,7 @@ export default function Home() {
                   onInlineFormatStateChange={handleMilkdownInlineFormatStateChange}
                   onBlockFormatStateChange={handleMilkdownBlockFormatStateChange}
                   onListItemFormatStateChange={handleMilkdownListItemFormatStateChange}
+                  onOpenLink={openEditorLink}
                   onPasteImage={handleEditorImagePaste}
                 />
               </div>
@@ -2807,21 +3130,29 @@ async function signIn(runtime: StorageRuntime): Promise<void> {
   }
 }
 
-function dateFromHash(): IsoDate | null {
-  const match = /^#\/date\/([^/]+)$/.exec(window.location.hash);
+function routeFromHash(): {
+  readonly date: IsoDate | null;
+  readonly invalidDate: string | null;
+  readonly headingSlug: string | null;
+} {
+  const match = /^#\/date\/([^/#]+)(?:#(.+))?$/.exec(window.location.hash);
   if (!match) {
     const today = todayIsoDate();
     window.location.hash = `/date/${today}`;
-    return today;
+    return { date: today, invalidDate: null, headingSlug: null };
   }
 
-  return parseIsoDate(match[1] ?? "");
+  const rawDate = match[1] ?? "";
+  const date = parseIsoDate(rawDate);
+  return {
+    date,
+    invalidDate: date === null ? rawDate || "Invalid date" : null,
+    headingSlug: match[2] === undefined ? null : decodeURIComponentOrRaw(match[2])
+  };
 }
 
-function invalidDateFromHash(): string | null {
-  const match = /^#\/date\/([^/]+)$/.exec(window.location.hash);
-  if (!match) return null;
-  return parseIsoDate(match[1] ?? "") === null ? match[1] ?? "Invalid date" : null;
+function dailyNoteRouteHash(date: IsoDate, headingSlug: string | null): string {
+  return headingSlug === null ? `#/date/${date}` : dailyNoteSectionHref(date, headingSlug);
 }
 
 function syncStatusLabel(status: SyncStatus): string {
@@ -2869,6 +3200,14 @@ function isInlineSourceSelection(markdown: string, selection: MarkdownSelection)
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function decodeURIComponentOrRaw(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function isAuthReconnectError(error: unknown): boolean {
@@ -3013,6 +3352,29 @@ function LinkFormatIcon() {
     >
       <path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
       <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />
+    </svg>
+  );
+}
+
+function SectionLinkIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="1.5" />
+      <path d="M12 2v3" />
+      <path d="M12 19v3" />
+      <path d="M2 12h3" />
+      <path d="M19 12h3" />
     </svg>
   );
 }

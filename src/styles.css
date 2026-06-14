@@ -8,6 +8,8 @@
   --accent: #2f5d50;
   --accent-contrast: #ffffff;
   --danger: #a13f35;
+  --link-internal: #267a4d;
+  --link-external: #83572b;
   --sync-remote: #258a55;
   --sync-local: #d6a21f;
   --sync-alert: #b8453c;
@@ -34,6 +36,8 @@
     --accent: #8fc7b6;
     --accent-contrast: #10201b;
     --danger: #e08378;
+    --link-internal: #74d69a;
+    --link-external: #d2a56f;
     --sync-remote: #5ecf8f;
     --sync-local: #f2c94c;
     --sync-alert: #ee796f;
@@ -670,6 +674,7 @@ select {
 .image-attachment-modal,
 .daily-note-upload-modal,
 .reconnect-modal,
+.section-link-modal,
 .sync-conflict-resolution-modal {
   display: grid;
   width: min(100%, 560px);
@@ -694,9 +699,14 @@ select {
   box-shadow: var(--shadow);
 }
 
+.section-link-modal {
+  width: min(100%, 720px);
+}
+
 .image-attachment-modal-header,
 .daily-note-upload-modal-header,
 .reconnect-modal-header,
+.section-link-modal-header,
 .sync-conflict-resolution-header {
   display: grid;
   gap: 4px;
@@ -712,6 +722,7 @@ select {
 .image-attachment-modal h2,
 .daily-note-upload-modal h2,
 .reconnect-modal h2,
+.section-link-modal h2,
 .sync-conflict-resolution-modal h2 {
   margin: 0;
   font-size: 20px;
@@ -719,6 +730,7 @@ select {
 
 .daily-note-upload-modal p,
 .reconnect-modal p,
+.section-link-modal p,
 .sync-conflict-resolution-modal p {
   margin: 0;
   color: var(--muted);
@@ -743,6 +755,69 @@ select {
 .daily-note-upload-actions {
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.section-link-picker-body {
+  display: grid;
+  grid-template-columns: 286px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.section-link-date-picker {
+  display: grid;
+  width: 286px;
+  max-width: 100%;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.section-link-heading-list {
+  display: grid;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.section-link-heading-button {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  min-height: 36px;
+  gap: 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.section-link-heading-button + .section-link-heading-button {
+  border-top: 1px solid color-mix(in srgb, var(--border), transparent 30%);
+}
+
+.section-link-heading-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent), transparent 88%);
+}
+
+.section-link-heading-level {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.section-link-empty,
+.section-link-status,
+.section-link-error {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.section-link-error {
+  color: var(--danger);
 }
 
 .about-modal h2 {
@@ -905,6 +980,22 @@ select {
 
 .milkdown-root :is(p, li) {
   line-height: 1.6;
+}
+
+.milkdown-root a {
+  color: var(--link-external);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, currentColor, transparent 24%);
+  text-underline-offset: 0.18em;
+}
+
+.milkdown-root a[href^="#/date/"] {
+  color: var(--link-internal);
+}
+
+.milkdown-root a[href^="#"]:not([href^="#/date/"]) {
+  color: var(--link-internal);
 }
 
 .milkdown-root blockquote {
@@ -1134,6 +1225,15 @@ select {
   .toolbar-editor-column {
     align-content: flex-start;
     gap: 4px;
+  }
+
+  .section-link-picker-body {
+    grid-template-columns: 1fr;
+  }
+
+  .section-link-date-picker {
+    width: min(300px, calc(100vw - 16px));
+    justify-self: center;
   }
 
   .toolbar-status-column {

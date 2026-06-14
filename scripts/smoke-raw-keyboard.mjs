@@ -93,7 +93,9 @@ try {
     await assertWysiwygUndoStopsAtRawHistoryBoundary(cdp);
     await assertWysiwygCursorSurvivesSwitchToRaw(cdp);
     await assertWysiwygTypingCursorSurvivesSwitchToRaw(cdp);
+    await assertWysiwygTypingBetweenRenderedFullLinks(cdp);
     await assertSelectionSurvivesModeSwitches(cdp);
+    await assertRawInternalSectionLinkShortcut(cdp);
   } finally {
     cdp.close();
   }
@@ -199,6 +201,17 @@ async function assertWysiwygTypingCursorSurvivesSwitchToRaw(cdp) {
   await waitForRawSelection(cdp, normalizeMarkdown(await rawMarkdown(cdp)).length);
 }
 
+async function assertWysiwygTypingBetweenRenderedFullLinks(cdp) {
+  const before = "[first](https://example.com/first) middle [second](https://example.com/second)";
+  const after = "[first](https://example.com/first) middle edit [second](https://example.com/second)";
+  await switchToRawMode(cdp);
+  await setRawMarkdown(cdp, before);
+  await switchToWysiwygMode(cdp);
+  await focusWysiwygTextOffset(cdp, "middle", "middle".length);
+  await cdp.send("Input.insertText", { text: " edit" });
+  await waitForNormalizedRawMarkdown(cdp, after);
+}
+
 async function assertSelectionSurvivesModeSwitches(cdp) {
   const markdown = "before selected after";
   const start = markdown.indexOf("selected");
@@ -219,6 +232,30 @@ async function assertSelectionSurvivesModeSwitches(cdp) {
   await pressSelectAll(cdp);
   await switchToRawMode(cdp);
   await waitForRawSelectionRange(cdp, 0, markdown.length);
+}
+
+async function assertRawInternalSectionLinkShortcut(cdp) {
+  const targetDate = "2030-02-01";
+  const targetMarkdown = "# Decisions\n\nBody";
+  const sourceMarkdown = `See [decision](#/date/${targetDate}#decisions)`;
+  await seedLocalDraft(cdp, targetDate, targetMarkdown);
+  await switchToRawMode(cdp);
+  await setRawMarkdown(cdp, sourceMarkdown);
+
+  const cursor = sourceMarkdown.indexOf("decision");
+  await focusRawEditorRange(cdp, cursor, cursor);
+  await pressOpenLink(cdp);
+
+  await waitForExpression(cdp, `window.location.hash === ${JSON.stringify(`#/date/${targetDate}#decisions`)}`);
+  await waitForRawMarkdown(cdp, targetMarkdown);
+  await waitForRawSelectionRange(cdp, "# ".length, "# Decisions".length);
+
+  const relativeMarkdown = "# Decisions\n\nSee [decision](#decisions)";
+  await setRawMarkdown(cdp, relativeMarkdown);
+  await focusRawEditorRange(cdp, relativeMarkdown.indexOf("decision"), relativeMarkdown.indexOf("decision"));
+  await pressOpenLink(cdp);
+  await waitForExpression(cdp, `window.location.hash === ${JSON.stringify(`#/date/${targetDate}#decisions`)}`);
+  await waitForRawSelectionRange(cdp, "# ".length, "# Decisions".length);
 }
 
 async function switchToRawMode(cdp) {
@@ -371,6 +408,33 @@ async function focusWysiwygEditorAtEnd(cdp) {
   });
 }
 
+async function focusWysiwygTextOffset(cdp, text, offset) {
+  const focused = await evaluate(cdp, `(() => {
+    const editor = document.querySelector('.milkdown-root [contenteditable="true"]');
+    if (!(editor instanceof HTMLElement) || editor.closest("[hidden]") !== null) return false;
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node !== null) {
+      const value = node.textContent ?? "";
+      const index = value.indexOf(${JSON.stringify(text)});
+      if (index !== -1) {
+        editor.focus();
+        const selection = window.getSelection();
+        if (selection === null) return false;
+        const range = document.createRange();
+        range.setStart(node, index + ${JSON.stringify(offset)});
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return document.activeElement === editor && selection.anchorNode === node && selection.anchorOffset === index + ${JSON.stringify(offset)};
+      }
+      node = walker.nextNode();
+    }
+    return false;
+  })()`);
+  assert(focused, `Could not focus WYSIWYG text ${JSON.stringify(text)} at offset ${offset}.`);
+}
+
 async function waitForRawMarkdown(cdp, expected) {
   const started = Date.now();
   while (Date.now() - started < 5000) {
@@ -504,6 +568,40 @@ async function pressUndo(cdp, useMac = process.platform === "darwin") {
   });
 }
 
+async function pressOpenLink(cdp) {
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Control",
+    code: "ControlLeft",
+    windowsVirtualKeyCode: 17,
+    nativeVirtualKeyCode: 17,
+    modifiers: 2
+  });
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+    modifiers: 2
+  });
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+    modifiers: 2
+  });
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Control",
+    code: "ControlLeft",
+    windowsVirtualKeyCode: 17,
+    nativeVirtualKeyCode: 17
+  });
+}
+
 async function pressSelectAll(cdp, useMac = process.platform === "darwin") {
   const modifier = useMac
     ? { key: "Meta", code: "MetaLeft", windowsVirtualKeyCode: 91, nativeVirtualKeyCode: 91, modifiers: 4 }
@@ -534,6 +632,36 @@ async function pressSelectAll(cdp, useMac = process.platform === "darwin") {
     windowsVirtualKeyCode: modifier.windowsVirtualKeyCode,
     nativeVirtualKeyCode: modifier.nativeVirtualKeyCode
   });
+}
+
+async function seedLocalDraft(cdp, date, markdown) {
+  await evaluate(cdp, `new Promise((resolve, reject) => {
+    const request = indexedDB.open('jot', 2);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains('drafts')) database.createObjectStore('drafts', { keyPath: 'date' });
+      if (!database.objectStoreNames.contains('fakeRemoteNotes')) database.createObjectStore('fakeRemoteNotes', { keyPath: 'date' });
+      if (!database.objectStoreNames.contains('settings')) database.createObjectStore('settings', { keyPath: 'id' });
+      if (!database.objectStoreNames.contains('fakeImageAlbum')) database.createObjectStore('fakeImageAlbum', { keyPath: 'id' });
+      if (!database.objectStoreNames.contains('fakeImageAttachmentMetadata')) database.createObjectStore('fakeImageAttachmentMetadata', { keyPath: 'id' });
+      if (!database.objectStoreNames.contains('fakePhotoMediaItems')) database.createObjectStore('fakePhotoMediaItems', { keyPath: 'id' });
+    };
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction('drafts', 'readwrite');
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => resolve(true);
+      transaction.objectStore('drafts').put({
+        date: ${JSON.stringify(date)},
+        markdown: ${JSON.stringify(markdown)},
+        baselineMarkdown: ${JSON.stringify(markdown)},
+        baselineRevisionId: null,
+        dirty: true,
+        updatedAt: '2030-01-01T00:00:00.000Z'
+      });
+    };
+  })`, true);
 }
 
 function findChrome() {
