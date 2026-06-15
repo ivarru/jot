@@ -1040,6 +1040,43 @@ select {
   color: var(--muted);
 }
 
+.milkdown-root table {
+  width: max-content;
+  max-width: 100%;
+  margin: 0.8rem 0;
+  border: 1px solid color-mix(in srgb, var(--border), var(--text) 10%);
+  border-collapse: collapse;
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border), transparent 55%);
+  font-size: 0.92rem;
+  overflow: hidden;
+}
+
+.milkdown-root :is(th, td) {
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--border), var(--text) 8%);
+  line-height: 1.15;
+  text-align: left;
+  vertical-align: top;
+}
+
+.milkdown-root :is(th, td) > p {
+  margin: 0;
+  line-height: inherit;
+  min-height: 1.15em;
+}
+
+.milkdown-root th {
+  background: color-mix(in srgb, var(--accent), var(--panel) 88%);
+  color: var(--text);
+  font-weight: 650;
+}
+
+.milkdown-root tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--border), var(--panel) 78%);
+}
+
 .milkdown-root .ProseMirror :is(ul, ol) {
   padding-inline-start: 0;
 }

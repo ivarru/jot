@@ -5,6 +5,8 @@ import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdo
 import { createListTightnessPlugin } from "./milkdownListTightness";
 import { renderMilkdownListItemLabel } from "./milkdownListItems";
 import { createMilkdownStructuralTabKeymap } from "./milkdownStructuralTab";
+import { createMilkdownTableBoundaryNavigation } from "./milkdownTableBoundaryNavigation";
+import { createMilkdownTableEnterKeymap } from "./milkdownTableEnter";
 import { applyTextAreaStructuralTab, shouldHandleTextAreaStructuralTab } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 import { markdownLinkAtOffset } from "~/domain/dailyNoteLinks";
@@ -217,7 +219,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             paragraphSchema,
             strongSchema
           },
-          { gfm },
+          { gfm, tableCellSchema, tableRowSchema },
           { automd, inlineSyncConfig },
           { clipboard },
           { history },
@@ -225,7 +227,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { listItemBlockComponent, listItemBlockConfig },
           { Plugin, TextSelection },
           { closeHistory, redo, redoDepth, undo, undoDepth },
-          { isInTable },
+          { isInTable, selectedRect },
           { liftListItem, sinkListItem },
           { toggleMark, wrapIn },
           { $prose, $useKeymap, $view, replaceAll }
@@ -370,6 +372,24 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           headingSchema,
           paragraphSchema
         });
+        const tableEnterKeymap = createMilkdownTableEnterKeymap({
+          useKeymap: $useKeymap,
+          isInTable,
+          selectedRect,
+          TextSelection,
+          tableCellSchema,
+          tableRowSchema,
+          paragraphSchema
+        });
+        const tableBoundaryNavigation = createMilkdownTableBoundaryNavigation({
+          useKeymap: $useKeymap,
+          prose: $prose,
+          Plugin,
+          isInTable,
+          selectedRect,
+          TextSelection,
+          paragraphSchema
+        });
         const jotImageView = $view(imageSchema.node, () => (node) => {
           let attrs = node.attrs;
           const dom = createMilkdownImageViewDom(attrs, imageAttachmentDisplays);
@@ -424,6 +444,8 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(automd)
           .use(clipboard)
           .use(structuralTabKeymap)
+          .use(tableBoundaryNavigation)
+          .use(tableEnterKeymap)
           .use(preventLinkBoundaryTyping)
           .use(inlineFormatStateTracker)
           .use(blockFormatStateTracker)
