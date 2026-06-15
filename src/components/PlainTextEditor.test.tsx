@@ -62,6 +62,34 @@ describe("PlainTextEditor", () => {
     dispose();
   });
 
+  it("renders raw markdown hard line break spaces in a hidden highlight layer", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const markdown = "first  \nsecond \nthird   \nfinal  ";
+
+    const dispose = render(
+      () => PlainTextEditor({
+        documentKey: "2030-02-01",
+        value: markdown,
+        onChange: () => undefined,
+        onBlur: () => undefined
+      }),
+      host
+    );
+
+    const highlightLayer = host.querySelector<HTMLElement>(".plain-text-hard-break-highlights");
+    const highlightedSpaces = [...host.querySelectorAll<HTMLElement>(".markdown-hard-break-spaces")].map(
+      (element) => element.textContent
+    );
+
+    expect(highlightLayer).not.toBeNull();
+    expect(highlightLayer!.getAttribute("aria-hidden")).toBe("true");
+    expect(highlightLayer!.textContent).toBe(markdown);
+    expect(highlightedSpaces).toEqual(["  ", "   "]);
+
+    dispose();
+  });
+
   it("turns the current plain text line into a list item when pressing tab", () => {
     const host = document.createElement("div");
     document.body.append(host);

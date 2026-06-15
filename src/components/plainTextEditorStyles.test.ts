@@ -12,4 +12,16 @@ describe("plain text editor styles", () => {
 
     expect(plainTextEditorRule).toContain("outline: none;");
   });
+
+  it("keeps hard line break highlights behind the raw textarea", () => {
+    const highlightRule = styles.match(/\.plain-text-hard-break-highlights\s*\{[\s\S]*?\}/)?.[0] ?? "";
+    const markerRule = styles.match(/\.markdown-hard-break-spaces\s*\{[\s\S]*?\}/)?.[0] ?? "";
+    const rawTextareaRule = styles.match(/\.plain-text-editor\s*\{[\s\S]*?\}/)?.[0] ?? "";
+
+    expect(highlightRule).toContain("position: absolute;");
+    expect(highlightRule).toContain("pointer-events: none;");
+    expect(highlightRule).toContain("white-space: pre-wrap;");
+    expect(markerRule).toContain("background:");
+    expect(rawTextareaRule).toContain("z-index: 1;");
+  });
 });

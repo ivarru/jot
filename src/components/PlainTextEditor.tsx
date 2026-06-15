@@ -1,7 +1,8 @@
-import { createEffect, createRenderEffect, on, onCleanup } from "solid-js";
+import { createEffect, createRenderEffect, For, on, onCleanup } from "solid-js";
 import { applyTextAreaStructuralTab, shouldHandleTextAreaStructuralTab } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 import { markdownLinkAtOffset } from "~/domain/dailyNoteLinks";
+import { markdownHardLineBreakSpaceRanges } from "~/editor/markdownHardLineBreaks";
 import type { MarkdownSelection } from "~/editor/markdownSelection";
 
 interface PlainTextEditorProps {
@@ -50,70 +51,108 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
 
   return (
     <div class="editor-shell">
-      <textarea
-        ref={(element) => {
-          textarea = element;
-          props.onElement?.(element);
-          if (props.focusEnabled !== false) {
-            focusTextArea(element, focusPlacement(props.focusAtEnd, props.focusSelection), props.onFocusApplied);
-          }
-        }}
-        class="plain-text-editor"
-        value={props.value}
-        readOnly={props.readOnly === true}
-        onInput={(event) => {
-          if (props.readOnly === true) return;
-          resizeTextAreaToContents(event.currentTarget);
-          props.onChange(props.documentKey, event.currentTarget.value);
-          props.onSelectionChange?.();
-        }}
-        onKeyDown={(event) => {
-          if (props.readOnly === true) return;
-          if (isOpenLinkShortcut(event)) {
-            const link = markdownLinkAtOffset(event.currentTarget.value, event.currentTarget.selectionStart);
-            if (link !== null && props.onOpenLink?.(props.documentKey, link.destination) === true) {
-              event.preventDefault();
-              event.stopImmediatePropagation();
+      <div class="plain-text-editor-frame">
+        <div class="plain-text-hard-break-highlights" aria-hidden="true">
+          <For each={hardLineBreakHighlightSegments(props.value)}>
+            {(segment) =>
+              segment.highlighted ? (
+                <mark class="markdown-hard-break-spaces">{segment.text}</mark>
+              ) : (
+                <span>{segment.text}</span>
+              )
+            }
+          </For>
+        </div>
+        <textarea
+          ref={(element) => {
+            textarea = element;
+            props.onElement?.(element);
+            if (props.focusEnabled !== false) {
+              focusTextArea(element, focusPlacement(props.focusAtEnd, props.focusSelection), props.onFocusApplied);
+            }
+          }}
+          class="plain-text-editor"
+          value={props.value}
+          readOnly={props.readOnly === true}
+          onInput={(event) => {
+            if (props.readOnly === true) return;
+            resizeTextAreaToContents(event.currentTarget);
+            props.onChange(props.documentKey, event.currentTarget.value);
+            props.onSelectionChange?.();
+          }}
+          onKeyDown={(event) => {
+            if (props.readOnly === true) return;
+            if (isOpenLinkShortcut(event)) {
+              const link = markdownLinkAtOffset(event.currentTarget.value, event.currentTarget.selectionStart);
+              if (link !== null && props.onOpenLink?.(props.documentKey, link.destination) === true) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                return;
+              }
+            }
+            if (isPlainUndoShortcut(event)) {
+              if (props.onUndo?.() === true) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+              }
               return;
             }
-          }
-          if (isPlainUndoShortcut(event)) {
-            if (props.onUndo?.() === true) {
-              event.preventDefault();
-              event.stopImmediatePropagation();
+            if (isPlainRedoShortcut(event)) {
+              if (props.onRedo?.() === true) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+              }
+              return;
             }
-            return;
-          }
-          if (isPlainRedoShortcut(event)) {
-            if (props.onRedo?.() === true) {
-              event.preventDefault();
-              event.stopImmediatePropagation();
-            }
-            return;
-          }
-          if (!shouldHandleTextAreaStructuralTab(event)) return;
+            if (!shouldHandleTextAreaStructuralTab(event)) return;
 
-          event.preventDefault();
-          applyTextAreaStructuralTab(
-            event.currentTarget,
-            event.shiftKey,
-            (markdown) => props.onChange(props.documentKey, markdown)
-          );
-          resizeTextAreaToContents(event.currentTarget);
-          props.onSelectionChange?.();
-        }}
-        onKeyUp={() => props.onSelectionChange?.()}
-        onMouseUp={() => props.onSelectionChange?.()}
-        onSelect={() => props.onSelectionChange?.()}
-        onFocus={() => props.onSelectionChange?.()}
-        onBlur={(event) => {
-          props.onBlur(props.documentKey, event.currentTarget.value);
-        }}
-        aria-label="Markdown text editor"
-        spellcheck={true}
-      />
+            event.preventDefault();
+            applyTextAreaStructuralTab(
+              event.currentTarget,
+              event.shiftKey,
+              (markdown) => props.onChange(props.documentKey, markdown)
+            );
+            resizeTextAreaToContents(event.currentTarget);
+            props.onSelectionChange?.();
+          }}
+          onKeyUp={() => props.onSelectionChange?.()}
+          onMouseUp={() => props.onSelectionChange?.()}
+          onSelect={() => props.onSelectionChange?.()}
+          onFocus={() => props.onSelectionChange?.()}
+          onBlur={(event) => {
+            props.onBlur(props.documentKey, event.currentTarget.value);
+          }}
+          aria-label="Markdown text editor"
+          spellcheck={true}
+        />
+      </div>
     </div>
   );
+}
+
+interface HardLineBreakHighlightSegment {
+  readonly text: string;
+  readonly highlighted: boolean;
+}
+
+function hardLineBreakHighlightSegments(markdown: string): readonly HardLineBreakHighlightSegment[] {
+  const ranges = markdownHardLineBreakSpaceRanges(markdown);
+  const segments: HardLineBreakHighlightSegment[] = [];
+  let cursor = 0;
+
+  for (const range of ranges) {
+    if (range.start > cursor) {
+      segments.push({ text: markdown.slice(cursor, range.start), highlighted: false });
+    }
+    segments.push({ text: markdown.slice(range.start, range.end), highlighted: true });
+    cursor = range.end;
+  }
+
+  if (cursor < markdown.length || segments.length === 0) {
+    segments.push({ text: markdown.slice(cursor), highlighted: false });
+  }
+
+  return segments;
 }
 
 function isOpenLinkShortcut(event: KeyboardEvent): boolean {
