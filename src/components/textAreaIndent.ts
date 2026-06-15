@@ -96,8 +96,15 @@ export function textAreaStructuralTabAction(
     );
   }
 
+  if (isGfmTableLine(markdown, line)) return { type: "noop" };
+
   const insertionOffset = line.start + Math.min(leadingSpaceCount(lineText), 3);
   if (shiftKey) return replace(insertionOffset, insertionOffset, "# ", selectionStart, selectionEnd);
+
+  const paragraph = paragraphLineSpan(markdown, line);
+  if (paragraph !== null && paragraph.lines.length > 1) {
+    return replaceParagraphWithListItem(markdown, paragraph, selectionStart, selectionEnd);
+  }
 
   return replace(insertionOffset, insertionOffset, "* ", selectionStart, selectionEnd);
 }
@@ -121,6 +128,17 @@ interface ListItemPrefix {
 
 interface FenceState {
   readonly marker: "`" | "~";
+  readonly length: number;
+}
+
+interface ParagraphLineSpan {
+  readonly start: number;
+  readonly end: number;
+  readonly lines: readonly CurrentLine[];
+}
+
+interface OffsetInsertion {
+  readonly offset: number;
   readonly length: number;
 }
 
@@ -151,6 +169,49 @@ function applyUndoableTextAreaReplacement(element: HTMLTextAreaElement, edit: Te
   return inputFired;
 }
 
+function replaceParagraphWithListItem(
+  markdown: string,
+  paragraph: ParagraphLineSpan,
+  selectionStart: number,
+  selectionEnd: number
+): TextAreaStructuralTabAction {
+  const insertions: OffsetInsertion[] = [];
+  let replacement = "";
+  let previousLine: CurrentLine | null = null;
+
+  paragraph.lines.forEach((line, index) => {
+    if (previousLine !== null) {
+      replacement += markdown.slice(previousLine.end, line.start);
+    }
+
+    const lineText = markdown.slice(line.start, line.end);
+    if (index === 0) {
+      const prefixOffset = line.start + Math.min(leadingSpaceCount(lineText), 3);
+      const relativePrefixOffset = prefixOffset - line.start;
+      replacement += `${lineText.slice(0, relativePrefixOffset)}* ${lineText.slice(relativePrefixOffset)}`;
+      insertions.push({ offset: prefixOffset, length: "* ".length });
+    } else {
+      replacement += `${STRUCTURAL_INDENT}${lineText}`;
+      insertions.push({ offset: line.start, length: STRUCTURAL_INDENT.length });
+    }
+
+    previousLine = line;
+  });
+
+  const delta = replacement.length - (paragraph.end - paragraph.start);
+
+  return {
+    type: "edit",
+    edit: {
+      start: paragraph.start,
+      end: paragraph.end,
+      replacement,
+      selectionStart: mapOffsetThroughInsertions(selectionStart, paragraph.start, paragraph.end, insertions, delta),
+      selectionEnd: mapOffsetThroughInsertions(selectionEnd, paragraph.start, paragraph.end, insertions, delta)
+    }
+  };
+}
+
 function replace(
   start: number,
   end: number,
@@ -177,6 +238,21 @@ function mapSelectionOffset(offset: number, start: number, end: number, replacem
   return start + replacementLength;
 }
 
+function mapOffsetThroughInsertions(
+  offset: number,
+  editStart: number,
+  editEnd: number,
+  insertions: readonly OffsetInsertion[],
+  delta: number
+): number {
+  if (offset < editStart) return offset;
+  if (offset > editEnd) return offset + delta;
+
+  return insertions.reduce((mapped, insertion) => {
+    return offset >= insertion.offset ? mapped + insertion.length : mapped;
+  }, offset);
+}
+
 function currentLine(markdown: string, offset: number): CurrentLine {
   const clampedOffset = Math.max(0, Math.min(markdown.length, offset));
   const start = markdown.slice(0, clampedOffset).lastIndexOf("\n") + 1;
@@ -195,6 +271,103 @@ function listItemPrefix(lineText: string): ListItemPrefix | null {
     indentationLength: indentation.length,
     markerEnd: match[0].length
   };
+}
+
+function paragraphLineSpan(markdown: string, line: CurrentLine): ParagraphLineSpan | null {
+  if (!isParagraphLine(markdown, line)) return null;
+
+  const lines = [line];
+  let previous = previousLine(markdown, line.start);
+  while (previous !== null && isParagraphLine(markdown, previous)) {
+    lines.unshift(previous);
+    previous = previousLine(markdown, previous.start);
+  }
+
+  let next = nextLine(markdown, line.end);
+  while (next !== null && isParagraphLine(markdown, next)) {
+    lines.push(next);
+    next = nextLine(markdown, next.end);
+  }
+
+  return {
+    start: lines[0]?.start ?? line.start,
+    end: lines.at(-1)?.end ?? line.end,
+    lines
+  };
+}
+
+function previousLine(markdown: string, lineStart: number): CurrentLine | null {
+  if (lineStart <= 0) return null;
+
+  const end = lineStart - 1;
+  const start = markdown.lastIndexOf("\n", Math.max(0, end - 1)) + 1;
+  return { start, end };
+}
+
+function nextLine(markdown: string, lineEnd: number): CurrentLine | null {
+  if (lineEnd >= markdown.length) return null;
+
+  const start = lineEnd + 1;
+  const nextLineBreak = markdown.indexOf("\n", start);
+  return {
+    start,
+    end: nextLineBreak === -1 ? markdown.length : nextLineBreak
+  };
+}
+
+function isParagraphLine(markdown: string, line: CurrentLine): boolean {
+  const lineText = markdown.slice(line.start, line.end);
+  if (/^[ \t]*$/.test(lineText)) return false;
+  if (/^ {0,3}>/.test(lineText)) return false;
+  if (listItemPrefix(lineText) !== null) return false;
+  if (headingPrefix(lineText) !== null) return false;
+  if (openingFence(lineText) !== null) return false;
+  if (isThematicBreakLine(lineText)) return false;
+  if (isGfmTableLine(markdown, line)) return false;
+  if (isCodeBlockContentLine(markdown, line.start, lineText)) return false;
+  return true;
+}
+
+function isGfmTableLine(markdown: string, line: CurrentLine): boolean {
+  const lineText = markdown.slice(line.start, line.end);
+  if (tableCells(lineText) === null) return false;
+
+  if (isTableDelimiterLine(lineText)) {
+    const previous = previousLine(markdown, line.start);
+    return previous !== null && isTableDataLine(markdown.slice(previous.start, previous.end));
+  }
+
+  const next = nextLine(markdown, line.end);
+  if (next !== null && isTableDelimiterLine(markdown.slice(next.start, next.end))) return true;
+
+  let previous = previousLine(markdown, line.start);
+  while (previous !== null) {
+    const previousText = markdown.slice(previous.start, previous.end);
+    if (isTableDelimiterLine(previousText)) return true;
+    if (!isTableDataLine(previousText)) return false;
+    previous = previousLine(markdown, previous.start);
+  }
+
+  return false;
+}
+
+function isTableDataLine(lineText: string): boolean {
+  return tableCells(lineText) !== null && !isTableDelimiterLine(lineText);
+}
+
+function isTableDelimiterLine(lineText: string): boolean {
+  const cells = tableCells(lineText);
+  return cells !== null && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function tableCells(lineText: string): readonly string[] | null {
+  const trimmed = lineText.trim();
+  if (!trimmed.includes("|")) return null;
+
+  const withoutLeadingPipe = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
+  const normalized = withoutLeadingPipe.endsWith("|") ? withoutLeadingPipe.slice(0, -1) : withoutLeadingPipe;
+  const cells = normalized.split("|");
+  return cells.length >= 2 ? cells : null;
 }
 
 function isCodeBlockContentLine(markdown: string, lineStart: number, lineText: string): boolean {
@@ -246,6 +419,14 @@ function isClosingFenceLine(lineText: string, fence: FenceState): boolean {
   const escapedMarker = fence.marker === "`" ? "`" : "~";
   const pattern = new RegExp(`^ {0,3}${escapedMarker}{${fence.length},}[ \\t]*$`);
   return pattern.test(lineText);
+}
+
+function isThematicBreakLine(lineText: string): boolean {
+  return (
+    /^ {0,3}(?:\*[ \t]*){3,}$/.test(lineText) ||
+    /^ {0,3}(?:-[ \t]*){3,}$/.test(lineText) ||
+    /^ {0,3}(?:_[ \t]*){3,}$/.test(lineText)
+  );
 }
 
 function leadingSpaceCount(value: string): number {

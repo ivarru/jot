@@ -87,6 +87,8 @@ try {
     await switchToRawMode(cdp);
 
     await assertRawTabUndo(cdp, "plain line", "* plain line");
+    await assertRawTabUndo(cdp, "abc\ndef\\\nghi", "* abc\n  def\\\n  ghi");
+    await assertRawTabNoop(cdp, "| A | B |\n| --- | --- |\n| one | two |");
     await assertRawTabUndo(cdp, "# Heading", "Heading");
     await assertRawUndoSurvivesModeSwitch(cdp);
     await assertRawEditDoesNotEnterWysiwygUndo(cdp);
@@ -115,6 +117,14 @@ async function assertRawTabUndo(cdp, before, afterTab) {
     await pressUndo(cdp, process.platform !== "darwin");
   }
   await waitForNormalizedRawMarkdown(cdp, before);
+}
+
+async function assertRawTabNoop(cdp, markdown) {
+  await setRawMarkdown(cdp, markdown);
+  await focusRawEditorRange(cdp, markdown.length, markdown.length);
+  await pressTab(cdp);
+  await waitForRawMarkdown(cdp, markdown);
+  await waitForRawSelectionRange(cdp, markdown.length, markdown.length);
 }
 
 async function assertWysiwygUndoStopsAtRawHistoryBoundary(cdp) {

@@ -460,6 +460,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             applyStructuralTab: (shiftKey) => {
               if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
               const view = editor.ctx.get(editorViewCtx);
+              if (isInTable(view.state)) return false;
               const handled =
                 view.someProp("handleKeyDown", (handler) =>
                   handler(view, new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey }))

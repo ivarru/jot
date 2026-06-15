@@ -13,6 +13,7 @@ import {
   createLinkBoundaryTypingPlugin,
   editorSelectionToMarkdownSourceSelection,
   MilkdownEditor,
+  type MilkdownEditorController,
   trackMilkdownExternalMarkdown,
   trackMilkdownSerializedMarkdown
 } from "./MilkdownEditor";
@@ -1161,6 +1162,53 @@ describe("MilkdownEditor", () => {
       });
     } finally {
       await editor.destroy();
+    }
+  });
+
+  it("does not route toolbar structural indent through WYSIWYG table cell navigation", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const markdown = "| A | B |\n| --- | --- |\n| one | two |\n";
+    const cursor = markdown.indexOf("one") + "one".length;
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let controller!: MilkdownEditorController;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value={markdown}
+            focusSelection={selection()}
+            onChange={() => undefined}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController !== null) controller = nextController;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      setSelection({ start: cursor, end: cursor });
+      await animationFrame();
+      await animationFrame();
+
+      const before = controller.getSelection();
+      expect(before).not.toBeNull();
+      expect(controller.applyStructuralTab(false)).toBe(false);
+      expect(controller.applyStructuralTab(true)).toBe(false);
+      expect(controller.getSelection()).toEqual(before);
+    } finally {
+      dispose();
     }
   });
 
