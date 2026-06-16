@@ -189,6 +189,39 @@ describe("Home WYSIWYG toolbar", () => {
       dispose();
     }
   });
+
+  it("turns a normal WYSIWYG text line into a checkbox line from the toolbar", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "plain",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+
+    try {
+      const editor = await waitForEditable(host, "plain");
+      const text = findTextDomNode(editor, "plain");
+      expect(text).not.toBeNull();
+      setCollapsedSelection(text!, "pla".length);
+
+      const checkboxButton = button(host, "Toggle task checkbox");
+      expect(checkboxButton.dispatchEvent(pointerDownEvent())).toBe(false);
+      checkboxButton.click();
+      await settle();
+
+      button(host, "Toggle raw Markdown").click();
+
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>(".plain-text-editor")?.value).toBe("* [ ] plain");
+      });
+    } finally {
+      dispose();
+    }
+  });
 });
 
 function button(host: ParentNode, label: string): HTMLButtonElement {

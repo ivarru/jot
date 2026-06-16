@@ -64,10 +64,16 @@ describe("list formatting", () => {
     });
   });
 
-  it("does nothing outside bullet list items", () => {
+  it("turns the current normal line into an unchecked task item", () => {
     const markdown = "plain";
 
-    expect(toggleMarkdownTaskListItem(markdown, cursor(markdown, "pla"))).toBeNull();
+    expect(toggleMarkdownTaskListItem(markdown, cursor(markdown, "pla"))).toEqual({
+      markdown: "* [ ] plain",
+      selection: {
+        start: "* [ ] pla".length,
+        end: "* [ ] pla".length
+      }
+    });
   });
 
   it("reports task formatting active only when all selected bullet items are tasks", () => {

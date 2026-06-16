@@ -1060,6 +1060,63 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("turns a normal WYSIWYG text line into a task item", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getListItemFormatState!: () => { readonly task: boolean };
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+    let toggleTaskListItemAtSelection!: () => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value="plain"
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getListItemFormatState = nextController.getListItemFormatState;
+              getSelection = nextController.getSelection;
+              toggleTaskListItemAtSelection = nextController.toggleTaskListItemAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      const cursor = "pla".length;
+      setSelection({ start: cursor, end: cursor });
+      await animationFrame();
+      await animationFrame();
+
+      expect(getListItemFormatState()).toEqual({ task: false });
+      expect(toggleTaskListItemAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("* [ ] plain");
+      expect(getSelection()).toEqual({
+        start: "* [ ] pla".length,
+        end: "* [ ] pla".length
+      });
+      expect(getListItemFormatState()).toEqual({ task: true });
+    } finally {
+      dispose();
+    }
+  });
+
   it("removes an existing checked task marker through the WYSIWYG controller", async () => {
     const host = document.createElement("div");
     document.body.append(host);

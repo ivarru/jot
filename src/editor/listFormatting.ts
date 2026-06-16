@@ -51,10 +51,12 @@ export function toggleMarkdownTaskListItem(
   const normalized = normalizeSelection(markdown, selection);
   const lines = selectedLineSpans(markdown, normalized);
   const listItems = lines.map(parseListItemLine).filter((item): item is ListItemLine => item !== null);
-  if (listItems.length === 0) return null;
 
-  const removeTask = listItems.every((item) => item.taskMarkerStart !== null);
-  const replacements = removeTask ? removeTaskListReplacements(listItems) : addTaskListReplacements(listItems);
+  const replacements = listItems.length === 0
+    ? addPlainTaskListReplacements(lines)
+    : listItems.every((item) => item.taskMarkerStart !== null)
+      ? removeTaskListReplacements(listItems)
+      : addTaskListReplacements(listItems);
   if (replacements.length === 0) return null;
 
   const mappedStart = mapOffset(normalized.start, replacements, 1);
@@ -79,6 +81,14 @@ function addTaskListReplacements(listItems: readonly ListItemLine[]): readonly R
       removeLength: 0,
       insert: "[ ] "
     }));
+}
+
+function addPlainTaskListReplacements(lines: readonly LineSpan[]): readonly Replacement[] {
+  return lines.map((line) => ({
+    start: line.start + Math.min(leadingSpaceCount(line.text), 3),
+    removeLength: 0,
+    insert: "* [ ] "
+  }));
 }
 
 function removeTaskListReplacements(listItems: readonly ListItemLine[]): readonly Replacement[] {
@@ -107,6 +117,12 @@ function parseListItemLine(line: LineSpan): ListItemLine | null {
     taskMarkerStart,
     taskMarkerEnd
   };
+}
+
+function leadingSpaceCount(value: string): number {
+  let count = 0;
+  while (value[count] === " ") count += 1;
+  return count;
 }
 
 function selectedLineSpans(markdown: string, selection: MarkdownSelection): readonly LineSpan[] {
