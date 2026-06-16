@@ -44,11 +44,16 @@ export function toggleMarkdownBlockQuote(markdown: string, selection: MarkdownSe
     ? removeBlockQuoteReplacements(lines)
     : addBlockQuoteReplacements(markdown, lines);
 
+  const mappedStart = mapOffset(normalized.start, replacements, 1);
+  const mappedEnd = normalized.start === normalized.end
+    ? mappedStart
+    : mapOffset(normalized.end, replacements, -1);
+
   return {
     markdown: applyReplacements(markdown, replacements),
     selection: {
-      start: mapOffset(normalized.start, replacements, 1),
-      end: mapOffset(normalized.end, replacements, -1)
+      start: mappedStart,
+      end: mappedEnd
     }
   };
 }

@@ -37,6 +37,18 @@ describe("block formatting", () => {
     });
   });
 
+  it("keeps a collapsed cursor after the inserted quote marker at the start of a line", () => {
+    const markdown = "first";
+
+    expect(toggleMarkdownBlockQuote(markdown, { start: 0, end: 0 })).toEqual({
+      markdown: "> first",
+      selection: {
+        start: "> ".length,
+        end: "> ".length
+      }
+    });
+  });
+
   it("terminates a quoted line before an unquoted following line", () => {
     const markdown = "first\nsecond";
     const quoted = toggleMarkdownBlockQuote(markdown, selection(markdown, "first"));

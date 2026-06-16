@@ -606,6 +606,56 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("quotes a normal WYSIWYG text line from a collapsed cursor at line start without escaping the marker", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const changes: string[] = [];
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+    let toggleBlockQuoteAtSelection!: (selection?: { readonly start: number; readonly end: number }) => boolean;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value="quote me"
+            focusSelection={selection()}
+            onChange={(_documentKey, markdown) => changes.push(markdown)}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController === null) return;
+              getSelection = nextController.getSelection;
+              toggleBlockQuoteAtSelection = nextController.toggleBlockQuoteAtSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      const cursor = 0;
+      setSelection({ start: cursor, end: cursor });
+      await animationFrame();
+      await animationFrame();
+
+      expect(toggleBlockQuoteAtSelection()).toBe(true);
+      await delay(300);
+
+      expect(changes.at(-1)).toBe("> quote me");
+      expect(getSelection()).toEqual({ start: "> ".length, end: "> ".length });
+    } finally {
+      dispose();
+    }
+  });
+
   it("quotes only the selected WYSIWYG line when the source selection ends at a line break", async () => {
     const host = document.createElement("div");
     document.body.append(host);
