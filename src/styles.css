@@ -1059,6 +1059,7 @@ select {
 
 .milkdown-root a {
   color: var(--link-external);
+  cursor: pointer;
   text-decoration-line: underline;
   text-decoration-thickness: 1.5px;
   text-decoration-color: color-mix(in srgb, currentColor, transparent 24%);
