@@ -91,7 +91,9 @@ select {
 }
 
 .app {
-  width: min(980px, 100%);
+  width: fit-content;
+  min-width: min(980px, 100%);
+  max-width: 100%;
   min-height: 100vh;
   min-height: 100svh;
   margin: 0 auto;
@@ -932,6 +934,9 @@ select {
 }
 
 .editor-shell {
+  width: max-content;
+  min-width: 100%;
+  max-width: 100%;
   min-height: var(--editor-default-height);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1079,6 +1084,22 @@ select {
   padding-left: 1rem;
   border-left: 3px solid var(--border);
   color: var(--muted);
+}
+
+.milkdown-root pre {
+  width: max-content;
+  max-width: 100%;
+  margin: 0.9rem 0;
+  overflow-x: auto;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border), var(--text) 8%);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--border), var(--panel) 76%);
+  font: 0.92rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.milkdown-root pre code {
+  white-space: pre;
 }
 
 .milkdown-root table {
