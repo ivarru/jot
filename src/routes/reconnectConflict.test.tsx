@@ -80,6 +80,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
       readonly getInlineFormatState: () => { readonly italic: boolean; readonly bold: boolean; readonly code: boolean };
       readonly getBlockFormatState: () => { readonly quote: boolean };
       readonly getListItemFormatState: () => { readonly task: boolean };
+      readonly getMarkdown: () => string;
       readonly getSelection: () => { readonly start: number; readonly end: number } | null;
       readonly redo: () => boolean;
       readonly toggleBlockQuoteAtSelection: (selection?: { readonly start: number; readonly end: number }) => boolean;
@@ -194,6 +195,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
       getHistoryAvailability: historyAvailability,
       getInlineFormatState: () => ({ ...inlineFormatState }),
       getListItemFormatState: () => ({ ...listItemFormatState }),
+      getMarkdown: () => present,
       getSelection: () =>
         textarea === undefined || !testState.wysiwygSelectionAvailable
           ? null
@@ -556,7 +558,7 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
-  it("toggles the link at the editor cursor from the heading button", async () => {
+  it("opens the link modal at the editor cursor from the heading button", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
       markdown: "Read <https://example.com/docs/sync-model> today",
@@ -574,13 +576,440 @@ describe("Home reconnect and conflict handling", () => {
     editor!.setSelectionRange("Read <https://example".length, "Read <https://example".length);
     editor!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle link format']");
-    expect(toggle).not.toBeNull();
-    expect(toggle!.title).toBe("Toggle link format");
-    toggle!.click();
+    const linkButton = host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']");
+    expect(linkButton).not.toBeNull();
+    expect(linkButton!.title).toBe("Insert or edit link");
+    linkButton!.click();
     await settle();
 
-    expect(editor!.value).toBe("Read [sync-model](<https://example.com/docs/sync-model>) today");
+    const inputs = Array.from(host.querySelectorAll<HTMLInputElement>(".link-modal input"));
+    expect(inputs.map((input) => input.value)).toEqual([
+      "sync-model (example.com)",
+      "https://example.com/docs/sync-model"
+    ]);
+    clickButton(host, "Update");
+    await settle();
+
+    expect(editor!.value).toBe("Read [sync-model (example.com)](<https://example.com/docs/sync-model>) today");
+
+    dispose();
+  });
+
+  it("does not submit a stale link modal after date navigation", async () => {
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "Read <https://example.com/docs/sync-model> today"));
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "Next day note"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+    await waitFor(() => {
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe(
+        "Read <https://example.com/docs/sync-model> today"
+      );
+    });
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange("Read <https://example".length, "Read <https://example".length);
+    editor!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.click();
+    await settle();
+
+    expect(dialog(host, "Edit link")).not.toBeNull();
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Next day']")!.click();
+    await waitFor(() => {
+      expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")!.value).toBe("2030-02-03");
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("Next day note");
+    });
+
+    clickButton(host, "Update");
+    await settle();
+
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("Next day note");
+    expect(host.textContent).toContain("The Daily Note changed. Reopen the link editor.");
+
+    dispose();
+  });
+
+  it("does not open a stale link modal after a delayed clipboard read and date navigation", async () => {
+    const clipboardText = deferred<string>();
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const originalPermissions = Object.getOwnPropertyDescriptor(navigator, "permissions");
+    let readRequested = false;
+    Object.defineProperty(navigator, "permissions", {
+      value: {
+        query: () => Promise.resolve({ state: "granted" })
+      },
+      configurable: true
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        readText: () => {
+          readRequested = true;
+          return clipboardText.promise;
+        }
+      },
+      configurable: true
+    });
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "Read this"));
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "Next day note"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    try {
+      await settle();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("Read this");
+      });
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.click();
+      await settle();
+      expect(readRequested).toBe(true);
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Next day']")!.click();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")!.value).toBe("2030-02-03");
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("Next day note");
+      });
+
+      clipboardText.resolve("https://example.com/from-clipboard");
+      await settle();
+
+      expect(dialog(host, "Insert link")).toBeNull();
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("Next day note");
+    } finally {
+      dispose();
+      if (originalClipboard === undefined) {
+        Reflect.deleteProperty(navigator, "clipboard");
+      } else {
+        Object.defineProperty(navigator, "clipboard", originalClipboard);
+      }
+      if (originalPermissions === undefined) {
+        Reflect.deleteProperty(navigator, "permissions");
+      } else {
+        Object.defineProperty(navigator, "permissions", originalPermissions);
+      }
+    }
+  });
+
+  it("auto-fills empty link modal fields after a user-triggered clipboard read", async () => {
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const originalPermissions = Object.getOwnPropertyDescriptor(navigator, "permissions");
+    let readRequested = false;
+    Object.defineProperty(navigator, "permissions", {
+      value: {
+        query: () => Promise.resolve({ state: "prompt" })
+      },
+      configurable: true
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        readText: () => {
+          readRequested = true;
+          return Promise.resolve("https://example.com/from-clipboard");
+        }
+      },
+      configurable: true
+    });
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "Read this"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    try {
+      await settle();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("Read this");
+      });
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.click();
+      await settle();
+
+      expect(dialog(host, "Insert link")).not.toBeNull();
+      expect(readRequested).toBe(true);
+      const inputs = Array.from(host.querySelectorAll<HTMLInputElement>(".link-modal input"));
+      expect(inputs.map((input) => input.value)).toEqual([
+        "from-clipboard (example.com)",
+        "https://example.com/from-clipboard"
+      ]);
+      const textButton = host.querySelector<HTMLButtonElement>("button[aria-label='Use clipboard text']");
+      const urlButton = host.querySelector<HTMLButtonElement>("button[aria-label='Use clipboard URL']");
+      expect(textButton?.disabled).toBe(false);
+      expect(urlButton?.disabled).toBe(false);
+    } finally {
+      dispose();
+      if (originalClipboard === undefined) {
+        Reflect.deleteProperty(navigator, "clipboard");
+      } else {
+        Object.defineProperty(navigator, "clipboard", originalClipboard);
+      }
+      if (originalPermissions === undefined) {
+        Reflect.deleteProperty(navigator, "permissions");
+      } else {
+        Object.defineProperty(navigator, "permissions", originalPermissions);
+      }
+    }
+  });
+
+  it("auto-fills empty link modal fields from a granted clipboard suggestion", async () => {
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const originalPermissions = Object.getOwnPropertyDescriptor(navigator, "permissions");
+    let readRequested = false;
+    Object.defineProperty(navigator, "permissions", {
+      value: {
+        query: () => Promise.resolve({ state: "granted" })
+      },
+      configurable: true
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        readText: () => {
+          readRequested = true;
+          return Promise.resolve("Clipboard title https://example.com/from-clipboard");
+        }
+      },
+      configurable: true
+    });
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "Read this"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    try {
+      await settle();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("Read this");
+      });
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.click();
+      await settle();
+
+      expect(readRequested).toBe(true);
+      const inputs = Array.from(host.querySelectorAll<HTMLInputElement>(".link-modal input"));
+      expect(inputs.map((input) => input.value)).toEqual(["Clipboard title", "https://example.com/from-clipboard"]);
+      expect(host.querySelector<HTMLButtonElement>("button[aria-label='Use clipboard text']")?.disabled).toBe(false);
+      expect(host.querySelector<HTMLButtonElement>("button[aria-label='Use clipboard URL']")?.disabled).toBe(false);
+    } finally {
+      dispose();
+      if (originalClipboard === undefined) {
+        Reflect.deleteProperty(navigator, "clipboard");
+      } else {
+        Object.defineProperty(navigator, "clipboard", originalClipboard);
+      }
+      if (originalPermissions === undefined) {
+        Reflect.deleteProperty(navigator, "permissions");
+      } else {
+        Object.defineProperty(navigator, "permissions", originalPermissions);
+      }
+    }
+  });
+
+  it("uses clipboard buttons without automatically overwriting an existing link", async () => {
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const originalPermissions = Object.getOwnPropertyDescriptor(navigator, "permissions");
+    Object.defineProperty(navigator, "permissions", {
+      value: {
+        query: () => Promise.resolve({ state: "granted" })
+      },
+      configurable: true
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        readText: () => Promise.resolve("Clipboard title https://example.com/new")
+      },
+      configurable: true
+    });
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "Read [old text](<https://example.com/old>) today"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    try {
+      await settle();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe(
+          "Read [old text](<https://example.com/old>) today"
+        );
+      });
+
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+      expect(editor).not.toBeNull();
+      editor!.setSelectionRange("Read [".length, "Read [old text".length);
+      editor!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.click();
+      await settle();
+
+      const inputs = Array.from(host.querySelectorAll<HTMLInputElement>(".link-modal input"));
+      expect(inputs.map((input) => input.value)).toEqual(["old text", "https://example.com/old"]);
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Use clipboard text']")!.click();
+      await settle();
+      expect(inputs.map((input) => input.value)).toEqual(["Clipboard title", "https://example.com/old"]);
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Use clipboard URL']")!.click();
+      await settle();
+      expect(inputs.map((input) => input.value)).toEqual(["Clipboard title", "https://example.com/new"]);
+    } finally {
+      dispose();
+      if (originalClipboard === undefined) {
+        Reflect.deleteProperty(navigator, "clipboard");
+      } else {
+        Object.defineProperty(navigator, "clipboard", originalClipboard);
+      }
+      if (originalPermissions === undefined) {
+        Reflect.deleteProperty(navigator, "permissions");
+      } else {
+        Object.defineProperty(navigator, "permissions", originalPermissions);
+      }
+    }
+  });
+
+  it("keeps the link modal URL clipboard button disabled for text-only clipboard content", async () => {
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const originalPermissions = Object.getOwnPropertyDescriptor(navigator, "permissions");
+    Object.defineProperty(navigator, "permissions", {
+      value: {
+        query: () => Promise.resolve({ state: "granted" })
+      },
+      configurable: true
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        readText: () => Promise.resolve("Clipboard title")
+      },
+      configurable: true
+    });
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "Read this"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    try {
+      await settle();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("Read this");
+      });
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.click();
+      await settle();
+
+      const inputs = Array.from(host.querySelectorAll<HTMLInputElement>(".link-modal input"));
+      expect(inputs.map((input) => input.value)).toEqual(["Clipboard title", ""]);
+      expect(host.querySelector<HTMLButtonElement>("button[aria-label='Use clipboard text']")?.disabled).toBe(false);
+      expect(host.querySelector<HTMLButtonElement>("button[aria-label='Use clipboard URL']")?.disabled).toBe(true);
+    } finally {
+      dispose();
+      if (originalClipboard === undefined) {
+        Reflect.deleteProperty(navigator, "clipboard");
+      } else {
+        Object.defineProperty(navigator, "clipboard", originalClipboard);
+      }
+      if (originalPermissions === undefined) {
+        Reflect.deleteProperty(navigator, "permissions");
+      } else {
+        Object.defineProperty(navigator, "permissions", originalPermissions);
+      }
+    }
+  });
+
+  it("uses a pasted HTML link in the link modal address field", async () => {
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const originalPermissions = Object.getOwnPropertyDescriptor(navigator, "permissions");
+    let readRequested = false;
+    Object.defineProperty(navigator, "permissions", {
+      value: {
+        query: () => Promise.resolve({ state: "prompt" })
+      },
+      configurable: true
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        readText: () => {
+          readRequested = true;
+          return Promise.resolve("");
+        }
+      },
+      configurable: true
+    });
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "Read this"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    try {
+      await settle();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("Read this");
+      });
+
+      host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.click();
+      await settle();
+
+      const inputs = Array.from(host.querySelectorAll<HTMLInputElement>(".link-modal input"));
+      expect(inputs.map((input) => input.value)).toEqual(["", ""]);
+      expect(readRequested).toBe(true);
+      const paste = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, "clipboardData", {
+        value: {
+          getData: (type: string) =>
+            type === "text/html"
+              ? '<a href="https://example.com/page">Example page</a>'
+              : type === "text/plain"
+                ? "Example page"
+                : ""
+        }
+      });
+      inputs[1]!.dispatchEvent(paste);
+      await settle();
+
+      expect(inputs.map((input) => input.value)).toEqual(["Example page", "https://example.com/page"]);
+    } finally {
+      dispose();
+      if (originalClipboard === undefined) {
+        Reflect.deleteProperty(navigator, "clipboard");
+      } else {
+        Object.defineProperty(navigator, "clipboard", originalClipboard);
+      }
+      if (originalPermissions === undefined) {
+        Reflect.deleteProperty(navigator, "permissions");
+      } else {
+        Object.defineProperty(navigator, "permissions", originalPermissions);
+      }
+    }
+  });
+
+  it("opens the link modal from share target search params and appends the shared link", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/?title=Shared+title&url=https%3A%2F%2Fexample.com%2Fshared#/date/2030-02-02"
+    );
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "Existing note"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    await waitFor(() => expect(dialog(host, "Insert link")).not.toBeNull());
+    const inputs = Array.from(host.querySelectorAll<HTMLInputElement>(".link-modal input"));
+    expect(inputs.map((input) => input.value)).toEqual(["Shared title", "https://example.com/shared"]);
+
+    const submit = Array.from(host.querySelectorAll<HTMLButtonElement>(".link-modal button")).find((element) =>
+      element.textContent?.trim() === "Insert"
+    );
+    expect(submit).not.toBeNull();
+    submit!.click();
+    await settle();
+
+    expect(host.textContent).not.toContain("The Daily Note changed. Reopen the link editor.");
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe(
+      "Existing note\n\n[Shared title](<https://example.com/shared>)"
+    );
+    expect(window.location.search).toBe("");
 
     dispose();
   });
@@ -1072,7 +1501,7 @@ describe("Home reconnect and conflict handling", () => {
       "Toggle block quote format",
       "Toggle task checkbox",
       "Toggle code format",
-      "Toggle link format"
+      "Insert or edit link"
     ]) {
       const button = host.querySelector<HTMLButtonElement>(`button[aria-label='${label}']`);
       expect(button).not.toBeNull();
@@ -1498,7 +1927,7 @@ describe("Home reconnect and conflict handling", () => {
       "Toggle bold format",
       "Toggle block quote format",
       "Toggle code format",
-      "Toggle link format",
+      "Insert or edit link",
       "Insert Daily Note section link",
       "Insert image"
     ]);

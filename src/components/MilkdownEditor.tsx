@@ -2,8 +2,10 @@ import { createEffect, createRenderEffect, createSignal, on, onCleanup, Show } f
 import { firstClipboardImageFile } from "./clipboardImages";
 import type { ImageAttachmentDisplayMap } from "./milkdownImages";
 import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
+import { shouldSyncMilkdownInlineMarkdown } from "./milkdownInlineSync";
 import { createListTightnessPlugin } from "./milkdownListTightness";
 import { renderMilkdownListItemLabel } from "./milkdownListItems";
+import { createPlainUrlLinkBoundaryPlugin } from "./milkdownPlainUrl";
 import { createMilkdownStructuralTabKeymap } from "./milkdownStructuralTab";
 import { createMilkdownTableBoundaryNavigation } from "./milkdownTableBoundaryNavigation";
 import { createMilkdownTableEnterKeymap } from "./milkdownTableEnter";
@@ -37,7 +39,6 @@ import type { Editor as MilkdownEditorInstance } from "@milkdown/kit/core";
 import type { MarkType, Node as ProseNode, NodeType } from "@milkdown/kit/prose/model";
 import type { EditorState, Selection, Transaction } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
-import type { InlineSyncConfig } from "@milkdown/plugin-automd";
 
 interface MilkdownEditorProps {
   readonly documentKey: string;
@@ -102,6 +103,7 @@ export interface MilkdownEditorController {
   readonly getHistoryAvailability: () => EditorHistoryAvailability;
   readonly getInlineFormatState: () => InlineFormatState;
   readonly getListItemFormatState: () => ListItemFormatState;
+  readonly getMarkdown: () => string;
   readonly getSelection: () => MarkdownSelection | null;
   readonly redo: () => boolean;
   readonly toggleBlockQuoteAtSelection: (selection?: MarkdownSelection) => boolean;
@@ -358,6 +360,9 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         const preventLinkBoundaryTyping = $prose((ctx) =>
           createLinkBoundaryTypingPlugin(Plugin, linkSchema.type(ctx))
         );
+        const preventPlainUrlLinkBoundaryPaste = $prose((ctx) =>
+          createPlainUrlLinkBoundaryPlugin(Plugin, TextSelection, linkSchema.type(ctx))
+        );
         const preserveListTightness = $prose(() => createListTightnessPlugin(Plugin));
         const structuralTabKeymap = createMilkdownStructuralTabKeymap({
           useKeymap: $useKeymap,
@@ -442,6 +447,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(jotImageView)
           .use(gfm)
           .use(automd)
+          .use(preventPlainUrlLinkBoundaryPaste)
           .use(clipboard)
           .use(structuralTabKeymap)
           .use(tableBoundaryNavigation)
@@ -671,6 +677,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             getHistoryAvailability: () => session?.getHistoryAvailability() ?? { canUndo: false, canRedo: false },
             getInlineFormatState: () => session?.getInlineFormatState() ?? inactiveInlineFormatState,
             getListItemFormatState: () => session?.getListItemFormatState() ?? inactiveListItemFormatState,
+            getMarkdown: () => session?.getMarkdown() ?? markdownState.currentMarkdown,
             getSelection: () => session?.getSelection() ?? null,
             redo: () => session?.redo() ?? false,
             toggleBlockQuoteAtSelection: (selection) => session?.toggleBlockQuoteAtSelection(selection) ?? false,
@@ -830,29 +837,6 @@ function linkHrefFromEvent(event: Event, root: HTMLElement): string | null {
   const anchor = target.closest("a[href]");
   if (!(anchor instanceof HTMLAnchorElement) || !root.contains(anchor)) return null;
   return anchor.getAttribute("href");
-}
-
-const FULL_MARKDOWN_LINK_PATTERN = /\[[^\]\n]+]\([^\s\]\n]+\)/;
-
-function shouldSyncMilkdownInlineMarkdown(
-  defaultShouldSyncNode: InlineSyncConfig["shouldSyncNode"]
-): InlineSyncConfig["shouldSyncNode"] {
-  return (context) => {
-    if (hasLinkMark(context.prevNode) && FULL_MARKDOWN_LINK_PATTERN.test(context.text)) return false;
-    return defaultShouldSyncNode(context);
-  };
-}
-
-function hasLinkMark(node: ProseNode): boolean {
-  let found = false;
-  node.descendants((child) => {
-    if (child.marks.some((mark) => mark.type.name === "link")) {
-      found = true;
-      return false;
-    }
-    return true;
-  });
-  return found;
 }
 
 type FocusPlacement =

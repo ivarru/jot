@@ -89,7 +89,17 @@ import {
   toggleMarkdownTaskListItem,
   type ListItemFormatState
 } from "~/editor/listFormatting";
-import { toggleLinkAtCursor } from "~/editor/linkToggle";
+import {
+  applyLinkEdit,
+  createLinkEditDraft,
+  isSupportedLinkDestination,
+  parseClipboardLinkSuggestion,
+  parseShareTargetLinkData,
+  suggestedLinkText,
+  type ClipboardLinkData,
+  type ClipboardLinkSuggestion,
+  type LinkEditDraft
+} from "~/editor/linkEditing";
 import type { MarkdownSelection } from "~/editor/markdownSelection";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
 import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
@@ -163,6 +173,16 @@ interface SectionLinkSource {
   readonly selection: MarkdownSelection;
 }
 
+interface LinkModalSession {
+  readonly date: IsoDate;
+  readonly baseMarkdownSource: "editor" | "state";
+  readonly baseMarkdown: string;
+  readonly draftMarkdown: string;
+  readonly draft: LinkEditDraft;
+}
+
+type LinkModalClipboardStatus = "unknown" | "reading" | "known";
+
 export default function Home() {
   const runtime = createStorageRuntime();
   const initialRoute = routeFromHash();
@@ -173,6 +193,8 @@ export default function Home() {
   let dailyNoteUploadInput: HTMLInputElement | undefined;
   let cameraVideo: HTMLVideoElement | undefined;
   let imageAltTextInput: HTMLInputElement | undefined;
+  let linkTextInput: HTMLInputElement | undefined;
+  let linkUrlInput: HTMLInputElement | undefined;
   let aboutCloseButton: HTMLButtonElement | undefined;
   const [authenticated, setAuthenticated] = createSignal(
     redirectAuthResult.type === "authenticated" ||
@@ -215,6 +237,15 @@ export default function Home() {
   const [pendingDailyNoteUpload, setPendingDailyNoteUpload] = createSignal<PendingDailyNoteUpload | null>(null);
   const [editorMode, setEditorMode] = createSignal<EditorMode>("wysiwyg");
   const [insertImageMenuOpen, setInsertImageMenuOpen] = createSignal(false);
+  const [linkModalSession, setLinkModalSession] = createSignal<LinkModalSession | null>(null);
+  const [linkModalText, setLinkModalText] = createSignal("");
+  const [linkModalUrl, setLinkModalUrl] = createSignal("");
+  const [linkModalClipboardSuggestion, setLinkModalClipboardSuggestion] = createSignal<ClipboardLinkSuggestion | null>(null);
+  const [linkModalClipboardStatus, setLinkModalClipboardStatus] = createSignal<LinkModalClipboardStatus>("unknown");
+  const [linkModalError, setLinkModalError] = createSignal<string | null>(null);
+  const [pendingShareTargetLink, setPendingShareTargetLink] = createSignal<ClipboardLinkData | null>(
+    parseShareTargetLinkData(new URLSearchParams(window.location.search))
+  );
   const [sectionLinkPickerOpen, setSectionLinkPickerOpen] = createSignal(false);
   const [sectionLinkSource, setSectionLinkSource] = createSignal<SectionLinkSource | null>(null);
   const [sectionLinkTargetDate, setSectionLinkTargetDate] = createSignal<IsoDate | null>(initialRoute.date);
@@ -327,10 +358,10 @@ export default function Home() {
   };
 
   const applyDateBoundEditorTransition = (transition: DateBoundEditorTransition) => {
-    setLoadedDate(transition.state.loadedDate);
     setCleanEditorMarkdown(transition.state.cleanMarkdown);
     setEditorChangeEpoch(transition.state.editorChangeEpoch);
     applyMarkdownWrite(transition.markdownWrite);
+    setLoadedDate(transition.state.loadedDate);
   };
 
   const applyMarkdownWrite = (write: MarkdownWrite | undefined) => {
@@ -580,6 +611,31 @@ export default function Home() {
       setDatePickerMonth(monthOfIsoDate(date));
     })
   );
+
+  createEffect(() => {
+    const sharedLink = pendingShareTargetLink();
+    const date = selectedDate();
+    if (sharedLink === null || date === null || linkModalSession() !== null) return;
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent()) return;
+
+    const sourceMarkdown = markdown();
+    const appendSeparator = markdownAppendSeparator(sourceMarkdown);
+    const draftMarkdown = `${sourceMarkdown}${appendSeparator}`;
+    const draft = createLinkEditDraft(
+      draftMarkdown,
+      { start: draftMarkdown.length, end: draftMarkdown.length },
+      sharedLink
+    );
+    openLinkModalFromDraft({
+      date,
+      baseMarkdownSource: "state",
+      baseMarkdown: sourceMarkdown,
+      draftMarkdown,
+      draft
+    });
+    setPendingShareTargetLink(null);
+    clearShareTargetSearchParams();
+  });
 
   createEffect(
     on(
@@ -1141,7 +1197,10 @@ export default function Home() {
   const currentEditorMarkdown = (): string =>
     editorMode() === "text" && plainTextEditorElement !== null
       ? plainTextEditorElement.value
-      : markdown();
+      : milkdownController?.getMarkdown() ?? markdown();
+
+  const currentLinkModalBaseMarkdown = (session: LinkModalSession): string =>
+    session.baseMarkdownSource === "state" ? markdown() : currentEditorMarkdown();
 
   const currentSectionLinkInsertionBlocked = (): boolean => {
     const selection = currentEditorSelection();
@@ -1416,22 +1475,183 @@ export default function Home() {
     clearRawRedoHistory();
   };
 
-  const toggleLinkFormat = () => {
+  const openLinkModalFromDraft = (
+    session: LinkModalSession,
+    clipboardSuggestion: ClipboardLinkSuggestion | null = clipboardSuggestionFromLinkData(session.draft.clipboardLink),
+    clipboardStatus: LinkModalClipboardStatus = clipboardSuggestion === null ? "unknown" : "known"
+  ) => {
+    const fields = linkModalFieldsForDraft(session.draft, clipboardSuggestion);
+    setLinkModalSession(session);
+    setLinkModalClipboardSuggestion(clipboardSuggestion);
+    setLinkModalClipboardStatus(clipboardStatus);
+    setLinkModalText(fields.text);
+    setLinkModalUrl(fields.url);
+    setLinkModalError(null);
+    requestAnimationFrame(() => {
+      if (fields.url.length === 0) {
+        linkUrlInput?.focus();
+      } else {
+        linkTextInput?.focus();
+        linkTextInput?.select();
+      }
+    });
+  };
+
+  const openLinkModal = async () => {
     const selection = takeFormattingToolbarSelection();
     const date = selectedDate();
     if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
 
-    const cursorOffset = selection?.start ?? 0;
-    const result = toggleLinkAtCursor(markdown(), cursorOffset);
-    if (result === null) return;
+    const sourceMarkdown = currentEditorMarkdown();
+    const sourceSelection = selection ?? { start: sourceMarkdown.length, end: sourceMarkdown.length };
+    const clipboardSuggestion = await readClipboardLinkSuggestion();
+    if (
+      !canEditDailyNoteDate(date, dateBoundEditorState()) ||
+      !selectedDateCanWrite() ||
+      manualConflictMarkersPresent() ||
+      currentEditorMarkdown() !== sourceMarkdown
+    ) {
+      return;
+    }
 
-    const change = applyEditorChange(dateBoundEditorState(), date, result.markdown);
-    if (change.type !== "current-editor") return;
+    openLinkModalFromDraft({
+      date,
+      baseMarkdownSource: "editor",
+      baseMarkdown: sourceMarkdown,
+      draftMarkdown: sourceMarkdown,
+      draft: createLinkEditDraft(sourceMarkdown, sourceSelection, clipboardLinkDataFromSuggestion(clipboardSuggestion))
+    }, clipboardSuggestion, "known");
+  };
 
-    applyDateBoundEditorTransition({ state: change.state, markdownWrite: change.markdownWrite });
-    setFocusEditorAtEnd(false);
-    setFocusEditorSelection({ start: result.cursorOffset, end: result.cursorOffset });
-    setEditorResetKey((key) => key + 1);
+  const closeLinkModal = () => {
+    setLinkModalSession(null);
+    setLinkModalText("");
+    setLinkModalUrl("");
+    setLinkModalClipboardSuggestion(null);
+    setLinkModalClipboardStatus("unknown");
+    setLinkModalError(null);
+  };
+
+  const linkModalSessionIsCurrent = (session: LinkModalSession): boolean =>
+    canEditDailyNoteDate(session.date, dateBoundEditorState()) &&
+    selectedDateCanWrite() &&
+    !manualConflictMarkersPresent() &&
+    currentLinkModalBaseMarkdown(session) === session.baseMarkdown;
+
+  const linkModalClipboardTextValue = () => clipboardTextCandidateFromSuggestion(linkModalClipboardSuggestion());
+  const linkModalClipboardUrlValue = () => linkModalClipboardSuggestion()?.url ?? null;
+  const linkModalClipboardTextDisabled = () =>
+    linkModalClipboardStatus() === "reading" ||
+    (linkModalClipboardStatus() === "known" && linkModalClipboardTextValue() === null);
+  const linkModalClipboardUrlDisabled = () =>
+    linkModalClipboardStatus() === "reading" ||
+    (linkModalClipboardStatus() === "known" && linkModalClipboardUrlValue() === null);
+
+  const submitLinkModal = () => {
+    const session = linkModalSession();
+    if (session === null) return;
+    if (!linkModalSessionIsCurrent(session)) {
+      setLinkModalError("The Daily Note changed. Reopen the link editor.");
+      return;
+    }
+
+    const result = applyLinkEdit(session.draftMarkdown, session.draft.target, linkModalText(), linkModalUrl());
+    if (result === null) {
+      setLinkModalError("Enter a supported link address.");
+      return;
+    }
+
+    applyUndoableMarkdownTransform(session.date, result.markdown, result.selection);
+    closeLinkModal();
+  };
+
+  const applyLinkModalClipboardText = (suggestion = linkModalClipboardSuggestion()) => {
+    const text = clipboardTextCandidateFromSuggestion(suggestion);
+    if (text === null) return;
+
+    const session = linkModalSession();
+    if (session === null) return;
+    if (!linkModalSessionIsCurrent(session)) {
+      setLinkModalError("The Daily Note changed. Reopen the link editor.");
+      return;
+    }
+
+    setLinkModalClipboardSuggestion(suggestion);
+    setLinkModalClipboardStatus("known");
+    setLinkModalText(text);
+    if (linkModalUrl().trim().length === 0 && suggestion !== null && suggestion.url !== null) {
+      setLinkModalUrl(suggestion.url);
+    }
+    setLinkModalError(null);
+  };
+
+  const applyLinkModalClipboardUrl = (suggestion = linkModalClipboardSuggestion()) => {
+    const url = suggestion?.url ?? null;
+    if (url === null) return;
+
+    const session = linkModalSession();
+    if (session === null) return;
+    if (!linkModalSessionIsCurrent(session)) {
+      setLinkModalError("The Daily Note changed. Reopen the link editor.");
+      return;
+    }
+
+    setLinkModalClipboardSuggestion(suggestion);
+    setLinkModalClipboardStatus("known");
+    setLinkModalUrl(url);
+    const text = clipboardTextCandidateFromSuggestion(suggestion);
+    if (linkModalText().trim().length === 0 && text !== null) setLinkModalText(text);
+    setLinkModalError(null);
+  };
+
+  const readLinkModalClipboardSuggestion = async (): Promise<ClipboardLinkSuggestion | null> => {
+    const existingStatus = linkModalClipboardStatus();
+    const existingSuggestion = linkModalClipboardSuggestion();
+    if (existingStatus === "known") return existingSuggestion;
+    if (existingStatus === "reading") return existingSuggestion;
+
+    const session = linkModalSession();
+    if (session === null) return null;
+    setLinkModalClipboardStatus("reading");
+    const clipboardSuggestion = await readClipboardLinkSuggestion();
+    if (linkModalSession() !== session) return null;
+
+    setLinkModalClipboardSuggestion(clipboardSuggestion);
+    setLinkModalClipboardStatus("known");
+    return clipboardSuggestion;
+  };
+
+  const useLinkModalClipboardText = async () => {
+    const suggestion = await readLinkModalClipboardSuggestion();
+    if (clipboardTextCandidateFromSuggestion(suggestion) === null) {
+      setLinkModalError("Clipboard does not contain usable link text.");
+      return;
+    }
+    applyLinkModalClipboardText(suggestion);
+  };
+
+  const useLinkModalClipboardUrl = async () => {
+    const suggestion = await readLinkModalClipboardSuggestion();
+    if (suggestion === null || suggestion.url === null) {
+      setLinkModalError("Clipboard does not contain a supported link address.");
+      return;
+    }
+    applyLinkModalClipboardUrl(suggestion);
+  };
+
+  const handleLinkModalUrlPaste = (event: ClipboardEvent & { currentTarget: HTMLInputElement }) => {
+    const clipboardData = event.clipboardData;
+    if (clipboardData === null) return;
+
+    const clipboardSuggestion = parseClipboardLinkSuggestion({
+      html: clipboardData.getData("text/html"),
+      text: clipboardData.getData("text/plain")
+    });
+    if (clipboardSuggestion === null || clipboardSuggestion.url === null) return;
+
+    event.preventDefault();
+    setLinkModalClipboardStatus("known");
+    applyLinkModalClipboardUrl(clipboardSuggestion);
   };
 
   const toggleCodeFormatAtSelection = () => {
@@ -2440,11 +2660,11 @@ export default function Home() {
               <button
                 type="button"
                 class="icon-button"
-                aria-label="Toggle link format"
-                title="Toggle link format"
+                aria-label="Insert or edit link"
+                title="Insert or edit link"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                 onPointerDown={preserveFormattingToolbarSelection}
-                onClick={toggleLinkFormat}
+                onClick={() => void openLinkModal()}
               >
                 <LinkFormatIcon />
               </button>
@@ -2690,6 +2910,91 @@ export default function Home() {
                     </button>
                   </div>
                 </div>
+              </div>
+            )}
+          </Show>
+
+          <Show when={linkModalSession()}>
+            {(session) => (
+              <div class="modal-backdrop" role="presentation">
+                <form
+                  class="link-modal"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="link-modal-title"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    submitLinkModal();
+                  }}
+                  onKeyDown={(event) => {
+                    if (isEscapeKey(event)) closeLinkModal();
+                  }}
+                >
+                  <div class="link-modal-header">
+                    <h2 id="link-modal-title">
+                      {session().draft.target.kind === "existing-link" ? "Edit link" : "Insert link"}
+                    </h2>
+                  </div>
+                  <div class="link-modal-fields">
+                    <label>
+                      Text
+                      <span class="link-modal-field-control">
+                        <input
+                          ref={linkTextInput}
+                          value={linkModalText()}
+                          onInput={(event) => setLinkModalText(event.currentTarget.value)}
+                        />
+                        <button
+                          type="button"
+                          class="icon-button link-modal-paste-button"
+                          aria-label="Use clipboard text"
+                          title="Use clipboard text"
+                          disabled={linkModalClipboardTextDisabled()}
+                          onClick={() => void useLinkModalClipboardText()}
+                        >
+                          <ClipboardPasteIcon />
+                        </button>
+                      </span>
+                    </label>
+                    <label>
+                      Address
+                      <span class="link-modal-field-control">
+                        <input
+                          ref={linkUrlInput}
+                          inputmode="url"
+                          spellcheck={false}
+                          value={linkModalUrl()}
+                          onInput={(event) => {
+                            setLinkModalUrl(event.currentTarget.value);
+                            setLinkModalError(null);
+                          }}
+                          onPaste={handleLinkModalUrlPaste}
+                        />
+                        <button
+                          type="button"
+                          class="icon-button link-modal-paste-button"
+                          aria-label="Use clipboard URL"
+                          title="Use clipboard URL"
+                          disabled={linkModalClipboardUrlDisabled()}
+                          onClick={() => void useLinkModalClipboardUrl()}
+                        >
+                          <ClipboardPasteIcon />
+                        </button>
+                      </span>
+                    </label>
+                  </div>
+                  <Show when={linkModalError()}>
+                    {(message) => <p class="link-modal-error">{message()}</p>}
+                  </Show>
+                  <div class="modal-actions">
+                    <button type="button" onClick={closeLinkModal}>
+                      Cancel
+                    </button>
+                    <button type="submit" disabled={!isSupportedLinkDestination(linkModalUrl().trim())}>
+                      {session().draft.target.kind === "existing-link" ? "Update" : "Insert"}
+                    </button>
+                  </div>
+                </form>
               </div>
             )}
           </Show>
@@ -3130,6 +3435,117 @@ async function signIn(runtime: StorageRuntime): Promise<void> {
   }
 }
 
+async function readClipboardLinkSuggestion(options: {
+  readonly requireGrantedPermission?: boolean;
+} = {}): Promise<ClipboardLinkSuggestion | null> {
+  if (options.requireGrantedPermission === true && !(await clipboardReadPermissionAlreadyGranted())) return null;
+
+  const clipboard = navigator.clipboard as (Clipboard & {
+    readonly read?: () => Promise<readonly ClipboardItem[]>;
+  }) | undefined;
+  if (clipboard === undefined) return null;
+
+  const [richResult, textResult] = await Promise.allSettled([
+    readRichClipboardLinkSuggestion(clipboard),
+    clipboard.readText?.() ?? Promise.resolve("")
+  ]);
+  const richLink = richResult.status === "fulfilled" ? richResult.value : null;
+  if (richLink !== null) return richLink;
+
+  const text = textResult.status === "fulfilled" ? textResult.value : "";
+  return parseClipboardLinkSuggestion({ text: text ?? "", html: "" });
+}
+
+async function clipboardReadPermissionAlreadyGranted(): Promise<boolean> {
+  if (navigator.permissions?.query === undefined) return false;
+
+  return (
+    (await clipboardReadPermissionState({ name: "clipboard-read" as PermissionName })) === "granted" ||
+    (await clipboardReadPermissionState({
+      name: "clipboard-read" as PermissionName,
+      allowWithoutGesture: true
+    } as PermissionDescriptor)) === "granted"
+  );
+}
+
+async function clipboardReadPermissionState(descriptor: PermissionDescriptor): Promise<PermissionState | null> {
+  try {
+    return (await navigator.permissions!.query(descriptor)).state;
+  } catch {
+    return null;
+  }
+}
+
+async function readRichClipboardLinkSuggestion(clipboard: Clipboard & {
+  readonly read?: () => Promise<readonly ClipboardItem[]>;
+}): Promise<ClipboardLinkSuggestion | null> {
+  if (clipboard.read === undefined) return null;
+
+  const items = await clipboard.read();
+  for (const item of items) {
+    const html = await clipboardItemText(item, "text/html");
+    const text = await clipboardItemText(item, "text/plain");
+    const link = parseClipboardLinkSuggestion({ html, text });
+    if (link !== null) return link;
+  }
+
+  return null;
+}
+
+function clipboardLinkDataFromSuggestion(suggestion: ClipboardLinkSuggestion | null): ClipboardLinkData | null {
+  if (suggestion === null || suggestion.url === null) return null;
+  return {
+    url: suggestion.url,
+    text: suggestion.text
+  };
+}
+
+function clipboardSuggestionFromLinkData(link: ClipboardLinkData | null): ClipboardLinkSuggestion | null {
+  return link === null
+    ? null
+    : {
+      url: link.url,
+      text: link.text
+    };
+}
+
+function clipboardTextCandidateFromSuggestion(suggestion: ClipboardLinkSuggestion | null): string | null {
+  if (suggestion === null) return null;
+  if (suggestion.text !== null) return suggestion.text;
+  return suggestion.url === null ? null : suggestedLinkText(suggestion.url);
+}
+
+function linkModalFieldsForDraft(
+  draft: LinkEditDraft,
+  clipboardSuggestion: ClipboardLinkSuggestion | null
+): {
+  readonly text: string;
+  readonly url: string;
+} {
+  const clipboardUrl = clipboardSuggestion?.url ?? null;
+  const clipboardText = clipboardTextCandidateFromSuggestion(clipboardSuggestion);
+
+  const url = draft.url.trim().length > 0 || clipboardUrl === null ? draft.url : clipboardUrl;
+  const text = draft.text.trim().length > 0 || clipboardText === null ? draft.text : clipboardText;
+  return { text, url };
+}
+
+async function clipboardItemText(item: ClipboardItem, type: string): Promise<string> {
+  if (!item.types.includes(type)) return "";
+  return await (await item.getType(type)).text();
+}
+
+function markdownAppendSeparator(markdown: string): string {
+  if (markdown.trim().length === 0) return "";
+  if (markdown.endsWith("\n\n")) return "";
+  return markdown.endsWith("\n") ? "\n" : "\n\n";
+}
+
+function clearShareTargetSearchParams(): void {
+  if (window.location.search.length === 0) return;
+  window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
+}
+
 function routeFromHash(): {
   readonly date: IsoDate | null;
   readonly invalidDate: string | null;
@@ -3352,6 +3768,28 @@ function LinkFormatIcon() {
     >
       <path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
       <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />
+    </svg>
+  );
+}
+
+function ClipboardPasteIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M8 4h8" />
+      <path d="M9 2h6v4H9z" />
+      <path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2" />
+      <path d="M8 12h8" />
+      <path d="M8 16h5" />
     </svg>
   );
 }

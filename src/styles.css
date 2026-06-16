@@ -674,6 +674,7 @@ select {
 .image-attachment-modal,
 .daily-note-upload-modal,
 .reconnect-modal,
+.link-modal,
 .section-link-modal,
 .sync-conflict-resolution-modal {
   display: grid;
@@ -706,6 +707,7 @@ select {
 .image-attachment-modal-header,
 .daily-note-upload-modal-header,
 .reconnect-modal-header,
+.link-modal-header,
 .section-link-modal-header,
 .sync-conflict-resolution-header {
   display: grid;
@@ -722,6 +724,7 @@ select {
 .image-attachment-modal h2,
 .daily-note-upload-modal h2,
 .reconnect-modal h2,
+.link-modal h2,
 .section-link-modal h2,
 .sync-conflict-resolution-modal h2 {
   margin: 0;
@@ -730,10 +733,47 @@ select {
 
 .daily-note-upload-modal p,
 .reconnect-modal p,
+.link-modal p,
 .section-link-modal p,
 .sync-conflict-resolution-modal p {
   margin: 0;
   color: var(--muted);
+}
+
+.link-modal-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.link-modal-fields label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.link-modal-fields input {
+  width: 100%;
+  font-size: 15px;
+}
+
+.link-modal-field-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 6px;
+  align-items: center;
+}
+
+.link-modal-paste-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+}
+
+.link-modal-error {
+  color: var(--danger);
+  font-size: 13px;
 }
 
 .sync-conflict-resolution-actions {

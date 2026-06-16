@@ -1,4 +1,4 @@
-const CACHE_NAME = "jot-shell-v5";
+const CACHE_NAME = "jot-shell-v6";
 const APP_SHELL = ["./", "./manifest.webmanifest", "./icons/icon.svg"];
 
 self.addEventListener("install", (event) => {

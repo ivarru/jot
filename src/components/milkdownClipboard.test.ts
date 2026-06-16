@@ -1,10 +1,13 @@
 import { defaultValueCtx, Editor, editorViewCtx, serializerCtx } from "@milkdown/kit/core";
-import { automd } from "@milkdown/plugin-automd";
+import { automd, inlineSyncConfig } from "@milkdown/plugin-automd";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
-import { commonmark } from "@milkdown/kit/preset/commonmark";
+import { commonmark, linkSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
-import { TextSelection } from "@milkdown/kit/prose/state";
+import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
+import { $prose } from "@milkdown/kit/utils";
+import { shouldSyncMilkdownInlineMarkdown } from "./milkdownInlineSync";
+import { createPlainUrlLinkBoundaryPlugin } from "./milkdownPlainUrl";
 
 describe("milkdown clipboard paste", () => {
   it("pastes a plain text URL as a Markdown autolink", async () => {
@@ -18,7 +21,23 @@ describe("milkdown clipboard paste", () => {
       expect(markdown).toBe("<https://example.com/a:b?x=1>\n");
       expect(markdown).not.toContain("\\:");
     } finally {
-      await editor.destroy();
+      await destroyEditor(editor);
+    }
+  });
+
+  it("keeps existing text outside a plain text URL pasted before it", async () => {
+    const editor = await createEditor("tail");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)));
+
+      expect(pastePlainText(view, "https://example.com/a")).toBe(true);
+      const markdown = editor.ctx.get(serializerCtx)(view.state.doc);
+      expect(markdown).toBe("<https://example.com/a>tail\n");
+      await animationFrame();
+    } finally {
+      await destroyEditor(editor);
     }
   });
 
@@ -36,7 +55,28 @@ describe("milkdown clipboard paste", () => {
       expect(markdown).toBe("<https://example.com/a:b?x=1>\n");
       expect(markdown).not.toContain("\\:");
     } finally {
-      await editor.destroy();
+      await destroyEditor(editor);
+    }
+  });
+
+  it("keeps existing text outside a plain text URL inserted through browser text input before it", async () => {
+    const editor = await createEditor("tail");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+
+      vi.spyOn(view, "hasFocus").mockReturnValue(true);
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)));
+      const handled = view.someProp("handleTextInput", (handler) =>
+        handler(view, 1, 1, "https://example.com/a", () => view.state.tr.insertText("https://example.com/a", 1, 1))
+      );
+      await animationFrame();
+
+      expect(handled).toBe(true);
+      const markdown = editor.ctx.get(serializerCtx)(view.state.doc);
+      expect(markdown).toBe("<https://example.com/a>tail\n");
+    } finally {
+      await destroyEditor(editor);
     }
   });
 
@@ -52,7 +92,7 @@ describe("milkdown clipboard paste", () => {
 
       expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("ordinary text\n");
     } finally {
-      await editor.destroy();
+      await destroyEditor(editor);
     }
   });
 
@@ -65,7 +105,7 @@ describe("milkdown clipboard paste", () => {
       expect(pastePlainText(view, "ordinary text")).toBe(true);
       expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("ordinary text\n");
     } finally {
-      await editor.destroy();
+      await destroyEditor(editor);
     }
   });
 
@@ -79,7 +119,7 @@ describe("milkdown clipboard paste", () => {
       expect(pastePlainText(view, "| A | B |\n| --- | --- |\n| one | two |")).toBe(true);
       expect(editor.ctx.get(serializerCtx)(view.state.doc)).toContain("| A   | B   |\n| :-- | :-- |\n| one | two |\n");
     } finally {
-      await editor.destroy();
+      await destroyEditor(editor);
     }
   });
 });
@@ -88,16 +128,28 @@ async function createEditor(markdown: string) {
   return await Editor.make()
     .config((ctx) => {
       ctx.set(defaultValueCtx, markdown);
+      ctx.update(inlineSyncConfig.key, (config) => ({
+        ...config,
+        shouldSyncNode: shouldSyncMilkdownInlineMarkdown(config.shouldSyncNode)
+      }));
     })
     .use(commonmark)
     .use(gfm)
     .use(automd)
+    .use($prose((ctx) => createPlainUrlLinkBoundaryPlugin(Plugin, TextSelection, linkSchema.type(ctx))))
     .use(clipboard)
     .create();
 }
 
 async function animationFrame(): Promise<void> {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  await new Promise<void>((resolve) => window.setTimeout(() => resolve(), 0));
+}
+
+async function destroyEditor(editor: Awaited<ReturnType<typeof createEditor>>): Promise<void> {
+  await animationFrame();
+  await editor.destroy();
 }
 
 function pastePlainText(view: EditorView, text: string): boolean {

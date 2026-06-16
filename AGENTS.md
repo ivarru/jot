@@ -52,3 +52,5 @@ npm run smoke:fake-daily-note-upload
 npm run smoke:fake-reconnect-conflict
 npm run smoke:fake-image
 ```
+
+Do not leave local development or test servers running after development or verification work is complete.

@@ -50,20 +50,19 @@ For Google-backed local preview, put the development OAuth client in `.env.local
 VITE_GOOGLE_CLIENT_ID=your-dev-client-id.apps.googleusercontent.com
 ```
 
-Then build and preview:
+Then build and preview with the non-production OAuth client:
 
 ```sh
-source .env.local
-npm run build
-npm run preview
+npm run preview:test:oauth
 ```
 
 For a local fake-storage preview:
 
 ```sh
-VITE_ENABLE_FAKE_AUTH=true npm run build
-npm run preview
+npm run preview:test:fake
 ```
+
+Both preview commands serve the app at `http://127.0.0.1:4173`.
 
 `VITE_ENABLE_FAKE_AUTH=true` forces fake storage and fake image providers even when a Google client id is present. Normal production builds do not expose fake storage.
 

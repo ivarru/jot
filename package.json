@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "type": "module",
   "private": true,
   "scripts": {
@@ -9,10 +9,13 @@
     "build:pages": "export BASE_PATH=${BASE_PATH:-/jot/}; npm run build && node scripts/prepare-pages.mjs",
     "verify:pages": "npm run test && npm run typecheck && npm run build:pages && npm run smoke:pages",
     "preview": "vite preview --host 127.0.0.1 --port 4173 --outDir .output/public",
+    "preview:test:fake": "node scripts/preview-test-fake-auth.mjs",
+    "preview:test:oauth": "node scripts/preview-test-local-oauth.mjs",
     "smoke:pages": "node scripts/smoke-pages.mjs",
     "smoke:preview": "node scripts/smoke-preview.mjs",
     "smoke:raw-keyboard": "node scripts/smoke-raw-keyboard.mjs",
     "smoke:wysiwyg-paste": "node scripts/smoke-wysiwyg-paste.mjs",
+    "smoke:link-modal": "node scripts/smoke-link-modal.mjs",
     "smoke:fake-daily-note-upload": "node scripts/smoke-fake-daily-note-upload.mjs",
     "smoke:fake-reconnect-conflict": "node scripts/smoke-fake-reconnect-conflict.mjs",
     "smoke:fake-image": "node scripts/smoke-fake-image.mjs",
