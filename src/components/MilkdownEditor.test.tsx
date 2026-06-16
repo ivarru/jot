@@ -283,6 +283,62 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("restores a heading selection when reset and requested selection change together", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const markdown = "See [details](#details)\n\nIntro\n\n## Details\nBody";
+    const headingStart = markdown.lastIndexOf("Details");
+    const headingSelection = {
+      start: headingStart,
+      end: headingStart + "Details".length
+    };
+    let setNavigation!: (navigation: {
+      readonly resetKey: number;
+      readonly selection: { readonly start: number; readonly end: number } | null;
+    }) => void;
+    let getSelection!: () => { readonly start: number; readonly end: number } | null;
+
+    const dispose = render(
+      () => {
+        const [navigation, innerSetNavigation] = createSignal<{
+          readonly resetKey: number;
+          readonly selection: { readonly start: number; readonly end: number } | null;
+        }>({
+          resetKey: 0,
+          selection: null
+        });
+        setNavigation = innerSetNavigation;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            resetKey={navigation().resetKey}
+            value={markdown}
+            focusSelection={navigation().selection}
+            onChange={() => undefined}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController !== null) getSelection = nextController.getSelection;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+
+      setNavigation({ resetKey: 1, selection: headingSelection });
+      await animationFrame();
+      await animationFrame();
+
+      expect(getSelection()).toEqual(headingSelection);
+    } finally {
+      dispose();
+    }
+  });
+
   it("toggles collapsed inline-code state without writing literal backticks", async () => {
     const host = document.createElement("div");
     document.body.append(host);

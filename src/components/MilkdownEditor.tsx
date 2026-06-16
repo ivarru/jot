@@ -539,7 +539,15 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             focus: (placement, onFocusApplied) => {
               if (disposed || activeSession !== session || editor === null) return;
               const view = editor.ctx.get(editorViewCtx);
-              focusEditable(root, placement, view, TextSelection, markdownState.currentMarkdown, onFocusApplied);
+              focusEditable(
+                root,
+                placement,
+                view,
+                TextSelection,
+                markdownState.currentMarkdown,
+                onFocusApplied,
+                () => !disposed && activeSession === session && editor !== null
+              );
             },
             redo: () => {
               if (disposed || activeSession !== session || editor === null) return false;
@@ -760,6 +768,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
       () => [props.documentKey, props.resetKey, props.focusAtEnd, props.focusSelection, props.focusEnabled] as const,
       (focus, previousFocus) => {
         if (props.focusEnabled === false) return;
+        if (previousFocus !== undefined && (focus[0] !== previousFocus[0] || focus[1] !== previousFocus[1])) return;
         if (clearedOnlyFocusSelection(focus, previousFocus)) return;
         activeSession?.focus(
           focusPlacement(props.focusAtEnd, props.focusSelection),
@@ -1038,13 +1047,15 @@ function focusEditable(
   view: EditorView,
   textSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
   markdown: string,
-  onFocusApplied?: () => void
+  onFocusApplied?: () => void,
+  isActive: () => boolean = () => true
 ): void {
+  if (!isActive()) return;
   placeEditorSelection(view, textSelection, markdown, placement);
   view.focus();
   placeEditorSelection(view, textSelection, markdown, placement);
   onFocusApplied?.();
-  restoreEditableSelection(root, view, textSelection, markdown, placement, 4);
+  restoreEditableSelection(root, view, textSelection, markdown, placement, 4, isActive);
 }
 
 function restoreEditableSelection(
@@ -1053,11 +1064,15 @@ function restoreEditableSelection(
   textSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
   markdown: string,
   placement: FocusPlacement,
-  attempts: number
+  attempts: number,
+  isActive: () => boolean
 ): void {
   requestAnimationFrame(() => {
+    if (!isActive()) return;
     if (root.querySelector<HTMLElement>("[contenteditable='true']") === null) {
-      if (attempts > 0) restoreEditableSelection(root, view, textSelection, markdown, placement, attempts - 1);
+      if (attempts > 0) {
+        restoreEditableSelection(root, view, textSelection, markdown, placement, attempts - 1, isActive);
+      }
       return;
     }
     placeEditorSelection(view, textSelection, markdown, placement);
