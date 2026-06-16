@@ -23,6 +23,7 @@ interface Replacement {
   readonly start: number;
   readonly removeLength: number;
   readonly insert: string;
+  readonly mapCollapsedAtBoundary?: "after" | "before";
 }
 
 const BLOCK_QUOTE_PREFIX = /^([ \t]{0,3}>[ \t]?)/;
@@ -44,7 +45,9 @@ export function toggleMarkdownBlockQuote(markdown: string, selection: MarkdownSe
     ? removeBlockQuoteReplacements(lines)
     : addBlockQuoteReplacements(markdown, lines);
 
-  const mappedStart = mapOffset(normalized.start, replacements, 1);
+  const mappedStart = normalized.start === normalized.end
+    ? mapCollapsedOffset(normalized.start, replacements)
+    : mapOffset(normalized.start, replacements, 1);
   const mappedEnd = normalized.start === normalized.end
     ? mappedStart
     : mapOffset(normalized.end, replacements, -1);
@@ -64,7 +67,8 @@ function addBlockQuoteReplacements(markdown: string, lines: readonly LineSpan[])
     .map((line) => ({
       start: line.start,
       removeLength: 0,
-      insert: "> "
+      insert: "> ",
+      mapCollapsedAtBoundary: "after" as const
     }));
   const termination = blockQuoteTerminationReplacement(markdown, lines);
 
@@ -126,7 +130,8 @@ function blockQuoteTerminationReplacement(markdown: string, lines: readonly Line
   return {
     start: last.contentEnd,
     removeLength: 0,
-    insert: "\n"
+    insert: "\n",
+    mapCollapsedAtBoundary: "before"
   };
 }
 
@@ -147,6 +152,26 @@ function mapOffset(offset: number, replacements: readonly Replacement[], assoc: 
     if (offset < replacement.start) break;
     if (offset === replacement.start && replacement.removeLength === 0) {
       if (assoc < 0) break;
+      delta += replacement.insert.length;
+      continue;
+    }
+
+    const removedEnd = replacement.start + replacement.removeLength;
+    if (offset <= removedEnd) {
+      return replacement.start + delta + replacement.insert.length;
+    }
+
+    delta += replacement.insert.length - replacement.removeLength;
+  }
+  return offset + delta;
+}
+
+function mapCollapsedOffset(offset: number, replacements: readonly Replacement[]): number {
+  let delta = 0;
+  for (const replacement of replacements) {
+    if (offset < replacement.start) break;
+    if (offset === replacement.start && replacement.removeLength === 0) {
+      if (replacement.mapCollapsedAtBoundary === "before") break;
       delta += replacement.insert.length;
       continue;
     }

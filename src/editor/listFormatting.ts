@@ -37,10 +37,12 @@ const BULLET_LIST_PREFIX = /^([ \t]*[*+-])([ \t]+)(?:(\[[ xX]\])([ \t]*))?/;
 export function markdownListItemFormatState(markdown: string, selection: MarkdownSelection): ListItemFormatState {
   const normalized = normalizeSelection(markdown, selection);
   const lines = selectedLineSpans(markdown, normalized);
-  const listItems = lines.map(parseListItemLine).filter((item): item is ListItemLine => item !== null);
 
   return {
-    task: listItems.length > 0 && listItems.every((item) => item.taskMarkerStart !== null)
+    task: lines.length > 0 && lines.every((line) => {
+      const listItem = parseListItemLine(line);
+      return listItem !== null && listItem.taskMarkerStart !== null;
+    })
   };
 }
 
@@ -50,13 +52,14 @@ export function toggleMarkdownTaskListItem(
 ): ListItemFormatToggleResult | null {
   const normalized = normalizeSelection(markdown, selection);
   const lines = selectedLineSpans(markdown, normalized);
-  const listItems = lines.map(parseListItemLine).filter((item): item is ListItemLine => item !== null);
+  const targets = lines.map((line) => ({
+    line,
+    listItem: parseListItemLine(line)
+  }));
 
-  const replacements = listItems.length === 0
-    ? addPlainTaskListReplacements(lines)
-    : listItems.every((item) => item.taskMarkerStart !== null)
-      ? removeTaskListReplacements(listItems)
-      : addTaskListReplacements(listItems);
+  const replacements = targets.every((target) => target.listItem !== null && target.listItem.taskMarkerStart !== null)
+    ? removeTaskListReplacements(targets.map((target) => target.listItem!))
+    : addTaskListReplacements(targets);
   if (replacements.length === 0) return null;
 
   const mappedStart = mapOffset(normalized.start, replacements, 1);
@@ -73,22 +76,28 @@ export function toggleMarkdownTaskListItem(
   };
 }
 
-function addTaskListReplacements(listItems: readonly ListItemLine[]): readonly Replacement[] {
-  return listItems
-    .filter((item) => item.taskMarkerStart === null)
-    .map((item) => ({
-      start: item.line.start + item.prefixEnd,
+function addTaskListReplacements(
+  targets: readonly {
+    readonly line: LineSpan;
+    readonly listItem: ListItemLine | null;
+  }[]
+): readonly Replacement[] {
+  return targets.flatMap((target) => {
+    if (target.listItem === null) {
+      return [{
+        start: target.line.start + Math.min(leadingSpaceCount(target.line.text), 3),
+        removeLength: 0,
+        insert: "* [ ] "
+      }];
+    }
+
+    if (target.listItem.taskMarkerStart !== null) return [];
+    return [{
+      start: target.listItem.line.start + target.listItem.prefixEnd,
       removeLength: 0,
       insert: "[ ] "
-    }));
-}
-
-function addPlainTaskListReplacements(lines: readonly LineSpan[]): readonly Replacement[] {
-  return lines.map((line) => ({
-    start: line.start + Math.min(leadingSpaceCount(line.text), 3),
-    removeLength: 0,
-    insert: "* [ ] "
-  }));
+    }];
+  });
 }
 
 function removeTaskListReplacements(listItems: readonly ListItemLine[]): readonly Replacement[] {

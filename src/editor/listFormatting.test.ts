@@ -64,6 +64,30 @@ describe("list formatting", () => {
     });
   });
 
+  it("turns mixed normal and bullet lines into task items", () => {
+    const markdown = "plain\n* item";
+
+    expect(toggleMarkdownTaskListItem(markdown, selection(markdown, "plain\n* item"))).toEqual({
+      markdown: "* [ ] plain\n* [ ] item",
+      selection: {
+        start: "* [ ] ".length,
+        end: "* [ ] plain\n* [ ] item".length
+      }
+    });
+  });
+
+  it("turns mixed normal and existing task lines into task items", () => {
+    const markdown = "plain\n* [ ] item";
+
+    expect(toggleMarkdownTaskListItem(markdown, selection(markdown, "plain\n* [ ] item"))).toEqual({
+      markdown: "* [ ] plain\n* [ ] item",
+      selection: {
+        start: "* [ ] ".length,
+        end: "* [ ] plain\n* [ ] item".length
+      }
+    });
+  });
+
   it("turns the current normal line into an unchecked task item", () => {
     const markdown = "plain";
 
@@ -84,6 +108,9 @@ describe("list formatting", () => {
       task: false
     });
     expect(markdownListItemFormatState("plain", cursor("plain", "pla"))).toEqual({
+      task: false
+    });
+    expect(markdownListItemFormatState("plain\n* [ ] item", selection("plain\n* [ ] item", "plain\n* [ ] item"))).toEqual({
       task: false
     });
   });
