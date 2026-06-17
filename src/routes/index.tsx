@@ -65,7 +65,10 @@ import {
 import {
   EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS,
   EDITOR_MODE_TOGGLE_SHORTCUT_LABEL,
+  LINK_EDIT_ARIA_SHORTCUTS,
+  LINK_EDIT_SHORTCUT_LABEL,
   isEditorModeToggleShortcut,
+  isLinkEditShortcut,
   nextEditorMode,
   type EditorMode
 } from "~/editor/editorModeShortcut";
@@ -853,6 +856,13 @@ export default function Home() {
     )
   );
 
+  const eventOriginatesInEditor = (event: Event): boolean => {
+    const target = event.target;
+    if (!(target instanceof Node)) return false;
+    if (plainTextEditorElement?.contains(target)) return true;
+    return target instanceof Element && target.closest(".milkdown-root") !== null;
+  };
+
   createEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
@@ -882,11 +892,21 @@ export default function Home() {
 
   createEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isEditorModeToggleShortcut(event)) return;
-      if (!authenticated() || !selectedDateCanWrite() || manualConflictMarkersPresent()) return;
+      if (isLinkEditShortcut(event)) {
+        if (!authenticated() || !selectedDateCanWrite() || manualConflictMarkersPresent()) return;
+        if (!eventOriginatesInEditor(event)) return;
 
-      event.preventDefault();
-      updateEditorMode(nextEditorMode(editorMode()));
+        event.preventDefault();
+        void openLinkModal();
+        return;
+      }
+
+      if (isEditorModeToggleShortcut(event)) {
+        if (!authenticated() || !selectedDateCanWrite() || manualConflictMarkersPresent()) return;
+
+        event.preventDefault();
+        updateEditorMode(nextEditorMode(editorMode()));
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     onCleanup(() => window.removeEventListener("keydown", onKeyDown));
@@ -2661,7 +2681,8 @@ export default function Home() {
                 type="button"
                 class="icon-button"
                 aria-label="Insert or edit link"
-                title="Insert or edit link"
+                aria-keyshortcuts={LINK_EDIT_ARIA_SHORTCUTS}
+                title={`Insert or edit link (${LINK_EDIT_SHORTCUT_LABEL})`}
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                 onPointerDown={preserveFormattingToolbarSelection}
                 onClick={() => void openLinkModal()}

@@ -1,4 +1,10 @@
-import { EDITOR_MODE_TOGGLE_SHORTCUT_LABEL, isEditorModeToggleShortcut, nextEditorMode } from "./editorModeShortcut";
+import {
+  EDITOR_MODE_TOGGLE_SHORTCUT_LABEL,
+  LINK_EDIT_SHORTCUT_LABEL,
+  isEditorModeToggleShortcut,
+  isLinkEditShortcut,
+  nextEditorMode
+} from "./editorModeShortcut";
 
 describe("editor mode shortcut", () => {
   it("toggles between WYSIWYG and text modes", () => {
@@ -18,6 +24,19 @@ describe("editor mode shortcut", () => {
     expect(
       isEditorModeToggleShortcut(keyboardEvent({ key: "m", ctrlKey: true, shiftKey: true, isComposing: true }))
     ).toBe(false);
+  });
+
+  it("uses Ctrl/Cmd+K for link editing", () => {
+    expect(LINK_EDIT_SHORTCUT_LABEL).toBe("Ctrl/Cmd+K");
+    expect(isLinkEditShortcut(keyboardEvent({ key: "k", ctrlKey: true }))).toBe(true);
+    expect(isLinkEditShortcut(keyboardEvent({ key: "K", metaKey: true }))).toBe(true);
+  });
+
+  it("ignores nearby link editing shortcuts and composing input", () => {
+    expect(isLinkEditShortcut(keyboardEvent({ key: "k" }))).toBe(false);
+    expect(isLinkEditShortcut(keyboardEvent({ key: "k", ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(isLinkEditShortcut(keyboardEvent({ key: "k", ctrlKey: true, altKey: true }))).toBe(false);
+    expect(isLinkEditShortcut(keyboardEvent({ key: "k", ctrlKey: true, isComposing: true }))).toBe(false);
   });
 });
 

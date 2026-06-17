@@ -578,7 +578,7 @@ describe("Home reconnect and conflict handling", () => {
 
     const linkButton = host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']");
     expect(linkButton).not.toBeNull();
-    expect(linkButton!.title).toBe("Insert or edit link");
+    expect(linkButton!.title).toBe("Insert or edit link (Ctrl/Cmd+K)");
     linkButton!.click();
     await settle();
 
@@ -591,6 +591,70 @@ describe("Home reconnect and conflict handling", () => {
     await settle();
 
     expect(editor!.value).toBe("Read [sync-model (example.com)](<https://example.com/docs/sync-model>) today");
+
+    dispose();
+  });
+
+  it("opens the link modal at the raw editor selection with Ctrl+K", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "Read selected text today",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    rawModeButton(host).click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange("Read ".length, "Read selected text".length);
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "k",
+      ctrlKey: true
+    });
+    editor!.dispatchEvent(event);
+    await settle();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(dialog(host, "Insert link")).not.toBeNull();
+    const inputs = Array.from(host.querySelectorAll<HTMLInputElement>(".link-modal input"));
+    expect(inputs.map((input) => input.value)).toEqual(["selected text", ""]);
+
+    dispose();
+  });
+
+  it("does not open the link modal with Ctrl+K outside the editor", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "Read selected text today",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "k",
+      ctrlKey: true
+    });
+    host.dispatchEvent(event);
+    await settle();
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(dialog(host, "Insert link")).toBeNull();
 
     dispose();
   });
@@ -1940,6 +2004,12 @@ describe("Home reconnect and conflict handling", () => {
     ]);
     expect(host.querySelector<HTMLButtonElement>(`button[aria-label='Jump to today, ${todayIsoDate()}']`)!.disabled).toBe(false);
     expect(rawModeButton(host).title).toBe("Toggle raw Markdown (Ctrl/Cmd+Shift+M)");
+    expect(host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.title).toBe(
+      "Insert or edit link (Ctrl/Cmd+K)"
+    );
+    expect(host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.getAttribute("aria-keyshortcuts")).toBe(
+      "Control+K Meta+K"
+    );
     expect(
       host.querySelector("button[aria-label='Toggle block quote format'] .format-letter-quote")
     ).not.toBeNull();
