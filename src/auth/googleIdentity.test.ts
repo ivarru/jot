@@ -9,7 +9,7 @@ describe("GoogleIdentityTokenProvider", () => {
     document.head.replaceChildren();
   });
 
-  it("reuses cached access tokens until they expire", async () => {
+  it("reuses cached access tokens until they expire and then renews them", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
 
@@ -35,10 +35,95 @@ describe("GoogleIdentityTokenProvider", () => {
     await expect(provider.getAccessToken({ interactive: true })).resolves.toBe("token-1");
     await expect(provider.getAccessToken()).resolves.toBe("token-1");
     vi.setSystemTime(61000);
-    await expect(provider.getAccessToken()).rejects.toBeInstanceOf(GoogleAccessTokenUnavailableError);
-    expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(1);
-    await expect(provider.getAccessToken({ interactive: true })).resolves.toBe("token-2");
+    await expect(provider.getAccessToken()).resolves.toBe("token-2");
     expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(2);
+    await expect(provider.getAccessToken()).resolves.toBe("token-2");
+    expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(2);
+  });
+
+  it("renews expired cached access tokens without requiring an interactive reconnect", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+
+    const tokenClient = {
+      callback: (_response: unknown) => undefined,
+      requestAccessToken: vi.fn(() => {
+        tokenClient.callback({
+          access_token: `token-${tokenClient.requestAccessToken.mock.calls.length}`,
+          expires_in: 120
+        });
+      })
+    };
+    window.google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: vi.fn(() => tokenClient),
+          revoke: vi.fn((_token: string, done: () => void) => done())
+        }
+      }
+    };
+    const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
+
+    await expect(provider.getAccessToken({ interactive: true })).resolves.toBe("token-1");
+    vi.setSystemTime(61000);
+
+    await expect(provider.getAccessToken()).resolves.toBe("token-2");
+    expect(tokenClient.requestAccessToken).toHaveBeenNthCalledWith(2, { prompt: "none" });
+  });
+
+  it("coalesces concurrent token renewals", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+
+    let resolveToken: (value: unknown) => void = () => {
+      throw new Error("Token request was not started.");
+    };
+    const tokenClient = {
+      callback: (_response: unknown) => undefined,
+      requestAccessToken: vi.fn(() => {
+        resolveToken = tokenClient.callback;
+      })
+    };
+    window.google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: vi.fn(() => tokenClient),
+          revoke: vi.fn((_token: string, done: () => void) => done())
+        }
+      }
+    };
+    const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
+    const first = provider.getAccessToken();
+    const second = provider.getAccessToken();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(1);
+    resolveToken({ access_token: "renewed-token", expires_in: 120 });
+
+    await expect(first).resolves.toBe("renewed-token");
+    await expect(second).resolves.toBe("renewed-token");
+  });
+
+  it("reports a reconnect requirement when background token renewal fails", async () => {
+    const tokenClient = {
+      callback: (_response: unknown) => undefined,
+      requestAccessToken: vi.fn(() => {
+        tokenClient.callback({ error: "interaction_required" });
+      })
+    };
+    window.google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: vi.fn(() => tokenClient),
+          revoke: vi.fn((_token: string, done: () => void) => done())
+        }
+      }
+    };
+    const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
+
+    await expect(provider.getAccessToken()).rejects.toBeInstanceOf(GoogleAccessTokenUnavailableError);
+    expect(tokenClient.requestAccessToken).toHaveBeenCalledWith({ prompt: "none" });
   });
 
   it("initializes the token client without requesting a token", async () => {

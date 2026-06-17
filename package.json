@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.17.2",
+  "version": "0.17.4",
   "type": "module",
   "private": true,
   "scripts": {

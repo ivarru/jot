@@ -15,6 +15,12 @@ interface GoogleTokenResponse {
   readonly scope?: string;
 }
 
+type GoogleTokenPrompt = NonNullable<AccessTokenRequest["prompt"]> | "none";
+
+interface GoogleTokenRequest {
+  readonly prompt?: GoogleTokenPrompt;
+}
+
 export type GoogleRedirectAccessTokenResult =
   | { readonly type: "none" }
   | { readonly type: "authenticated" }
@@ -33,7 +39,7 @@ interface StoredAccessToken {
 interface GoogleTokenClient {
   callback: (response: GoogleTokenResponse) => void;
   error_callback?: (error: unknown) => void;
-  requestAccessToken(request?: AccessTokenRequest): void;
+  requestAccessToken(request?: GoogleTokenRequest): void;
 }
 
 interface GoogleIdentityApi {
@@ -65,6 +71,7 @@ declare global {
 
 export class GoogleIdentityTokenProvider implements AccessTokenProvider {
   private tokenClient: GoogleTokenClient | null = null;
+  private inFlightAccessTokenRequest: Promise<string> | null = null;
   private accessToken: string | null = null;
   private accessTokenExpiresAtMs = 0;
   private readonly scopes: string;
@@ -142,13 +149,39 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
       return cachedToken;
     }
 
-    if (request.interactive !== true) {
-      throw new GoogleAccessTokenUnavailableError();
-    }
+    const googleRequest = googleTokenRequest(request, request.interactive === true ? undefined : "none");
+    const mapFailureToReconnect = request.interactive !== true;
 
+    return await this.requestFreshAccessToken(googleRequest, mapFailureToReconnect);
+  }
+
+  private async requestFreshAccessToken(
+    request: GoogleTokenRequest | undefined,
+    mapFailureToReconnect: boolean
+  ): Promise<string> {
+    if (this.inFlightAccessTokenRequest !== null) return await this.inFlightAccessTokenRequest;
+
+    const inFlight = this.performFreshAccessTokenRequest(request, mapFailureToReconnect);
+    this.inFlightAccessTokenRequest = inFlight;
+    inFlight.then(
+      () => {
+        if (this.inFlightAccessTokenRequest === inFlight) this.inFlightAccessTokenRequest = null;
+      },
+      () => {
+        if (this.inFlightAccessTokenRequest === inFlight) this.inFlightAccessTokenRequest = null;
+      }
+    );
+
+    return await inFlight;
+  }
+
+  private async performFreshAccessTokenRequest(
+    request: GoogleTokenRequest | undefined,
+    mapFailureToReconnect: boolean
+  ): Promise<string> {
     const client = await this.getTokenClient();
 
-    return await new Promise<string>((resolve, reject) => {
+    const inFlight = new Promise<string>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
         reject(new Error("Google sign-in is still waiting. Try again if the popup was closed or blocked."));
       }, TOKEN_REQUEST_TIMEOUT_MS);
@@ -176,8 +209,19 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
         finish(() => reject(new Error(googleErrorMessage(error))));
       };
 
-      client.requestAccessToken(request);
+      if (request === undefined) {
+        client.requestAccessToken();
+      } else {
+        client.requestAccessToken(request);
+      }
     });
+
+    try {
+      return await inFlight;
+    } catch (error: unknown) {
+      if (mapFailureToReconnect) throw new GoogleAccessTokenUnavailableError();
+      throw error;
+    }
   }
 
   async revoke(): Promise<void> {
@@ -318,6 +362,14 @@ function googleErrorMessage(error: unknown): string {
   if ("message" in error && typeof error.message === "string") return error.message;
   if ("type" in error && typeof error.type === "string") return error.type;
   return "Google sign-in failed.";
+}
+
+function googleTokenRequest(
+  request: AccessTokenRequest,
+  defaultPrompt: GoogleTokenPrompt | undefined
+): GoogleTokenRequest | undefined {
+  const prompt = request.prompt ?? defaultPrompt;
+  return prompt === undefined ? undefined : { prompt };
 }
 
 function oauthFragmentParams(hash: string): URLSearchParams | null {
