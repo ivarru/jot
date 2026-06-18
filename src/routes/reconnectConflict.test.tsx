@@ -53,11 +53,15 @@ const testState = vi.hoisted(() => ({
 }));
 
 vi.mock("~/config", () => ({
+  APP_COPYRIGHT: "Copyright (c) 2026 Test Author",
+  APP_LICENSE: "MIT",
+  APP_PROJECT_URL: "https://github.com/example/jot",
   APP_VERSION: "test",
   ENABLE_FAKE_AUTH: true,
   FORCE_FAKE_STORAGE: true,
   GOOGLE_CLIENT_ID: "",
-  LOCAL_DRAFT_DEBOUNCE_MS: 250
+  LOCAL_DRAFT_DEBOUNCE_MS: 250,
+  MILKDOWN_VERSION: "7.21.1"
 }));
 
 vi.mock("~/components/MilkdownEditor", async () => {
@@ -2084,6 +2088,41 @@ describe("Home reconnect and conflict handling", () => {
       "Settings",
       "Sign out"
     ]);
+
+    dispose();
+  });
+
+  it("shows project metadata in the About dialog", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
+    await settle();
+
+    host.querySelectorAll<HTMLButtonElement>(".top-menu-popover [role='menuitem']")[0]!.click();
+    await settle();
+
+    const dialog = host.querySelector<HTMLElement>(".about-modal")!;
+    expect(dialog.textContent).toContain("Version");
+    expect(dialog.textContent).toContain("test");
+    expect(dialog.textContent).toContain("Milkdown 7.21.1");
+    expect(dialog.textContent).toContain("MIT");
+    expect(dialog.textContent).toContain("Copyright (c) 2026 Test Author");
+
+    const projectLink = dialog.querySelector<HTMLAnchorElement>("a")!;
+    expect(projectLink.textContent).toBe("GitHub project");
+    expect(projectLink.href).toBe("https://github.com/example/jot");
+    expect(projectLink.target).toBe("_blank");
+    expect(projectLink.rel).toBe("noreferrer noopener");
 
     dispose();
   });

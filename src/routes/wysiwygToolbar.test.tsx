@@ -13,11 +13,15 @@ const testState = vi.hoisted(() => ({
 }));
 
 vi.mock("~/config", () => ({
+  APP_COPYRIGHT: "Copyright (c) 2026 Test Author",
+  APP_LICENSE: "MIT",
+  APP_PROJECT_URL: "https://github.com/example/jot",
   APP_VERSION: "test",
   ENABLE_FAKE_AUTH: true,
   FORCE_FAKE_STORAGE: true,
   GOOGLE_CLIENT_ID: "",
-  LOCAL_DRAFT_DEBOUNCE_MS: 250
+  LOCAL_DRAFT_DEBOUNCE_MS: 250,
+  MILKDOWN_VERSION: "7.21.1"
 }));
 
 vi.mock("~/storage/localDraftStore", () => ({

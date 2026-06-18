@@ -3,7 +3,17 @@ import { ImageAttachmentFlow, type LocalImageAttachmentSource, type ReusableImag
 import { commitImageAttachmentReferenceInsertion } from "~/attachments/imageAttachmentInsertionSession";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { GoogleAccessTokenUnavailableError, GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
-import { APP_VERSION, ENABLE_FAKE_AUTH, FORCE_FAKE_STORAGE, GOOGLE_CLIENT_ID, LOCAL_DRAFT_DEBOUNCE_MS } from "~/config";
+import {
+  APP_COPYRIGHT,
+  APP_LICENSE,
+  APP_PROJECT_URL,
+  APP_VERSION,
+  ENABLE_FAKE_AUTH,
+  FORCE_FAKE_STORAGE,
+  GOOGLE_CLIENT_ID,
+  LOCAL_DRAFT_DEBOUNCE_MS,
+  MILKDOWN_VERSION
+} from "~/config";
 import { DailyNoteUploadConflictDialog } from "~/components/DailyNoteUploadConflictDialog";
 import { DailyNoteUploadStatusAlert } from "~/components/DailyNoteUploadStatusAlert";
 import { MilkdownEditor, type EditorHistoryAvailability, type MilkdownEditorController } from "~/components/MilkdownEditor";
@@ -3195,7 +3205,24 @@ export default function Home() {
                     <dt>Version</dt>
                     <dd>{APP_VERSION}</dd>
                   </div>
+                  <div>
+                    <dt>Editor</dt>
+                    <dd>Milkdown {MILKDOWN_VERSION}</dd>
+                  </div>
+                  <div>
+                    <dt>Project</dt>
+                    <dd>
+                      <a href={APP_PROJECT_URL} target="_blank" rel="noreferrer noopener">
+                        GitHub project
+                      </a>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>License</dt>
+                    <dd>{APP_LICENSE}</dd>
+                  </div>
                 </dl>
+                <p class="about-copyright">{APP_COPYRIGHT}</p>
               </div>
             </div>
           </Show>
