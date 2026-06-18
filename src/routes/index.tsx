@@ -2603,13 +2603,13 @@ export default function Home() {
               <button
                 type="button"
                 class="icon-button"
-                aria-label="Indent"
-                aria-keyshortcuts="Tab"
-                title="Indent (Tab)"
+                aria-label="Dedent"
+                aria-keyshortcuts="Shift+Tab"
+                title="Dedent (Shift+Tab)"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onClick={() => applyStructuralTabShortcut(false)}
+                onClick={() => applyStructuralTabShortcut(true)}
               >
-                <IndentIcon />
+                <DedentIcon />
               </button>
               <button
                 type="button"
@@ -2627,13 +2627,13 @@ export default function Home() {
               <button
                 type="button"
                 class="icon-button"
-                aria-label="Dedent"
-                aria-keyshortcuts="Shift+Tab"
-                title="Dedent (Shift+Tab)"
+                aria-label="Indent"
+                aria-keyshortcuts="Tab"
+                title="Indent (Tab)"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onClick={() => applyStructuralTabShortcut(true)}
+                onClick={() => applyStructuralTabShortcut(false)}
               >
-                <DedentIcon />
+                <IndentIcon />
               </button>
               <button
                 type="button"

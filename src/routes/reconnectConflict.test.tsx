@@ -1989,9 +1989,9 @@ describe("Home reconnect and conflict handling", () => {
     expect(controls).toEqual([
       "Undo",
       "Redo",
-      "Indent",
-      "Toggle task checkbox",
       "Dedent",
+      "Toggle task checkbox",
+      "Indent",
       "Toggle italic format",
       "Toggle bold format",
       "Toggle block quote format",
