@@ -5,8 +5,10 @@ interface SettingsPanelProps {
   readonly onChange: (settings: JotSettings) => void;
 }
 
+type TimerSettingKey = Exclude<keyof JotSettings, "spellcheck">;
+
 export function SettingsPanel(props: SettingsPanelProps) {
-  const updateSeconds = (key: keyof JotSettings, value: string) => {
+  const updateSeconds = (key: TimerSettingKey, value: string) => {
     props.onChange({
       ...props.settings,
       [key]: secondsToMilliseconds(Number(value))

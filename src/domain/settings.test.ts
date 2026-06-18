@@ -11,15 +11,22 @@ describe("settings", () => {
         autosaveDebounceMs: -1,
         cleanPollingIntervalMs: 4500.8,
         dirtyPollingIntervalMs: "fast",
+        spellcheck: false,
         retryInitialDelayMs: 1000,
         retryMaxDelayMs: 500
       })
     ).toEqual({
       ...DEFAULT_JOT_SETTINGS,
       cleanPollingIntervalMs: 4501,
+      spellcheck: false,
       retryInitialDelayMs: 1000,
       retryMaxDelayMs: 1000
     });
+  });
+
+  it("defaults spellcheck on when the stored value is missing or invalid", () => {
+    expect(normalizeJotSettings({}).spellcheck).toBe(true);
+    expect(normalizeJotSettings({ spellcheck: "false" }).spellcheck).toBe(true);
   });
 
   it("converts between milliseconds and user-facing seconds", () => {

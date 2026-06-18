@@ -15,6 +15,7 @@ interface PlainTextEditorProps {
   readonly onElement?: (element: HTMLTextAreaElement | null) => void;
   readonly value: string;
   readonly readOnly?: boolean;
+  readonly spellcheck?: boolean;
   readonly onChange: (documentKey: string, markdown: string) => void;
   readonly onBlur: (documentKey: string, markdown: string) => void;
   readonly onOpenLink?: (documentKey: string, href: string) => boolean;
@@ -123,7 +124,7 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
             props.onBlur(props.documentKey, event.currentTarget.value);
           }}
           aria-label="Markdown text editor"
-          spellcheck={true}
+          spellcheck={props.spellcheck !== false ? "true" : "false"}
         />
       </div>
     </div>

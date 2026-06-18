@@ -49,7 +49,8 @@ const testState = vi.hoisted(() => ({
   blockQuoteToggleSelections: [] as Array<{ readonly start: number; readonly end: number } | undefined>,
   taskListItemToggleCount: 0,
   taskListItemToggleSelections: [] as Array<{ readonly start: number; readonly end: number } | undefined>,
-  focusSelectionApplyCount: 0
+  focusSelectionApplyCount: 0,
+  savedSettings: [] as unknown[]
 }));
 
 vi.mock("~/config", () => ({
@@ -74,6 +75,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
     readonly resetKey?: number;
     readonly value: string;
     readonly readOnly?: boolean;
+    readonly spellcheck?: boolean;
     readonly onChange: (documentKey: string, markdown: string) => void;
     readonly onBlur: (documentKey: string, markdown: string) => void;
     readonly onController?: (controller: {
@@ -284,6 +286,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
           textarea = element;
         }}
         readOnly={props.readOnly === true}
+        spellcheck={props.spellcheck !== false ? "true" : "false"}
         value={props.value}
         onInput={(event) => recordUserEdit(event.currentTarget.value)}
         onKeyDown={(event) => {
@@ -411,6 +414,7 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
     }
 
     async saveSettings(settings: unknown) {
+      testState.savedSettings.push(settings);
       return settings;
     }
 
@@ -463,6 +467,7 @@ describe("Home reconnect and conflict handling", () => {
     testState.taskListItemToggleCount = 0;
     testState.taskListItemToggleSelections = [];
     testState.focusSelectionApplyCount = 0;
+    testState.savedSettings = [];
     window.location.hash = "#/date/2030-02-02";
     localStorage.setItem("jot.fakeAuth", "true");
   });
@@ -2086,6 +2091,7 @@ describe("Home reconnect and conflict handling", () => {
       "About Jot",
       "Upload daily notes",
       "Settings",
+      "Turn spellcheck off",
       "Sign out"
     ]);
 
@@ -2123,6 +2129,46 @@ describe("Home reconnect and conflict handling", () => {
     expect(projectLink.href).toBe("https://github.com/example/jot");
     expect(projectLink.target).toBe("_blank");
     expect(projectLink.rel).toBe("noreferrer noopener");
+
+    dispose();
+  });
+
+  it("toggles browser spellcheck from the application menu", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.getAttribute("spellcheck")).toBe(
+      "true"
+    );
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
+    await settle();
+    clickButton(host, "Turn spellcheck off");
+    await settle();
+
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.getAttribute("spellcheck")).toBe(
+      "false"
+    );
+    expect(testState.savedSettings.at(-1)).toMatchObject({ spellcheck: false });
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
+    await settle();
+    clickButton(host, "Turn spellcheck on");
+    await settle();
+
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.getAttribute("spellcheck")).toBe(
+      "true"
+    );
+    expect(testState.savedSettings.at(-1)).toMatchObject({ spellcheck: true });
 
     dispose();
   });

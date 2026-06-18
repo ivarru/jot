@@ -43,6 +43,31 @@ describe("MilkdownEditor", () => {
     document.body.replaceChildren();
   });
 
+  it("applies the browser spellcheck preference to the editor root", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(
+      () => (
+        <MilkdownEditor
+          documentKey="2030-02-02"
+          value="helo"
+          spellcheck={false}
+          onChange={() => undefined}
+          onBlur={() => undefined}
+        />
+      ),
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      expect(host.querySelector<HTMLElement>(".milkdown-root")!.getAttribute("spellcheck")).toBe("false");
+    } finally {
+      dispose();
+    }
+  });
+
   it("updates the visible editor when the bound markdown changes", async () => {
     const host = document.createElement("div");
     document.body.append(host);

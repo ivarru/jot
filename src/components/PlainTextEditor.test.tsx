@@ -7,6 +7,27 @@ describe("PlainTextEditor", () => {
     document.body.replaceChildren();
   });
 
+  it("applies the browser spellcheck preference to the textarea", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(
+      () =>
+        PlainTextEditor({
+          documentKey: "2030-02-01",
+          value: "helo",
+          spellcheck: false,
+          onChange: () => undefined,
+          onBlur: () => undefined
+        }),
+      host
+    );
+
+    expect(host.querySelector("textarea")!.getAttribute("spellcheck")).toBe("false");
+
+    dispose();
+  });
+
   it("emits markdown changes and blur saves with the bound document key", () => {
     const host = document.createElement("div");
     document.body.append(host);

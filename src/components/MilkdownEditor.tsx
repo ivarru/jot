@@ -50,6 +50,7 @@ interface MilkdownEditorProps {
   readonly imageAttachmentDisplays?: ImageAttachmentDisplayMap;
   readonly value: string;
   readonly readOnly?: boolean;
+  readonly spellcheck?: boolean;
   readonly onChange: (documentKey: string, markdown: string) => void;
   readonly onBlur: (documentKey: string, markdown: string) => void;
   readonly onController?: (controller: MilkdownEditorController | null) => void;
@@ -794,12 +795,18 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 
   return (
     <div class="editor-shell">
-      <div ref={root} class="milkdown-root" aria-readonly={props.readOnly === true ? "true" : "false"} />
+      <div
+        ref={root}
+        class="milkdown-root"
+        aria-readonly={props.readOnly === true ? "true" : "false"}
+        spellcheck={props.spellcheck !== false ? "true" : "false"}
+      />
       <Show when={error() !== null}>
         <textarea
           class="fallback-editor"
           value={props.value}
           readOnly={props.readOnly === true}
+          spellcheck={props.spellcheck !== false ? "true" : "false"}
           ref={(element) => {
             fallbackTextarea = element;
             resizeTextAreaToContents(element);

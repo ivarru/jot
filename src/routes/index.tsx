@@ -1188,6 +1188,14 @@ export default function Home() {
     });
   };
 
+  const toggleSpellcheck = () => {
+    setTopMenuOpen(false);
+    updateSettings({
+      ...settings(),
+      spellcheck: !settings().spellcheck
+    });
+  };
+
   const updateEditorMode = (mode: EditorMode) => {
     const previousMode = editorMode();
     const pendingSelection = pendingEditorModeSelection;
@@ -2838,6 +2846,13 @@ export default function Home() {
                     <button
                       type="button"
                       role="menuitem"
+                      onClick={toggleSpellcheck}
+                    >
+                      {settings().spellcheck ? "Turn spellcheck off" : "Turn spellcheck on"}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
                       onClick={() => {
                         setTopMenuOpen(false);
                         void signOut();
@@ -3395,6 +3410,7 @@ export default function Home() {
                   }}
                   value={markdown()}
                   readOnly={editorReadOnly() || editorMode() !== "text" || !textFocusRestored()}
+                  spellcheck={settings().spellcheck}
                   onChange={handleRawEditorChange}
                   onBlur={handleEditorBlur}
                   onOpenLink={openEditorLink}
@@ -3418,6 +3434,7 @@ export default function Home() {
                   imageAttachmentDisplays={imageAttachmentDisplays()}
                   value={markdown()}
                   readOnly={editorReadOnly() || editorMode() !== "wysiwyg" || !wysiwygFocusRestored()}
+                  spellcheck={settings().spellcheck}
                   onChange={handleEditorChange}
                   onBlur={handleEditorBlur}
                   onController={(controller) => {

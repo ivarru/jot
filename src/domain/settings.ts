@@ -2,6 +2,7 @@ export interface JotSettings {
   readonly autosaveDebounceMs: number;
   readonly cleanPollingIntervalMs: number;
   readonly dirtyPollingIntervalMs: number;
+  readonly spellcheck: boolean;
   readonly retryInitialDelayMs: number;
   readonly retryMaxDelayMs: number;
 }
@@ -10,6 +11,7 @@ export const DEFAULT_JOT_SETTINGS: JotSettings = {
   autosaveDebounceMs: 2000,
   cleanPollingIntervalMs: 120000,
   dirtyPollingIntervalMs: 15000,
+  spellcheck: true,
   retryInitialDelayMs: 5000,
   retryMaxDelayMs: 300000
 };
@@ -24,6 +26,7 @@ export function normalizeJotSettings(input: unknown): JotSettings {
     autosaveDebounceMs: positiveNumber(input.autosaveDebounceMs, DEFAULT_JOT_SETTINGS.autosaveDebounceMs),
     cleanPollingIntervalMs: positiveNumber(input.cleanPollingIntervalMs, DEFAULT_JOT_SETTINGS.cleanPollingIntervalMs),
     dirtyPollingIntervalMs: positiveNumber(input.dirtyPollingIntervalMs, DEFAULT_JOT_SETTINGS.dirtyPollingIntervalMs),
+    spellcheck: booleanValue(input.spellcheck, DEFAULT_JOT_SETTINGS.spellcheck),
     retryInitialDelayMs: positiveNumber(input.retryInitialDelayMs, DEFAULT_JOT_SETTINGS.retryInitialDelayMs),
     retryMaxDelayMs: positiveNumber(input.retryMaxDelayMs, DEFAULT_JOT_SETTINGS.retryMaxDelayMs)
   };
@@ -49,6 +52,10 @@ function positiveNumber(value: unknown, fallback: number): number {
   }
 
   return Math.round(value);
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
