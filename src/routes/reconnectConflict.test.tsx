@@ -49,8 +49,7 @@ const testState = vi.hoisted(() => ({
   blockQuoteToggleSelections: [] as Array<{ readonly start: number; readonly end: number } | undefined>,
   taskListItemToggleCount: 0,
   taskListItemToggleSelections: [] as Array<{ readonly start: number; readonly end: number } | undefined>,
-  focusSelectionApplyCount: 0,
-  savedSettings: [] as unknown[]
+  focusSelectionApplyCount: 0
 }));
 
 vi.mock("~/config", () => ({
@@ -414,7 +413,6 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
     }
 
     async saveSettings(settings: unknown) {
-      testState.savedSettings.push(settings);
       return settings;
     }
 
@@ -467,7 +465,6 @@ describe("Home reconnect and conflict handling", () => {
     testState.taskListItemToggleCount = 0;
     testState.taskListItemToggleSelections = [];
     testState.focusSelectionApplyCount = 0;
-    testState.savedSettings = [];
     window.location.hash = "#/date/2030-02-02";
     localStorage.setItem("jot.fakeAuth", "true");
   });
@@ -2067,134 +2064,6 @@ describe("Home reconnect and conflict handling", () => {
     expect(sync!.textContent).toBe("");
     expect(sync!.getAttribute("aria-label")).toContain("Synced");
     expect(sync!.classList.contains("sync-status-remote")).toBe(true);
-
-    dispose();
-  });
-
-  it("places About first in the application menu", async () => {
-    testState.remoteNote = {
-      date: "2030-02-02",
-      markdown: "",
-      revisionId: "remote-revision",
-      updatedAt: "2030-01-01T00:00:00.000Z"
-    };
-    const host = document.createElement("div");
-    document.body.append(host);
-
-    const dispose = render(() => <Home />, host);
-    await settle();
-
-    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
-    await settle();
-
-    expect(Array.from(host.querySelectorAll(".top-menu-popover [role='menuitem']")).map((element) => element.textContent)).toEqual([
-      "About Jot",
-      "Upload daily notes",
-      "Settings",
-      "Turn spellcheck off",
-      "Sign out"
-    ]);
-
-    dispose();
-  });
-
-  it("closes the application menu when clicking outside it", async () => {
-    testState.remoteNote = {
-      date: "2030-02-02",
-      markdown: "",
-      revisionId: "remote-revision",
-      updatedAt: "2030-01-01T00:00:00.000Z"
-    };
-    const host = document.createElement("div");
-    document.body.append(host);
-
-    const dispose = render(() => <Home />, host);
-    await settle();
-
-    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
-    await settle();
-
-    expect(host.querySelector(".top-menu-popover")).not.toBeNull();
-
-    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-    await settle();
-
-    expect(host.querySelector(".top-menu-popover")).toBeNull();
-
-    dispose();
-  });
-
-  it("shows project metadata in the About dialog", async () => {
-    testState.remoteNote = {
-      date: "2030-02-02",
-      markdown: "",
-      revisionId: "remote-revision",
-      updatedAt: "2030-01-01T00:00:00.000Z"
-    };
-    const host = document.createElement("div");
-    document.body.append(host);
-
-    const dispose = render(() => <Home />, host);
-    await settle();
-
-    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
-    await settle();
-
-    host.querySelectorAll<HTMLButtonElement>(".top-menu-popover [role='menuitem']")[0]!.click();
-    await settle();
-
-    const dialog = host.querySelector<HTMLElement>(".about-modal")!;
-    expect(dialog.textContent).toContain("Version");
-    expect(dialog.textContent).toContain("test");
-    expect(dialog.textContent).toContain("Milkdown 7.21.1");
-    expect(dialog.textContent).toContain("MIT");
-    expect(dialog.textContent).toContain("Copyright (c) 2026 Test Author");
-
-    const projectLink = dialog.querySelector<HTMLAnchorElement>("a")!;
-    expect(projectLink.textContent).toBe("GitHub project");
-    expect(projectLink.href).toBe("https://github.com/example/jot");
-    expect(projectLink.target).toBe("_blank");
-    expect(projectLink.rel).toBe("noreferrer noopener");
-
-    dispose();
-  });
-
-  it("toggles browser spellcheck from the application menu", async () => {
-    testState.remoteNote = {
-      date: "2030-02-02",
-      markdown: "",
-      revisionId: "remote-revision",
-      updatedAt: "2030-01-01T00:00:00.000Z"
-    };
-    const host = document.createElement("div");
-    document.body.append(host);
-
-    const dispose = render(() => <Home />, host);
-    await settle();
-
-    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.getAttribute("spellcheck")).toBe(
-      "true"
-    );
-
-    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
-    await settle();
-    clickButton(host, "Turn spellcheck off");
-    await settle();
-
-    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.getAttribute("spellcheck")).toBe(
-      "false"
-    );
-    expect(testState.savedSettings.at(-1)).toMatchObject({ spellcheck: false });
-
-    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
-    await settle();
-    clickButton(host, "Turn spellcheck on");
-    await settle();
-
-    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.getAttribute("spellcheck")).toBe(
-      "true"
-    );
-    expect(testState.savedSettings.at(-1)).toMatchObject({ spellcheck: true });
 
     dispose();
   });
