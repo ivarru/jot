@@ -9,7 +9,7 @@ describe("GoogleIdentityTokenProvider", () => {
     document.head.replaceChildren();
   });
 
-  it("reuses cached access tokens until they expire and then renews them", async () => {
+  it("reuses cached access tokens and accepts a no-UI renewal result after expiry", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
 
@@ -35,43 +35,17 @@ describe("GoogleIdentityTokenProvider", () => {
     await expect(provider.getAccessToken({ interactive: true })).resolves.toBe("token-1");
     await expect(provider.getAccessToken()).resolves.toBe("token-1");
     vi.setSystemTime(61000);
-    await expect(provider.getAccessToken()).resolves.toBe("token-2");
-    expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(2);
-    await expect(provider.getAccessToken()).resolves.toBe("token-2");
-    expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(2);
-  });
 
-  it("renews expired cached access tokens without requiring an interactive reconnect", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-
-    const tokenClient = {
-      callback: (_response: unknown) => undefined,
-      requestAccessToken: vi.fn(() => {
-        tokenClient.callback({
-          access_token: `token-${tokenClient.requestAccessToken.mock.calls.length}`,
-          expires_in: 120
-        });
-      })
-    };
-    window.google = {
-      accounts: {
-        oauth2: {
-          initTokenClient: vi.fn(() => tokenClient),
-          revoke: vi.fn((_token: string, done: () => void) => done())
-        }
-      }
-    };
-    const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
-
-    await expect(provider.getAccessToken({ interactive: true })).resolves.toBe("token-1");
-    vi.setSystemTime(61000);
-
+    // This covers our wrapper behavior when GIS returns a token. Google does not guarantee
+    // that no-UI renewal succeeds outside a user-driven token flow; keep the failure case below.
     await expect(provider.getAccessToken()).resolves.toBe("token-2");
     expect(tokenClient.requestAccessToken).toHaveBeenNthCalledWith(2, { prompt: "none" });
+    expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(2);
+    await expect(provider.getAccessToken()).resolves.toBe("token-2");
+    expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(2);
   });
 
-  it("coalesces concurrent token renewals", async () => {
+  it("coalesces concurrent token renewal attempts", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
 
@@ -105,7 +79,7 @@ describe("GoogleIdentityTokenProvider", () => {
     await expect(second).resolves.toBe("renewed-token");
   });
 
-  it("reports a reconnect requirement when background token renewal fails", async () => {
+  it("reports a reconnect requirement when no-UI token renewal fails", async () => {
     const tokenClient = {
       callback: (_response: unknown) => undefined,
       requestAccessToken: vi.fn(() => {
