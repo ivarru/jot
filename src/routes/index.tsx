@@ -211,7 +211,7 @@ export default function Home() {
   const [preparingAuth, setPreparingAuth] = createSignal(runtime.kind === "google");
   const [authReconnectRequired, setAuthReconnectRequired] = createSignal(false);
   const [reconnectingAuth, setReconnectingAuth] = createSignal(false);
-  const [reconnectPromptDismissed, setReconnectPromptDismissed] = createSignal(false);
+  const [reconnectPromptPostponed, setReconnectPromptPostponed] = createSignal(false);
   const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(initialRoute.date);
   const [invalidDate, setInvalidDate] = createSignal<string | null>(initialRoute.invalidDate);
   const [pendingSectionLinkNavigation, setPendingSectionLinkNavigation] = createSignal<DailyNoteLinkTarget | null>(
@@ -327,7 +327,8 @@ export default function Home() {
   const manualConflictMarkersPresent = createMemo(() => containsDailyNoteConflictMarkers(markdown()));
   const editorReadOnly = createMemo(() => reconnectingAuth() || resolvingSyncConflict() || pendingSyncConflict() !== null);
   const selectedDateCanWrite = createMemo(() => selectedDateCanEdit() && !editorReadOnly());
-  const reconnectPromptOpen = createMemo(() => authReconnectRequired() && !reconnectPromptDismissed());
+  const reconnectPromptOpen = createMemo(() => authReconnectRequired() && !reconnectPromptPostponed());
+  const reconnectInlineVisible = createMemo(() => authReconnectRequired() && reconnectPromptPostponed());
   const imageAttachmentResolutionChoices = createMemo(() => {
     const local = localImageSource();
     if (local !== null && runtime.imageAttachments !== null) {
@@ -808,10 +809,6 @@ export default function Home() {
   createEffect(() => {
     const interval = window.setInterval(() => setSyncWarningTick((tick) => tick + 1), 10000);
     onCleanup(() => window.clearInterval(interval));
-  });
-
-  createEffect(() => {
-    if (!authReconnectRequired()) setReconnectPromptDismissed(false);
   });
 
   createEffect(() => {
@@ -2326,6 +2323,7 @@ export default function Home() {
       await signIn(runtime);
       setAuthenticated(true);
       setAuthReconnectRequired(false);
+      setReconnectPromptPostponed(false);
       refreshAndScheduleToday();
       await selectedDateDriveSync.reconnect();
       await syncDirtyDraftsExceptSelected();
@@ -2360,6 +2358,7 @@ export default function Home() {
     clearStoredActiveImagePicker();
     globalThis.localStorage?.removeItem("jot.fakeAuth");
     setAuthReconnectRequired(false);
+    setReconnectPromptPostponed(false);
     setAuthenticated(false);
     setCleanEditorMarkdown(null);
     setMarkdown("");
@@ -2392,6 +2391,7 @@ export default function Home() {
                         globalThis.localStorage?.setItem("jot.fakeAuth", "true");
                       }
                       setAuthReconnectRequired(false);
+                      setReconnectPromptPostponed(false);
                       setAuthenticated(true);
                     })
                     .catch((error: unknown) => setAuthError(errorMessage(error)))
@@ -2753,7 +2753,7 @@ export default function Home() {
                   </Show>
                 </div>
               </Show>
-              <Show when={authReconnectRequired()}>
+              <Show when={reconnectInlineVisible()}>
                 <button
                   type="button"
                   class="toolbar-reconnect-button"
@@ -2860,7 +2860,7 @@ export default function Home() {
                   <button
                     type="button"
                     disabled={reconnectingAuth()}
-                    onClick={() => setReconnectPromptDismissed(true)}
+                    onClick={() => setReconnectPromptPostponed(true)}
                   >
                     Not now
                   </button>
@@ -3127,7 +3127,7 @@ export default function Home() {
             </aside>
           </Show>
 
-          <Show when={authReconnectRequired()}>
+          <Show when={reconnectInlineVisible()}>
             <aside class="sync-alert sync-alert-auth" aria-live="polite">
               <strong>Reconnect to sync</strong>
               <p>Jot is keeping edits on this device until Google access is refreshed.</p>

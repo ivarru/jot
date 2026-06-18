@@ -469,7 +469,7 @@ describe("Home reconnect and conflict handling", () => {
     window.location.hash = "";
   });
 
-  it("shows the reconnect modal once and leaves the heading reconnect button after dismissal", async () => {
+  it("opens the reconnect modal before showing inline reconnect affordances after background auth expiry", async () => {
     testState.loadAuthError = true;
     const host = document.createElement("div");
     document.body.append(host);
@@ -478,14 +478,15 @@ describe("Home reconnect and conflict handling", () => {
     await settle();
 
     expect(host.textContent).toContain("Reconnect to sync");
+    expect(dialog(host, "Reconnect to sync")).not.toBeNull();
+    expect(host.querySelector(".sync-alert-auth")).toBeNull();
+
     clickButton(host, "Not now");
     await settle();
 
     expect(dialog(host, "Reconnect to sync")).toBeNull();
+    expect(host.querySelector(".sync-alert-auth")).not.toBeNull();
     expect(button(host, "Reconnect")).not.toBeNull();
-
-    await settle();
-    expect(dialog(host, "Reconnect to sync")).toBeNull();
 
     dispose();
   });
