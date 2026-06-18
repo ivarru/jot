@@ -2098,6 +2098,32 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("closes the application menu when clicking outside it", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
+    await settle();
+
+    expect(host.querySelector(".top-menu-popover")).not.toBeNull();
+
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    await settle();
+
+    expect(host.querySelector(".top-menu-popover")).toBeNull();
+
+    dispose();
+  });
+
   it("shows project metadata in the About dialog", async () => {
     testState.remoteNote = {
       date: "2030-02-02",

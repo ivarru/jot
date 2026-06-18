@@ -209,6 +209,7 @@ export default function Home() {
   let linkTextInput: HTMLInputElement | undefined;
   let linkUrlInput: HTMLInputElement | undefined;
   let aboutCloseButton: HTMLButtonElement | undefined;
+  let topMenuElement: HTMLDivElement | undefined;
   const [authenticated, setAuthenticated] = createSignal(
     redirectAuthResult.type === "authenticated" ||
     runtime.kind === "fake" && ENABLE_FAKE_AUTH && globalThis.localStorage?.getItem("jot.fakeAuth") === "true"
@@ -649,6 +650,19 @@ export default function Home() {
     });
     setPendingShareTargetLink(null);
     clearShareTargetSearchParams();
+  });
+
+  createEffect(() => {
+    if (!topMenuOpen()) return;
+
+    const closeTopMenuFromOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && topMenuElement?.contains(target)) return;
+      setTopMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeTopMenuFromOutsidePointer);
+    onCleanup(() => document.removeEventListener("pointerdown", closeTopMenuFromOutsidePointer));
   });
 
   createEffect(
@@ -2802,7 +2816,12 @@ export default function Home() {
                   <SyncDelayedIcon />
                 </span>
               </Show>
-              <div class="top-menu">
+              <div
+                ref={(element) => {
+                  topMenuElement = element;
+                }}
+                class="top-menu"
+              >
                 <button
                   type="button"
                   class="icon-button"
