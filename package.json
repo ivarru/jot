@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.19.3",
+  "version": "0.19.4",
   "description": "A static progressive web app for personal Daily Notes.",
   "private": true,
   "license": "MIT",
@@ -26,6 +26,7 @@
     "smoke:fake-daily-note-upload": "node scripts/smoke-fake-daily-note-upload.mjs",
     "smoke:fake-reconnect-conflict": "node scripts/smoke-fake-reconnect-conflict.mjs",
     "smoke:fake-image": "node scripts/smoke-fake-image.mjs",
+    "smoke:fake-code-block-layout": "playwright test tests/smoke/code-block-layout.spec.ts",
     "start": "vinxi start",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -45,6 +46,7 @@
     "vinxi": "^0.5.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/user-event": "^14.6.1",
     "@types/mdast": "^4.0.4",

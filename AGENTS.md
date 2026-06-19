@@ -38,6 +38,8 @@ Google Drive provider changes must include mocked `fetch` tests for request URLs
 
 Browser API workflow changes must include an end-to-end smoke check through a real browser boundary. This applies to file inputs, clipboard, camera, drag/drop, auth popups or redirects, and external pickers. The check must exercise the actual user workflow and assert the resulting app state; verifying that controls render is not sufficient.
 
+Prefer Playwright tests under `tests/smoke` for new real-browser regressions involving browser editing behavior, viewport layout, DOM geometry, or other interactions that benefit from browser-native assertions. Keep existing focused smoke scripts when they already cover the workflow well.
+
 For fake-storage browser checks, choose the focused smoke script that covers the workflow you changed. Common setup:
 
 ```sh
@@ -51,6 +53,7 @@ Then run the relevant smoke check, for example:
 npm run smoke:fake-daily-note-upload
 npm run smoke:fake-reconnect-conflict
 npm run smoke:fake-image
+npm run smoke:fake-code-block-layout
 ```
 
 Do not leave local development or test servers running after development or verification work is complete.

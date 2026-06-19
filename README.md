@@ -36,6 +36,16 @@ npm run typecheck
 npm run build
 ```
 
+Some browser smoke checks use Playwright against the built preview. For fake-storage
+browser checks, build with fake auth, start the preview server, then run the
+focused smoke command:
+
+```sh
+VITE_ENABLE_FAKE_AUTH=true npm run build
+npm run preview
+SMOKE_BASE_URL=http://127.0.0.1:4173/ npm run smoke:fake-code-block-layout
+```
+
 Start a local development server:
 
 ```sh
