@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.19.2",
+  "version": "0.19.3",
   "description": "A static progressive web app for personal Daily Notes.",
   "private": true,
   "license": "MIT",

@@ -17,9 +17,13 @@
   --reconnect-border: #92400e;
   --reconnect-text: #fff7ed;
   --shadow: 0 1px 2px rgb(0 0 0 / 8%);
+  --app-max-width: 980px;
+  --app-half-max-width: 490px;
+  --app-padding-x: 18px;
   --editor-default-height: 65vh;
   --editor-padding: 24px;
   --editor-vertical-padding: 48px;
+  --editor-border-width: 1px;
   --toolbar-compact-button-width: 28px;
   --sync-status-size: 26px;
   font-family:
@@ -91,13 +95,11 @@ select {
 }
 
 .app {
-  width: fit-content;
-  min-width: min(980px, 100%);
-  max-width: 100%;
+  width: min(var(--app-max-width), 100%);
   min-height: 100vh;
   min-height: 100svh;
   margin: 0 auto;
-  padding: 18px;
+  padding: 18px var(--app-padding-x);
 }
 
 .auth-screen,
@@ -134,7 +136,7 @@ select {
   grid-template-columns: minmax(148px, max-content) minmax(52px, 1fr) max-content;
   gap: 8px;
   align-items: start;
-  margin: -6px 0 10px;
+  margin: -6px var(--jot-editor-shell-margin-right, 0px) 10px var(--jot-editor-shell-margin-left, 0px);
   padding: 6px 0 8px;
   background: var(--bg);
   font-size: 13px;
@@ -947,11 +949,11 @@ select {
 }
 
 .editor-shell {
-  width: max-content;
-  min-width: 100%;
-  max-width: 100%;
+  width: 100%;
   min-height: var(--editor-default-height);
-  border: 1px solid var(--border);
+  margin-left: var(--jot-editor-shell-margin-left, 0px);
+  margin-right: var(--jot-editor-shell-margin-right, 0px);
+  border: var(--editor-border-width) solid var(--border);
   border-radius: 8px;
   background: var(--panel);
   box-shadow: var(--shadow);
@@ -1041,6 +1043,7 @@ select {
 }
 
 .milkdown-root .ProseMirror {
+  max-width: 100%;
   min-height: calc(var(--editor-default-height) - var(--editor-vertical-padding));
   outline: none;
   overflow: visible;
@@ -1073,6 +1076,7 @@ select {
 
 .milkdown-root :is(p, li) {
   line-height: 1.6;
+  overflow-wrap: break-word;
 }
 
 .milkdown-root a {
@@ -1101,7 +1105,13 @@ select {
 
 .milkdown-root pre {
   width: max-content;
-  max-width: 100%;
+  max-width: var(--jot-code-block-max-width, max(
+    100%,
+    calc(
+      100vw - max(0px, 50vw - var(--app-half-max-width)) - var(--app-padding-x) - var(--editor-padding) -
+        var(--editor-border-width)
+    )
+  ));
   margin: 0.9rem 0;
   overflow-x: auto;
   padding: 12px;
@@ -1320,13 +1330,14 @@ select {
 
 @media (max-width: 720px) {
   :root {
+    --app-padding-x: 8px;
     --editor-default-height: 50dvh;
     --editor-padding: 16px;
     --editor-vertical-padding: 32px;
   }
 
   .app {
-    padding: 10px 8px 12px;
+    padding: 10px var(--app-padding-x) 12px;
   }
 
   .app-toolbar {

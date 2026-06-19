@@ -1,5 +1,9 @@
 import { createEffect, createRenderEffect, createSignal, on, onCleanup, Show } from "solid-js";
 import { firstClipboardImageFile } from "./clipboardImages";
+import {
+  createMilkdownCodeBlockViewportLayout,
+  scheduleMilkdownCodeBlockViewportLayout
+} from "./milkdownCodeBlockLayout";
 import type { ImageAttachmentDisplayMap } from "./milkdownImages";
 import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
 import { shouldSyncMilkdownInlineMarkdown } from "./milkdownInlineSync";
@@ -74,6 +78,7 @@ interface MilkdownEditorSession {
   readonly getMarkdown: () => string;
   readonly focus: (placement: FocusPlacement, onFocusApplied?: () => void) => void;
   readonly redo: () => boolean;
+  readonly scheduleCodeBlockViewportLayout: () => void;
   readonly setReadOnly: (readOnly: boolean) => void;
   readonly toggleBlockQuoteAtSelection: (selection?: MarkdownSelection) => boolean;
   readonly toggleInlineCodeAtSelection: () => boolean;
@@ -85,6 +90,8 @@ interface MilkdownEditorSession {
 interface EditorViewWithDomObserver extends EditorView {
   readonly domObserver?: {
     readonly flush?: () => void;
+    readonly start?: () => void;
+    readonly stop?: () => void;
   };
 }
 
@@ -167,10 +174,15 @@ export function applyMilkdownUpdatedMarkdown(state: MilkdownMarkdownSyncState, m
 export function MilkdownEditor(props: MilkdownEditorProps) {
   let root!: HTMLDivElement;
   let fallbackTextarea: HTMLTextAreaElement | undefined;
+  let removeCodeBlockViewportLayout: (() => void) | null = null;
   const [error, setError] = createSignal<string | null>(null);
   let imageAttachmentDisplays: ImageAttachmentDisplayMap = {};
   const imageAttachmentDisplayListeners = new Set<() => void>();
   let activeSession: MilkdownEditorSession | null = null;
+
+  onCleanup(() => {
+    removeCodeBlockViewportLayout?.();
+  });
 
   createEffect(() => {
     imageAttachmentDisplays = props.imageAttachmentDisplays ?? {};
@@ -435,7 +447,9 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             ctx.get(listenerCtx).updated((ctx, doc) => {
               if (disposed || activeSession !== session) return;
 
-              notifyHistoryAvailability(ctx.get(editorViewCtx));
+              const view = ctx.get(editorViewCtx);
+              notifyHistoryAvailability(view);
+              scheduleMilkdownCodeBlockViewportLayout(root, view as EditorViewWithDomObserver);
 
               const serializer = ctx.get(serializerCtx);
               const markdown = serializeMilkdownMarkdown(serializer, doc);
@@ -477,14 +491,18 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               if (disposed || activeSession !== session || editor === null) return;
 
               let replacedMarkdown = markdown;
+              let updatedView: EditorView | null = null;
               editor.action((ctx) => {
                 replaceAll(markdown, !undoable)(ctx);
                 const view = ctx.get(editorViewCtx);
+                updatedView = view;
                 const serializer = ctx.get(serializerCtx);
                 replacedMarkdown = serializeMilkdownMarkdown(serializer, view.state.doc);
               });
               trackMilkdownExternalMarkdown(markdownState, markdown, replacedMarkdown);
-              notifyHistoryAvailability(editor.ctx.get(editorViewCtx));
+              const view = updatedView ?? editor.ctx.get(editorViewCtx);
+              scheduleMilkdownCodeBlockViewportLayout(root, view as EditorViewWithDomObserver);
+              notifyHistoryAvailability(view);
             },
             applyStructuralTab: (shiftKey) => {
               if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
@@ -559,6 +577,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               notifyBlockFormatState(view);
               notifyListItemFormatState(view);
               return applied;
+            },
+            scheduleCodeBlockViewportLayout: () => {
+              if (disposed || activeSession !== session || editor === null) return;
+              scheduleMilkdownCodeBlockViewportLayout(root, editor.ctx.get(editorViewCtx) as EditorViewWithDomObserver);
             },
             setReadOnly: (readOnly) => {
               if (disposed || activeSession !== session || editor === null) return;
@@ -705,6 +727,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           }
           const view = editor.ctx.get(editorViewCtx);
           trackMilkdownSerializedMarkdown(markdownState, serializeMilkdownMarkdown(editor.ctx.get(serializerCtx), view.state.doc));
+          scheduleMilkdownCodeBlockViewportLayout(root, view as EditorViewWithDomObserver);
           if (props.focusEnabled !== false) {
             session.focus(focusPlacement(focusAtEnd, focusSelection), props.onFocusApplied);
           }
@@ -775,6 +798,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           focusPlacement(props.focusAtEnd, props.focusSelection),
           props.onFocusApplied
         );
+        activeSession?.scheduleCodeBlockViewportLayout();
       },
       { defer: true }
     )
@@ -796,7 +820,11 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
   return (
     <div class="editor-shell">
       <div
-        ref={root}
+        ref={(element) => {
+          root = element;
+          removeCodeBlockViewportLayout?.();
+          removeCodeBlockViewportLayout = createMilkdownCodeBlockViewportLayout(element);
+        }}
         class="milkdown-root"
         aria-readonly={props.readOnly === true ? "true" : "false"}
         spellcheck={props.spellcheck !== false ? "true" : "false"}
