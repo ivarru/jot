@@ -128,6 +128,13 @@ try {
     await switchToRawMode(cdp);
     await waitForRawMarkdown(cdp, expectedUrlMarkdown(pastedUrl));
     await assertRawMarkdownDoesNotEscapeColons(cdp, "pasted URL");
+    await switchToWysiwygMode(cdp);
+    await placeCursorAtEndOfWysiwygLink(cdp, pastedUrl);
+    await insertWysiwygText(cdp, " ");
+    await switchToRawMode(cdp);
+    await waitForRawMarkdown(cdp, expectedUrlMarkdown(`${pastedUrl} `));
+    await assertRawMarkdownDoesNotContain(cdp, `[${pastedUrl} ](${pastedUrl})`, "pasted URL followed by space");
+    await assertRawMarkdownDoesNotEscapeColons(cdp, "pasted URL");
   } finally {
     cdp.close();
   }
@@ -195,9 +202,30 @@ async function pasteFromBrowserClipboard(cdp) {
 
 async function insertWysiwygText(cdp, text) {
   await cdp.send("Input.insertText", { text });
-  const containsText = await waitForWysiwygText(cdp, text);
-  assert(containsText, `WYSIWYG editor did not receive ${JSON.stringify(text)}.`);
+  if (text.trim().length > 0) {
+    const containsText = await waitForWysiwygText(cdp, text);
+    assert(containsText, `WYSIWYG editor did not receive ${JSON.stringify(text)}.`);
+  }
   await delay(500);
+}
+
+async function placeCursorAtEndOfWysiwygLink(cdp, url) {
+  const placed = await evaluate(cdp, `(() => {
+    const link = document.querySelector('.milkdown-root a[href=${JSON.stringify(url)}]');
+    const editor = document.querySelector('.milkdown-root [contenteditable="true"]');
+    if (!(link instanceof HTMLAnchorElement) || !(editor instanceof HTMLElement)) return false;
+    const text = link.firstChild;
+    if (!(text instanceof Text)) return false;
+    editor.focus();
+    const range = document.createRange();
+    range.setStart(text, text.data.length);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    return document.activeElement === editor;
+  })()`);
+  assert(placed, "Could not place the cursor at the end of the pasted WYSIWYG link.");
 }
 
 async function assertWysiwygLink(cdp, url, label) {
@@ -310,12 +338,19 @@ async function rawMarkdown(cdp) {
 }
 
 function expectedUrlMarkdown(url) {
-  return `<${url}>\n`;
+  const trailingSpace = url.endsWith(" ") ? " " : "";
+  const trimmedUrl = trailingSpace.length > 0 ? url.trimEnd() : url;
+  return `<${trimmedUrl}>${trailingSpace}\n`;
 }
 
 async function assertRawMarkdownDoesNotEscapeColons(cdp, label) {
   const markdown = await rawMarkdown(cdp);
   assert(!markdown.includes("\\:"), `Expected ${label} markdown not to escape colons, got ${JSON.stringify(markdown)}.`);
+}
+
+async function assertRawMarkdownDoesNotContain(cdp, text, label) {
+  const markdown = await rawMarkdown(cdp);
+  assert(!markdown.includes(text), `Expected ${label} markdown not to include ${JSON.stringify(text)}, got ${JSON.stringify(markdown)}.`);
 }
 
 function findChrome() {

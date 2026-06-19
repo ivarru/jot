@@ -41,6 +41,24 @@ describe("milkdown clipboard paste", () => {
     }
   });
 
+  it("keeps a space typed after a pasted plain text URL outside the link", async () => {
+    const editor = await createEditor("");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+
+      expect(pastePlainText(view, "https://example.com/a:b?x=1")).toBe(true);
+      insertTextInput(view, " ");
+      await animationFrame();
+
+      const markdown = editor.ctx.get(serializerCtx)(view.state.doc);
+      expect(markdown).toBe("<https://example.com/a:b?x=1> \n");
+      expect(markdown).not.toBe("[https://example.com/a:b?x=1 ](https://example.com/a:b?x=1)\n");
+    } finally {
+      await destroyEditor(editor);
+    }
+  });
+
   it("normalizes a plain text URL inserted without a paste event as a Markdown autolink", async () => {
     const editor = await createEditor("");
 
@@ -158,6 +176,16 @@ function pastePlainText(view: EditorView, text: string): boolean {
       handler(view, pasteEvent({ text, html: "" }), view.state.selection.content())
     ) === true
   );
+}
+
+function insertTextInput(view: EditorView, text: string): void {
+  const { from, to } = view.state.selection;
+  const handled = view.someProp("handleTextInput", (handler) =>
+    handler(view, from, to, text, () => view.state.tr.insertText(text, from, to))
+  );
+  if (handled !== true) {
+    view.dispatch(view.state.tr.insertText(text, from, to));
+  }
 }
 
 function selectAllText(view: EditorView): void {

@@ -1,8 +1,8 @@
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { defaultValueCtx, Editor, editorViewCtx, serializerCtx } from "@milkdown/kit/core";
-import type { Node as ProseMirrorNode } from "@milkdown/kit/prose/model";
-import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
+import type { MarkType, Node as ProseMirrorNode } from "@milkdown/kit/prose/model";
+import { EditorState, Plugin, TextSelection } from "@milkdown/kit/prose/state";
 import { commonmark, inlineCodeSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { toggleMark } from "@milkdown/kit/prose/commands";
@@ -1233,6 +1233,70 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("maps a cursor after an autolink to the Markdown position after the closing angle bracket", async () => {
+    const markdown = "<https://example.com/a:b?x=1>";
+    const editor = await createMilkdownTestEditor(markdown);
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const serializer = editor.ctx.get(serializerCtx);
+      const cursor = findTextEndPosition(view.state.doc, "https://example.com/a:b?x=1");
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor)));
+
+      expect(editorSelectionToMarkdownSourceSelection(markdown, view.state.selection, view, serializer)).toEqual({
+        start: markdown.length,
+        end: markdown.length
+      });
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("does not rewrite existing link whitespace on selection-only cursor movement", async () => {
+    const editor = await createMilkdownTestEditor("");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const linkType = linkSchema.type(editor.ctx);
+      const link = linkType.create({ href: "https://example.com/a" });
+      const docType = view.state.schema.nodes.doc!;
+      const paragraphType = view.state.schema.nodes.paragraph!;
+      const doc = docType.create(null, [
+        paragraphType.create(null, [
+          view.state.schema.text("label ", [link]),
+          view.state.schema.text("after")
+        ])
+      ]);
+      view.updateState(EditorState.create({ schema: view.state.schema, doc, plugins: view.state.plugins }));
+      const cursor = findTextEndPosition(view.state.doc, "label ");
+
+      expect(textNodeHasMark(view.state.doc, "label ", linkType)).toBe(true);
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor)));
+
+      expect(textNodeHasMark(view.state.doc, "label ", linkType)).toBe(true);
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("keeps trailing whitespace outside a link when a browser input marks it as part of the link", async () => {
+    const editor = await createMilkdownTestEditor("<https://example.com/a:b?x=1>");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const serializer = editor.ctx.get(serializerCtx);
+      const linkType = linkSchema.type(editor.ctx);
+      const cursor = findTextEndPosition(view.state.doc, "https://example.com/a:b?x=1");
+      const link = linkType.create({ href: "https://example.com/a:b?x=1" });
+
+      view.dispatch(view.state.tr.replaceRangeWith(cursor, cursor, view.state.schema.text(" ", [link])));
+
+      expect(serializer(view.state.doc)).toBe("<https://example.com/a:b?x=1> \n");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
   it("keeps text typed inside a link in that link", async () => {
     const editor = await createMilkdownTestEditor("See [decision](#/date/2030-02-01#decisions)");
 
@@ -1547,6 +1611,17 @@ function findTextNodePosition(doc: ProseMirrorNode, textToFind: string): number 
     if (index === -1) return true;
 
     found = position + index;
+    return false;
+  });
+  return found;
+}
+
+function textNodeHasMark(doc: ProseMirrorNode, textToFind: string, markType: MarkType): boolean {
+  let found = false;
+  doc.descendants((node) => {
+    if (!node.isText || node.text !== textToFind) return true;
+
+    found = markType.isInSet(node.marks) !== undefined;
     return false;
   });
   return found;

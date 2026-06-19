@@ -1019,9 +1019,38 @@ export function createLinkBoundaryTypingPlugin(
   linkType: MarkType
 ) {
   return new Plugin({
-    appendTransaction: (_transactions, _oldState, newState): Transaction | null =>
+    appendTransaction: (transactions, _oldState, newState): Transaction | null =>
+      unlinkTrailingLinkWhitespaceTransaction(transactions, newState, linkType) ??
       clearLinkBoundaryStoredMarkTransaction(newState, linkType)
   });
+}
+
+function unlinkTrailingLinkWhitespaceTransaction(
+  transactions: readonly Transaction[],
+  state: EditorState,
+  linkType: MarkType
+): Transaction | null {
+  if (!transactions.some((transaction) => transaction.docChanged)) return null;
+
+  const selection = state.selection;
+  if (!selection.empty) return null;
+
+  const before = selection.$from.nodeBefore;
+  if (before === null || !before.isText || before.text === undefined) return null;
+
+  const link = linkType.isInSet(before.marks);
+  if (link === undefined) return null;
+
+  const after = selection.$from.nodeAfter;
+  const afterLink = after === null ? undefined : linkType.isInSet(after.marks);
+  if (afterLink !== undefined && afterLink.eq(link)) return null;
+
+  const trailingWhitespace = before.text.match(/\s+$/)?.[0] ?? "";
+  if (trailingWhitespace.length === 0) return null;
+
+  return state.tr
+    .removeMark(selection.from - trailingWhitespace.length, selection.from, linkType)
+    .setMeta("addToHistory", false);
 }
 
 function clearLinkBoundaryStoredMarkTransaction(state: EditorState, linkType: MarkType): Transaction | null {
