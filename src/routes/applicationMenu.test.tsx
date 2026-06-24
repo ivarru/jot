@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import { cleanupRouteTestDom, getRouteTestState, resetRouteTestState } from "./routeTestHarness";
+import { cleanupRouteTestDom, getRouteTestState, resetRouteTestState } from "./routeTestHarness.test-helper";
 import Home from "./index";
 
 const testState = getRouteTestState();

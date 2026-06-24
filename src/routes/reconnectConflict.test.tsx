@@ -9,7 +9,7 @@ import {
   type DelayedClearAll,
   type DelayedDraftLoad,
   type DelayedRemoteSave
-} from "./routeTestHarness";
+} from "./routeTestHarness.test-helper";
 import Home from "./index";
 
 const testState = getRouteTestState();
