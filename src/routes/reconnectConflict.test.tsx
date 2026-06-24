@@ -214,6 +214,34 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("saves the latest WYSIWYG markdown when the tab is hidden before the editor change propagates", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "after step 1",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await waitFor(() => {
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("after step 1");
+    });
+
+    testState.setWysiwygInternalMarkdown?.("after step 3 with local edits");
+    setDocumentVisibility("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await waitFor(() => {
+      expect(testState.remoteNote?.markdown).toBe("after step 3 with local edits");
+    });
+    expect(testState.drafts.get("2030-02-02")?.markdown).toBe("after step 3 with local edits");
+
+    setDocumentVisibility("visible");
+    dispose();
+  });
+
   it("does not submit a stale link modal after date navigation", async () => {
     testState.drafts.set("2030-02-02", draft("2030-02-02", "Read <https://example.com/docs/sync-model> today"));
     testState.drafts.set("2030-02-03", draft("2030-02-03", "Next day note"));
@@ -2295,6 +2323,57 @@ describe("Home reconnect and conflict handling", () => {
 
     dispose();
   });
+
+  it("clears raw undo history when a pending WYSIWYG edit is flushed on tab hide", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "A",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    const rawToggle = rawModeButton(host);
+    rawToggle.click();
+    await settle();
+
+    let rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    const undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
+    expect(rawEditor).not.toBeNull();
+    expect(undo).not.toBeNull();
+    rawEditor!.value = "AB";
+    rawEditor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+    expect(undo!.disabled).toBe(false);
+
+    rawToggle.click();
+    await settle();
+
+    testState.setWysiwygInternalMarkdown?.("ABC");
+    setDocumentVisibility("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => {
+      expect(testState.remoteNote?.markdown).toBe("ABC");
+    });
+
+    setDocumentVisibility("visible");
+    rawToggle.click();
+    await settle();
+
+    rawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(rawEditor).not.toBeNull();
+    expect(rawEditor!.value).toBe("ABC");
+    expect(undo!.disabled).toBe(true);
+    expect(pressUndo(rawEditor!)).toBe(false);
+    await settle();
+    expect(rawEditor!.value).toBe("ABC");
+
+    dispose();
+  });
 });
 
 function dialog(host: ParentNode, title: string): Element | null {
@@ -2368,6 +2447,13 @@ function pointerDownEvent(): PointerEvent {
   Object.defineProperty(event, "button", { value: 0 });
   Object.defineProperty(event, "pointerType", { value: "mouse" });
   return event;
+}
+
+function setDocumentVisibility(state: DocumentVisibilityState): void {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: state
+  });
 }
 
 function draft(date: IsoDate, markdown: string): LocalDraft {

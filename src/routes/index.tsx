@@ -70,7 +70,8 @@ import {
   resetSelectedDailyNoteSession,
   type DateBoundEditorState,
   type DateBoundEditorTransition,
-  type MarkdownWrite
+  type MarkdownWrite,
+  type VisibleDailyNoteSnapshot
 } from "~/editor/dateBoundEditor";
 import {
   EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS,
@@ -554,6 +555,55 @@ export default function Home() {
     errorMessage
   });
 
+  const currentEditorMarkdown = (): string =>
+    editorMode() === "text" && plainTextEditorElement !== null
+      ? plainTextEditorElement.value
+      : milkdownController?.getMarkdown() ?? markdown();
+
+  const flushCurrentVisibleEditorSnapshot = (): {
+    readonly changed: boolean;
+    readonly snapshot: VisibleDailyNoteSnapshot;
+  } | null => {
+    const date = selectedDate();
+    if (!canEditDailyNoteDate(date, dateBoundEditorState())) return null;
+
+    const currentMarkdown = currentEditorMarkdown();
+    const changed = currentMarkdown !== markdown();
+    if (changed) {
+      if (editorMode() === "wysiwyg") {
+        clearRawHistory();
+      }
+      const result = applyEditorChange(dateBoundEditorState(), date, currentMarkdown);
+      if (result.type !== "current-editor") return null;
+      applyDateBoundEditorTransition({ state: result.state, markdownWrite: result.markdownWrite });
+    }
+
+    return {
+      changed,
+      snapshot: captureDocumentSnapshot(date, currentMarkdown)
+    };
+  };
+
+  const saveLatestVisibleEditorSnapshot = () => {
+    const flushed = flushCurrentVisibleEditorSnapshot();
+    if (flushed === null) {
+      void selectedDateDriveSync.saveCurrentEditorSnapshot();
+      return;
+    }
+
+    void selectedDateDriveSync.saveAndSyncSnapshot(flushed.snapshot);
+  };
+
+  const syncSelectedDateOnDemandWithLatestEditor = () => {
+    const flushed = flushCurrentVisibleEditorSnapshot();
+    if (flushed?.changed) {
+      void selectedDateDriveSync.saveAndSyncSnapshot(flushed.snapshot);
+      return;
+    }
+
+    void selectedDateDriveSync.syncSelectedDateOnDemand();
+  };
+
   createEffect(() => {
     if (runtime.kind !== "google") {
       setPreparingAuth(false);
@@ -888,11 +938,11 @@ export default function Home() {
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         clearCameraStream();
-        void selectedDateDriveSync.saveCurrentEditorSnapshot();
+        saveLatestVisibleEditorSnapshot();
         return;
       }
 
-      void selectedDateDriveSync.syncSelectedDateOnDemand();
+      syncSelectedDateOnDemandWithLatestEditor();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     onCleanup(() => document.removeEventListener("visibilitychange", onVisibilityChange));
@@ -901,7 +951,7 @@ export default function Home() {
   createEffect(() => {
     const onFocus = () => {
       if (document.visibilityState === "hidden") return;
-      void selectedDateDriveSync.syncSelectedDateOnDemand();
+      syncSelectedDateOnDemandWithLatestEditor();
     };
     window.addEventListener("focus", onFocus);
     window.addEventListener("pageshow", onFocus);
@@ -1242,11 +1292,6 @@ export default function Home() {
 
     return milkdownController?.getSelection() ?? null;
   };
-
-  const currentEditorMarkdown = (): string =>
-    editorMode() === "text" && plainTextEditorElement !== null
-      ? plainTextEditorElement.value
-      : milkdownController?.getMarkdown() ?? markdown();
 
   const currentLinkModalBaseMarkdown = (session: LinkModalSession): string =>
     session.baseMarkdownSource === "state" ? markdown() : currentEditorMarkdown();

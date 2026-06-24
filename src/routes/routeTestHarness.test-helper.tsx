@@ -48,6 +48,7 @@ const routeTestState = vi.hoisted(() => ({
   taskListItemToggleCount: 0,
   taskListItemToggleSelections: [] as Array<{ readonly start: number; readonly end: number } | undefined>,
   focusSelectionApplyCount: 0,
+  setWysiwygInternalMarkdown: null as ((markdown: string) => void) | null,
   savedSettings: [] as unknown[]
 }));
 
@@ -126,6 +127,12 @@ vi.mock("~/components/MilkdownEditor", async () => {
       const reportListItemFormatState = () => props.onListItemFormatStateChange?.({ ...listItemFormatState });
       const reportHistoryAvailability = () => props.onHistoryAvailabilityChange?.(historyAvailability());
       const controllerSerializedMarkdown = (markdown: string) => markdown.endsWith(" ") ? `${markdown.trimEnd()}\n` : markdown;
+      const setInternalMarkdownWithoutChangeEvent = (markdown: string) => {
+        present = markdown;
+        if (textarea !== undefined) textarea.value = markdown;
+      };
+
+      routeTestState.setWysiwygInternalMarkdown = setInternalMarkdownWithoutChangeEvent;
 
       const recordControllerMarkdown = (markdown: string) => {
         const serialized = controllerSerializedMarkdown(markdown);
@@ -468,6 +475,7 @@ export function resetRouteTestState(): void {
   routeTestState.taskListItemToggleCount = 0;
   routeTestState.taskListItemToggleSelections = [];
   routeTestState.focusSelectionApplyCount = 0;
+  routeTestState.setWysiwygInternalMarkdown = null;
   routeTestState.savedSettings = [];
   window.location.hash = "#/date/2030-02-02";
   localStorage.setItem("jot.fakeAuth", "true");
