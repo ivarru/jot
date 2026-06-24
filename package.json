@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.19.5",
+  "version": "0.19.6",
   "description": "A static progressive web app for personal Daily Notes.",
   "private": true,
   "license": "MIT",
@@ -54,5 +54,8 @@
     "typescript": "^5.8.3",
     "vite": "^6.4.3",
     "vitest": "^3.2.6"
+  },
+  "overrides": {
+    "h3": "1.15.11"
   }
 }
