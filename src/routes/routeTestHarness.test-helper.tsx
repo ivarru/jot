@@ -90,7 +90,9 @@ vi.mock("~/components/MilkdownEditor", async () => {
         readonly getBlockFormatState: () => { readonly quote: boolean };
         readonly getListItemFormatState: () => { readonly task: boolean };
         readonly getMarkdown: () => string;
+        readonly getLiveMarkdown: () => string;
         readonly getSelection: () => { readonly start: number; readonly end: number } | null;
+        readonly focusCurrentSelection: () => void;
         readonly redo: () => boolean;
         readonly toggleBlockQuoteAtSelection: (selection?: { readonly start: number; readonly end: number }) => boolean;
         readonly toggleInlineCodeAtSelection: () => boolean;
@@ -211,13 +213,15 @@ vi.mock("~/components/MilkdownEditor", async () => {
         getInlineFormatState: () => ({ ...inlineFormatState }),
         getListItemFormatState: () => ({ ...listItemFormatState }),
         getMarkdown: () => present,
+        getLiveMarkdown: () => textarea?.value ?? present,
         getSelection: () =>
           textarea === undefined || !routeTestState.wysiwygSelectionAvailable
             ? null
             : {
-                start: textarea.selectionStart,
-                end: textarea.selectionEnd
-              },
+              start: textarea.selectionStart,
+              end: textarea.selectionEnd
+            },
+        focusCurrentSelection: () => undefined,
         redo,
         toggleBlockQuoteAtSelection: (selection) => {
           routeTestState.blockQuoteToggleCount += 1;

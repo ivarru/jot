@@ -76,7 +76,9 @@ interface MilkdownEditorSession {
   readonly getListItemFormatState: () => ListItemFormatState;
   readonly getSelection: () => MarkdownSelection | null;
   readonly getMarkdown: () => string;
+  readonly getLiveMarkdown: () => string;
   readonly focus: (placement: FocusPlacement, onFocusApplied?: () => void) => void;
+  readonly focusCurrentSelection: () => void;
   readonly redo: () => boolean;
   readonly scheduleCodeBlockViewportLayout: () => void;
   readonly setReadOnly: (readOnly: boolean) => void;
@@ -112,7 +114,9 @@ export interface MilkdownEditorController {
   readonly getInlineFormatState: () => InlineFormatState;
   readonly getListItemFormatState: () => ListItemFormatState;
   readonly getMarkdown: () => string;
+  readonly getLiveMarkdown: () => string;
   readonly getSelection: () => MarkdownSelection | null;
+  readonly focusCurrentSelection: () => void;
   readonly redo: () => boolean;
   readonly toggleBlockQuoteAtSelection: (selection?: MarkdownSelection) => boolean;
   readonly toggleInlineCodeAtSelection: () => boolean;
@@ -204,6 +208,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         let editor: MilkdownEditorInstance | null = null;
         let session: MilkdownEditorSession | null = null;
         let lastPointerMarkdownSelection: MarkdownSelection | null = null;
+        let lastStructuralTabSelection: MarkdownSelection | null = null;
         let removeRootListeners: (() => void) | null = null;
         onCleanup(() => {
           disposed = true;
@@ -506,14 +511,56 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             },
             applyStructuralTab: (shiftKey) => {
               if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
+              lastStructuralTabSelection = null;
               const view = editor.ctx.get(editorViewCtx);
+              flushPendingEditorDomChanges(view);
+              const beforeDomEmptyTextblockIndex = emptyDomTextblockIndexAtSelection(view);
+              const domSelection = editorDomSelectionToTextSelection(view, TextSelection);
+              if (domSelection !== null && !domSelection.eq(view.state.selection)) {
+                view.dispatch(view.state.tr.setSelection(domSelection));
+              }
               if (isInTable(view.state)) return false;
+              const serializer = editor.ctx.get(serializerCtx);
+              const beforeMarkdown = serializeMilkdownMarkdown(serializer, view.state.doc);
+              const beforeSelectionWasEmptyTextblock =
+                view.state.selection.$from.parent.isTextblock && view.state.selection.$from.parent.textContent === ""
+                  || beforeDomEmptyTextblockIndex !== null;
+              const beforeEmptyTextblockIndex = emptyTextblockIndexAtSelection(view) ?? beforeDomEmptyTextblockIndex;
+              const beforeSelection = editorSelectionToMarkdownSourceSelection(
+                beforeMarkdown,
+                view.state.selection,
+                view,
+                serializer
+              );
+              const beforeSyntaxLine = syntaxOnlyLineAt(beforeMarkdown, beforeSelection.start);
+              let restoredEmptyTextblockIndex: number | null = null;
               const handled =
                 view.someProp("handleKeyDown", (handler) =>
                   handler(view, new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey }))
                 ) === true;
               if (handled) {
-                view.focus();
+                if (beforeSelectionWasEmptyTextblock || beforeEmptyTextblockIndex !== null || beforeSyntaxLine !== null) {
+                  const emptyIndex = beforeEmptyTextblockIndex ?? (
+                    beforeSyntaxLine === null ? 0 : syntaxOnlyLineIndex(beforeMarkdown, beforeSyntaxLine.start, beforeSyntaxLine.kind)
+                  );
+                  const emptyPosition = emptyTextblockPositionAtIndex(view.state.doc, emptyIndex);
+                  if (emptyPosition !== null) {
+                    view.focus();
+                    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, emptyPosition)));
+                    restoredEmptyTextblockIndex = emptyIndex;
+                  }
+                  const updatedMarkdown = serializeMilkdownMarkdown(serializer, view.state.doc);
+                  const sourceOffset = emptyMarkdownLineOffset(updatedMarkdown, emptyIndex)
+                    ?? emptyDomTextblockSourceOffset(view.dom, emptyIndex);
+                  lastStructuralTabSelection = sourceOffset === null ? null : { start: sourceOffset, end: sourceOffset };
+                } else {
+                  lastStructuralTabSelection = null;
+                }
+                if (restoredEmptyTextblockIndex === null) view.focus();
+                if (restoredEmptyTextblockIndex !== null) {
+                  placeDomSelectionAtEmptyTextblock(view.dom, restoredEmptyTextblockIndex);
+                  scheduleDomSelectionAtEmptyTextblock(view.dom, restoredEmptyTextblockIndex);
+                }
                 notifyHistoryAvailability(view);
               }
               return handled;
@@ -541,20 +588,53 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             },
             getSelection: () => {
               if (disposed || activeSession !== session || editor === null) return null;
+              if (lastStructuralTabSelection !== null) {
+                const selection = lastStructuralTabSelection;
+                lastStructuralTabSelection = null;
+                return selection;
+              }
               const view = editor.ctx.get(editorViewCtx);
+              const serializer = editor.ctx.get(serializerCtx);
               const markdown = markdownState.currentMarkdown;
-              return editorDomSelectionToMarkdownSourceSelection(
+              const emptyTextblockSelection = emptyTextblockMarkdownSelection(markdown, view);
+              if (emptyTextblockSelection !== null) return emptyTextblockSelection;
+
+              if (selectionIsInEmptyTextblock(view)) {
+                const serializedMarkdown = serializeMilkdownMarkdown(serializer, view.state.doc);
+                const serializedEmptyTextblockSelection = emptyTextblockMarkdownSelection(serializedMarkdown, view);
+                if (serializedEmptyTextblockSelection !== null) return serializedEmptyTextblockSelection;
+              }
+
+              const domEmptyTextblockIndex = emptyDomTextblockIndexAtSelection(view);
+              if (domEmptyTextblockIndex !== null) {
+                const domEmptySelection =
+                  emptyMarkdownLineOffset(markdown, domEmptyTextblockIndex)
+                    ?? emptyMarkdownLineOffset(serializeMilkdownMarkdown(serializer, view.state.doc), domEmptyTextblockIndex)
+                    ?? emptyDomTextblockSourceOffset(view.dom, domEmptyTextblockIndex);
+                if (domEmptySelection !== null) return { start: domEmptySelection, end: domEmptySelection };
+              }
+
+              const domSelection = editorDomSelectionToMarkdownSourceSelection(
                 markdown,
                 view,
-                editor.ctx.get(serializerCtx)
-              ) ?? editorSelectionToMarkdownSourceSelection(
+                serializer
+              );
+              if (domSelection !== null) return domSelection;
+
+              const editorSelection = editorSelectionToMarkdownSourceSelection(
                 markdown,
                 view.state.selection,
                 view,
-                editor.ctx.get(serializerCtx)
+                serializer
               );
+              return editorSelection;
             },
             getMarkdown: () => markdownState.currentMarkdown,
+            getLiveMarkdown: () => {
+              if (disposed || activeSession !== session || editor === null) return markdownState.currentMarkdown;
+              const view = editor.ctx.get(editorViewCtx);
+              return serializeMilkdownMarkdown(editor.ctx.get(serializerCtx), view.state.doc);
+            },
             focus: (placement, onFocusApplied) => {
               if (disposed || activeSession !== session || editor === null) return;
               const view = editor.ctx.get(editorViewCtx);
@@ -567,6 +647,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 onFocusApplied,
                 () => !disposed && activeSession === session && editor !== null
               );
+            },
+            focusCurrentSelection: () => {
+              if (disposed || activeSession !== session || editor === null) return;
+              editor.ctx.get(editorViewCtx).dom.focus();
             },
             redo: () => {
               if (disposed || activeSession !== session || editor === null) return false;
@@ -709,7 +793,11 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             getInlineFormatState: () => session?.getInlineFormatState() ?? inactiveInlineFormatState,
             getListItemFormatState: () => session?.getListItemFormatState() ?? inactiveListItemFormatState,
             getMarkdown: () => session?.getMarkdown() ?? markdownState.currentMarkdown,
+            getLiveMarkdown: () => session?.getLiveMarkdown() ?? markdownState.currentMarkdown,
             getSelection: () => session?.getSelection() ?? null,
+            focusCurrentSelection: () => {
+              session?.focusCurrentSelection();
+            },
             redo: () => session?.redo() ?? false,
             toggleBlockQuoteAtSelection: (selection) => session?.toggleBlockQuoteAtSelection(selection) ?? false,
             toggleInlineCodeAtSelection: () => session?.toggleInlineCodeAtSelection() ?? false,
@@ -1234,6 +1322,25 @@ function editorDomSelectionToMarkdownSourceSelection(
   }
 }
 
+function editorDomSelectionToTextSelection(
+  view: EditorView,
+  textSelection: typeof import("@milkdown/kit/prose/state").TextSelection
+): Selection | null {
+  const selection = view.dom.ownerDocument.getSelection();
+  if (selection === null || selection.rangeCount === 0) return null;
+
+  const range = selection.getRangeAt(0);
+  if (!containsSelectionNode(view.dom, range.commonAncestorContainer)) return null;
+
+  try {
+    const start = editorDomPositionToEditorPosition(view, range.startContainer, range.startOffset);
+    const end = editorDomPositionToEditorPosition(view, range.endContainer, range.endOffset);
+    return textSelection.between(view.state.doc.resolve(start), view.state.doc.resolve(end));
+  } catch {
+    return null;
+  }
+}
+
 function pointerEventMarkdownSelection(
   markdown: string,
   event: Event,
@@ -1482,7 +1589,228 @@ function placeSelectionAtMarkdownSourceSelection(
 }
 
 function positionForMarkdownSourceOffset(doc: ProseNode, markdown: string, sourceOffset: number): number {
+  const syntaxOnlyPosition = positionForSyntaxOnlyLineSourceOffset(doc, markdown, sourceOffset);
+  if (syntaxOnlyPosition !== null) return syntaxOnlyPosition;
+
   return positionForRenderedTextOffset(doc, markdownSourceOffsetToRenderedOffset(markdown, sourceOffset));
+}
+
+type SyntaxOnlyLineKind = "heading" | "listItem";
+
+function selectionIsInEmptyTextblock(view: EditorView): boolean {
+  const selection = view.state.selection;
+  return selection.empty && selection.$from.parent.isTextblock && selection.$from.parent.textContent === "";
+}
+
+function emptyTextblockMarkdownSelection(markdown: string, view: EditorView): MarkdownSelection | null {
+  const emptyTextblockIndex = emptyTextblockIndexAtSelection(view);
+  if (emptyTextblockIndex === null) return null;
+
+  const offset = emptyMarkdownLineOffset(markdown, emptyTextblockIndex);
+  return offset === null ? null : { start: offset, end: offset };
+}
+
+function emptyTextblockIndexAtSelection(view: EditorView): number | null {
+  if (!selectionIsInEmptyTextblock(view)) return null;
+
+  const blockStart = view.state.selection.$from.before();
+  let emptyTextblockIndex = 0;
+  let found = false;
+  view.state.doc.descendants((node, position) => {
+    if (!node.isTextblock || node.textContent !== "") return true;
+
+    if (position === blockStart) {
+      found = true;
+      return false;
+    }
+
+    emptyTextblockIndex += 1;
+    return true;
+  });
+
+  return found ? emptyTextblockIndex : null;
+}
+
+function emptyDomTextblockIndexAtSelection(view: EditorView): number | null {
+  const selection = view.dom.ownerDocument.getSelection();
+  if (selection === null || selection.rangeCount === 0) return null;
+
+  const range = selection.getRangeAt(0);
+  if (!containsSelectionNode(view.dom, range.commonAncestorContainer)) return null;
+
+  const target = closestRenderedTextblock(range.startContainer, view.dom);
+  if (target === null || !isEmptyRenderedTextblock(target)) return null;
+
+  let index = 0;
+  for (const textblock of renderedTextblocks(view.dom)) {
+    if (!isEmptyRenderedTextblock(textblock)) continue;
+    if (textblock === target) return index;
+    index += 1;
+  }
+  return null;
+}
+
+function closestRenderedTextblock(node: Node, root: HTMLElement): HTMLElement | null {
+  let current: Node | null = node.nodeType === Node.ELEMENT_NODE ? node : node.parentNode;
+  while (current !== null && current !== root) {
+    if (current instanceof HTMLElement && renderedTextblockTagNames.has(current.tagName)) return current;
+    current = current.parentNode;
+  }
+  return null;
+}
+
+const renderedTextblockTagNames = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6"]);
+
+function renderedTextblocks(root: HTMLElement): readonly HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>("p,h1,h2,h3,h4,h5,h6"));
+}
+
+function isEmptyRenderedTextblock(element: HTMLElement): boolean {
+  return element.textContent === "";
+}
+
+function emptyDomTextblockSourceOffset(root: HTMLElement, targetIndex: number): number | null {
+  let emptyIndex = 0;
+  let offset = 0;
+  for (const textblock of renderedTextblocks(root)) {
+    if (isEmptyRenderedTextblock(textblock)) {
+      if (emptyIndex === targetIndex) return offset;
+      emptyIndex += 1;
+    }
+
+    offset += (textblock.textContent ?? "").length + 2;
+  }
+  return null;
+}
+
+function placeDomSelectionAtEmptyTextblock(root: HTMLElement, targetIndex: number): void {
+  let emptyIndex = 0;
+  for (const textblock of renderedTextblocks(root)) {
+    if (!isEmptyRenderedTextblock(textblock)) continue;
+    if (emptyIndex === targetIndex) {
+      const selection = root.ownerDocument.getSelection();
+      if (selection === null) return;
+      const range = root.ownerDocument.createRange();
+      range.setStart(textblock, 0);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return;
+    }
+    emptyIndex += 1;
+  }
+}
+
+function scheduleDomSelectionAtEmptyTextblock(root: HTMLElement, targetIndex: number): void {
+  queueMicrotask(() => {
+    root.focus();
+    placeDomSelectionAtEmptyTextblock(root, targetIndex);
+  });
+  requestAnimationFrame(() => {
+    root.focus();
+    placeDomSelectionAtEmptyTextblock(root, targetIndex);
+  });
+}
+
+function emptyTextblockPositionAtIndex(doc: ProseNode, targetIndex: number): number | null {
+  let currentIndex = 0;
+  let found: number | null = null;
+  doc.descendants((node, position) => {
+    if (!node.isTextblock || node.textContent !== "") return true;
+
+    if (currentIndex === targetIndex) {
+      found = position + 1;
+      return false;
+    }
+
+    currentIndex += 1;
+    return true;
+  });
+  return found;
+}
+
+function emptyMarkdownLineOffset(markdown: string, targetIndex: number): number | null {
+  let currentIndex = 0;
+  let lineStart = 0;
+  while (lineStart <= markdown.length) {
+    const nextLineBreak = markdown.indexOf("\n", lineStart);
+    const lineEnd = nextLineBreak === -1 ? markdown.length : nextLineBreak;
+    const lineText = markdown.slice(lineStart, lineEnd);
+    const syntaxKind = syntaxOnlyLineKind(lineText);
+    if (lineText.trim() === "" || syntaxKind !== null) {
+      if (currentIndex === targetIndex) return syntaxKind === null ? lineStart : lineEnd;
+      currentIndex += 1;
+    }
+    if (nextLineBreak === -1) break;
+    lineStart = nextLineBreak + 1;
+  }
+  return null;
+}
+
+function positionForSyntaxOnlyLineSourceOffset(doc: ProseNode, markdown: string, sourceOffset: number): number | null {
+  const line = syntaxOnlyLineAt(markdown, sourceOffset);
+  if (line === null) return null;
+
+  const targetIndex = syntaxOnlyLineIndex(markdown, line.start, line.kind);
+  let currentIndex = 0;
+  let found: number | null = null;
+  doc.descendants((node, position, parent) => {
+    if (found !== null) return false;
+    if (!isSyntaxOnlyLineCandidate(node, parent, line.kind)) return true;
+
+    if (currentIndex === targetIndex) {
+      found = position + 1;
+      return false;
+    }
+
+    currentIndex += 1;
+    return false;
+  });
+
+  return found;
+}
+
+function syntaxOnlyLineAt(
+  markdown: string,
+  sourceOffset: number
+): { readonly start: number; readonly kind: SyntaxOnlyLineKind } | null {
+  const offset = Math.max(0, Math.min(markdown.length, sourceOffset));
+  const lineStart = markdown.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
+  const nextLineBreak = markdown.indexOf("\n", lineStart);
+  const lineEnd = nextLineBreak === -1 ? markdown.length : nextLineBreak;
+  if (offset < lineStart || offset > lineEnd) return null;
+
+  const kind = syntaxOnlyLineKind(markdown.slice(lineStart, lineEnd));
+  return kind === null ? null : { start: lineStart, kind };
+}
+
+function syntaxOnlyLineIndex(markdown: string, targetLineStart: number, kind: SyntaxOnlyLineKind): number {
+  let index = 0;
+  let lineStart = 0;
+  while (lineStart < targetLineStart) {
+    const nextLineBreak = markdown.indexOf("\n", lineStart);
+    const lineEnd = nextLineBreak === -1 ? markdown.length : nextLineBreak;
+    if (syntaxOnlyLineKind(markdown.slice(lineStart, lineEnd)) === kind) index += 1;
+    if (nextLineBreak === -1) break;
+    lineStart = nextLineBreak + 1;
+  }
+  return index;
+}
+
+function syntaxOnlyLineKind(lineText: string): SyntaxOnlyLineKind | null {
+  if (/^ {0,3}#{1,6}\s*$/.test(lineText)) return "heading";
+  if (/^ {0,3}[*+-]\s+$/.test(lineText)) return "listItem";
+  return null;
+}
+
+function isSyntaxOnlyLineCandidate(
+  node: ProseNode,
+  parent: ProseNode | null,
+  kind: SyntaxOnlyLineKind
+): boolean {
+  if (node.textContent !== "") return false;
+  if (kind === "heading") return node.type.name === "heading";
+  return node.isTextblock && parent?.type.name.includes("list") === true;
 }
 
 function positionForRenderedTextOffset(doc: ProseNode, offset: number): number {

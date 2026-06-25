@@ -102,6 +102,24 @@ describe("milkdown structural tab editing", () => {
     }
   });
 
+  it("keeps the cursor in an empty heading when tab turns it into a paragraph", async () => {
+    const editor = await createEditor("before\n#");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const headingPosition = findEmptyTextblockPosition(view.state.doc, "heading");
+      expect(headingPosition).not.toBeNull();
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, headingPosition!)));
+
+      expect(pressTab(view)).toBe(true);
+      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("before\n\n");
+      expect(view.state.selection.$from.parent.type.name).toBe("paragraph");
+      expect(view.state.selection.$from.parent.textContent).toBe("");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
   it("lets the GFM table keymap handle tab navigation", async () => {
     const editor = await createEditor("| A | B |\n| --- | --- |\n| one | two |\n");
 
@@ -393,6 +411,17 @@ function findTextNodePosition(doc: ProseMirrorNode, textToFind: string): number 
     if (index === -1) return true;
 
     found = position + index;
+    return false;
+  });
+  return found;
+}
+
+function findEmptyTextblockPosition(doc: ProseMirrorNode, nodeTypeName: string): number | null {
+  let found: number | null = null;
+  doc.descendants((node, position) => {
+    if (node.type.name !== nodeTypeName || !node.isTextblock || node.textContent !== "") return true;
+
+    found = position + 1;
     return false;
   });
   return found;

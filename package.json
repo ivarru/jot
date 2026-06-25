@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.19.7",
+  "version": "0.19.8",
   "description": "A static progressive web app for personal Daily Notes.",
   "private": true,
   "license": "MIT",
@@ -27,6 +27,7 @@
     "smoke:fake-reconnect-conflict": "node scripts/smoke-fake-reconnect-conflict.mjs",
     "smoke:fake-image": "node scripts/smoke-fake-image.mjs",
     "smoke:fake-code-block-layout": "playwright test tests/smoke/code-block-layout.spec.ts",
+    "smoke:toolbar-indent": "playwright test tests/smoke/toolbar-indent.spec.ts",
     "start": "vinxi start",
     "test": "vitest run",
     "test:watch": "vitest",

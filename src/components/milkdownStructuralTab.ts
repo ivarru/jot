@@ -164,7 +164,13 @@ function updateHeadingDepth(
   }
 
   if (level <= 1) {
-    dispatch?.(state.tr.setBlockType(state.selection.from, state.selection.to, deps.paragraphType).scrollIntoView());
+    if (dispatch !== undefined) {
+      const tr = state.tr.setBlockType(state.selection.from, state.selection.to, deps.paragraphType);
+      if (heading.textContent === "") {
+        tr.setSelection(deps.TextSelection.create(tr.doc, state.selection.$from.before() + 1));
+      }
+      dispatch(tr.scrollIntoView());
+    }
     return true;
   }
 

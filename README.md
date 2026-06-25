@@ -36,15 +36,19 @@ npm run typecheck
 npm run build
 ```
 
-Some browser smoke checks use Playwright against the built preview. For fake-storage
-browser checks, build with fake auth, start the preview server, then run the
-focused smoke command:
+Playwright smoke checks start a fake-storage preview server automatically when
+`SMOKE_BASE_URL` is not set:
 
 ```sh
-VITE_ENABLE_FAKE_AUTH=true npm run build
-npm run preview
-SMOKE_BASE_URL=http://127.0.0.1:4173/ npm run smoke:fake-code-block-layout
+npm run smoke:fake-code-block-layout
+npm run smoke:toolbar-indent
 ```
+
+The Playwright-managed preview build log is written to
+`/tmp/jot-preview-test-fake-build.log`; the preview server log is written to
+`/tmp/jot-preview-test-fake-preview.log`. To run smoke checks against an
+already-running server instead, set `SMOKE_BASE_URL`, for example
+`SMOKE_BASE_URL=http://127.0.0.1:4173/ npm run smoke:fake-code-block-layout`.
 
 Start a local development server:
 

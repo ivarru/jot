@@ -308,6 +308,8 @@ export default function Home() {
   let plainTextEditorElement: HTMLTextAreaElement | null = null;
   let pendingEditorModeSelection: MarkdownSelection | null | undefined;
   let pendingFormattingToolbarSelection: MarkdownSelection | null | undefined;
+  let pendingStructuralTabSelection: MarkdownSelection | null | undefined;
+  let structuralToolbarPointerHandled = false;
   let pendingSectionLinkSourceSelection: MarkdownSelection | null | undefined;
   let rawHistoryPast: EditorHistoryEntry[] = [];
   let rawHistoryFuture: EditorHistoryEntry[] = [];
@@ -558,7 +560,7 @@ export default function Home() {
   const currentEditorMarkdown = (): string =>
     editorMode() === "text" && plainTextEditorElement !== null
       ? plainTextEditorElement.value
-      : milkdownController?.getMarkdown() ?? markdown();
+      : milkdownController?.getLiveMarkdown() ?? markdown();
 
   const flushCurrentVisibleEditorSnapshot = (): {
     readonly changed: boolean;
@@ -1278,7 +1280,10 @@ export default function Home() {
   };
 
   const captureEditorModeSelection = () => {
-    pendingEditorModeSelection = currentEditorSelection();
+    pendingEditorModeSelection = pendingStructuralTabSelection !== undefined
+      ? pendingStructuralTabSelection
+      : currentEditorSelection();
+    pendingStructuralTabSelection = undefined;
   };
 
   const currentEditorSelection = (mode: EditorMode = editorMode()): MarkdownSelection | null => {
@@ -1307,6 +1312,28 @@ export default function Home() {
     pendingFormattingToolbarSelection = selection;
     if (selection !== null) setFocusEditorSelection(selection);
     event.preventDefault();
+  };
+
+  const applyStructuralToolbarPointerShortcut = (event: PointerEvent, shiftKey: boolean) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    pendingStructuralTabSelection = currentEditorSelection();
+    structuralToolbarPointerHandled = true;
+    event.preventDefault();
+    applyStructuralTabShortcut(shiftKey);
+  };
+
+  const preserveStructuralToolbarMouseSelection = (event: MouseEvent) => {
+    if (event.button !== 0) return;
+    pendingStructuralTabSelection = currentEditorSelection();
+    event.preventDefault();
+  };
+
+  const applyStructuralToolbarClickShortcut = (shiftKey: boolean) => {
+    if (structuralToolbarPointerHandled) {
+      structuralToolbarPointerHandled = false;
+      return;
+    }
+    applyStructuralTabShortcut(shiftKey);
   };
 
   const takeFormattingToolbarSelection = (): MarkdownSelection | null => {
@@ -1889,6 +1916,9 @@ export default function Home() {
   const applyStructuralTabShortcut = (shiftKey: boolean) => {
     const date = selectedDate();
     if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
+    const capturedSelection = pendingStructuralTabSelection;
+    pendingStructuralTabSelection = undefined;
+    const beforeMarkdown = currentEditorMarkdown();
 
     if (editorMode() === "text") {
       if (plainTextEditorElement === null) return;
@@ -1906,8 +1936,14 @@ export default function Home() {
     }
 
     if (milkdownController?.applyStructuralTab(shiftKey) !== true) return;
-    setFocusEditorAtEnd(false);
-    setFocusEditorSelection(milkdownController.getSelection());
+    const commandSelection = milkdownController.getSelection();
+    const nextSelection = capturedSelection !== undefined
+      && capturedSelection !== null
+      && selectionIsOnStructuralEmptyLine(beforeMarkdown, capturedSelection)
+      ? capturedSelection
+      : commandSelection;
+    pendingStructuralTabSelection = nextSelection;
+    milkdownController.focusCurrentSelection();
   };
 
   const applyEditorHistoryShortcut = (direction: "undo" | "redo") => {
@@ -2674,7 +2710,9 @@ export default function Home() {
                 aria-keyshortcuts="Shift+Tab"
                 title="Dedent (Shift+Tab)"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onClick={() => applyStructuralTabShortcut(true)}
+                onPointerDown={(event) => applyStructuralToolbarPointerShortcut(event, true)}
+                onMouseDown={preserveStructuralToolbarMouseSelection}
+                onClick={() => applyStructuralToolbarClickShortcut(true)}
               >
                 <DedentIcon />
               </button>
@@ -2698,7 +2736,9 @@ export default function Home() {
                 aria-keyshortcuts="Tab"
                 title="Indent (Tab)"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onClick={() => applyStructuralTabShortcut(false)}
+                onPointerDown={(event) => applyStructuralToolbarPointerShortcut(event, false)}
+                onMouseDown={preserveStructuralToolbarMouseSelection}
+                onClick={() => applyStructuralToolbarClickShortcut(false)}
               >
                 <IndentIcon />
               </button>
@@ -4245,6 +4285,15 @@ function nextImageAttachmentRefreshAt(displays: readonly ImageAttachmentDisplay[
       : []
   );
   return refreshTimes.length === 0 ? undefined : Math.min(...refreshTimes);
+}
+
+function selectionIsOnStructuralEmptyLine(markdown: string, selection: MarkdownSelection): boolean {
+  if (selection.start !== selection.end) return false;
+  if (selection.start > markdown.length) return true;
+  const lineStart = markdown.lastIndexOf("\n", Math.max(0, selection.start - 1)) + 1;
+  const nextLineBreak = markdown.indexOf("\n", lineStart);
+  const lineEnd = nextLineBreak === -1 ? markdown.length : nextLineBreak;
+  return /^ *(?:#{1,6}|[*+-])? *$/.test(markdown.slice(lineStart, lineEnd));
 }
 
 function delay(ms: number): Promise<void> {

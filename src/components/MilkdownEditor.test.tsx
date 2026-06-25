@@ -1464,6 +1464,58 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it.each([
+    ["heading", "before\n#", "before\n#".length],
+    ["star", "before\n\n* ", "before\n\n* ".length]
+  ])("keeps toolbar structural indent on a marker-only %s line", async (_label, markdown, cursor) => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
+    let controller!: MilkdownEditorController;
+
+    const dispose = render(
+      () => {
+        const [selection, innerSetSelection] = createSignal<{ readonly start: number; readonly end: number } | null>(
+          null
+        );
+        setSelection = innerSetSelection;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value={markdown}
+            focusSelection={selection()}
+            onChange={() => undefined}
+            onBlur={() => undefined}
+            onController={(nextController) => {
+              if (nextController !== null) controller = nextController;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      setSelection({ start: cursor, end: cursor });
+      await animationFrame();
+      await animationFrame();
+
+      const initialSelection = controller.getSelection();
+      expect(initialSelection).not.toBeNull();
+      expect(markdownLineStartAt(markdown, initialSelection!.start)).toBeGreaterThan("before".length);
+      expect(controller.applyStructuralTab(false)).toBe(true);
+
+      const updatedSelection = controller.getSelection();
+      expect(updatedSelection).not.toEqual({ start: "before".length, end: "before".length });
+      expect(updatedSelection).not.toBeNull();
+      expect(markdownLineStartAt(controller.getMarkdown(), updatedSelection!.start)).toBeGreaterThan("before".length);
+    } finally {
+      dispose();
+    }
+  });
+
   it("maps a WYSIWYG task-list cursor through Milkdown serialization to the raw Markdown range", async () => {
     const markdown = "* parent\n  * [ ] child\n* after";
     const editor = await createMilkdownTestEditor(markdown);
@@ -1574,6 +1626,11 @@ function animationFrame(): Promise<void> {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function markdownLineStartAt(markdown: string, offset: number): number {
+  const clamped = Math.max(0, Math.min(markdown.length, offset));
+  return markdown.lastIndexOf("\n", Math.max(0, clamped - 1)) + 1;
 }
 
 function pointerDownEvent(): PointerEvent {
