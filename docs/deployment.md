@@ -11,7 +11,7 @@ BASE_PATH=/jot/ npm run build:pages
 npm run smoke:pages
 ```
 
-`npm run build:pages` writes the static app to `.output/public`. `npm run smoke:pages` verifies that the artifact contains:
+`npm run build:pages` writes the static app to `.output/public`. `npm run smoke:pages` runs the Playwright Pages artifact check without starting the preview server, and verifies that the artifact contains:
 
 - `.nojekyll`
 - `index.html`

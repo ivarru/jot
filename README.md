@@ -36,10 +36,16 @@ npm run typecheck
 npm run build
 ```
 
-Playwright smoke checks start a fake-storage preview server automatically when
-`SMOKE_BASE_URL` is not set:
+Playwright smoke checks live under `tests/smoke` and start a fake-storage
+preview server automatically when `SMOKE_BASE_URL` is not set:
 
 ```sh
+npm run smoke:raw-keyboard
+npm run smoke:wysiwyg-paste
+npm run smoke:link-modal
+npm run smoke:fake-daily-note-upload
+npm run smoke:fake-reconnect-conflict
+npm run smoke:fake-image
 npm run smoke:fake-code-block-layout
 npm run smoke:toolbar-indent
 ```

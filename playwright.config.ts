@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 const chromePath = process.env.CHROME_PATH;
 const baseURL = process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:4173/";
+const startPreviewServer = process.env.SMOKE_BASE_URL === undefined && process.env.PLAYWRIGHT_NO_WEBSERVER !== "true";
 
 export default defineConfig({
   testDir: "./tests/smoke",
@@ -12,7 +13,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: "line",
-  webServer: process.env.SMOKE_BASE_URL === undefined
+  webServer: startPreviewServer
     ? {
       command: "npm run preview:test:fake",
       url: baseURL,
