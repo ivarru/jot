@@ -316,6 +316,7 @@ export default function Home() {
   let backgroundSyncGeneration = 0;
   let dailyNoteUploadGeneration = 0;
   let sectionLinkTargetLoadGeneration = 0;
+  let lastBackgroundSaveSnapshotKey: string | null = null;
 
   const dateBoundEditorState = (): DateBoundEditorState => ({
     selectedDate: selectedDate(),
@@ -586,14 +587,30 @@ export default function Home() {
     };
   };
 
-  const saveLatestVisibleEditorSnapshot = () => {
+  const backgroundSaveSnapshotKey = (snapshot: VisibleDailyNoteSnapshot): string => `${snapshot.date}\n${snapshot.markdown}`;
+
+  const saveLatestVisibleEditorSnapshot = (options: { readonly dedupeBackground?: boolean } = {}) => {
     const flushed = flushCurrentVisibleEditorSnapshot();
     if (flushed === null) {
       void selectedDateDriveSync.saveCurrentEditorSnapshot();
       return;
     }
 
+    if (options.dedupeBackground === true) {
+      const snapshotKey = backgroundSaveSnapshotKey(flushed.snapshot);
+      if (snapshotKey === lastBackgroundSaveSnapshotKey) return;
+      lastBackgroundSaveSnapshotKey = snapshotKey;
+    }
+
     void selectedDateDriveSync.saveAndSyncSnapshot(flushed.snapshot);
+  };
+
+  const saveLatestVisibleEditorSnapshotForBackground = () => {
+    saveLatestVisibleEditorSnapshot({ dedupeBackground: true });
+  };
+
+  const resetBackgroundSaveDeduplication = () => {
+    lastBackgroundSaveSnapshotKey = null;
   };
 
   const syncSelectedDateOnDemandWithLatestEditor = () => {
@@ -940,19 +957,29 @@ export default function Home() {
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         clearCameraStream();
-        saveLatestVisibleEditorSnapshot();
+        saveLatestVisibleEditorSnapshotForBackground();
         return;
       }
 
+      resetBackgroundSaveDeduplication();
       syncSelectedDateOnDemandWithLatestEditor();
     };
+    const onPageHide = () => {
+      clearCameraStream();
+      saveLatestVisibleEditorSnapshotForBackground();
+    };
     document.addEventListener("visibilitychange", onVisibilityChange);
-    onCleanup(() => document.removeEventListener("visibilitychange", onVisibilityChange));
+    window.addEventListener("pagehide", onPageHide);
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+    });
   });
 
   createEffect(() => {
     const onFocus = () => {
       if (document.visibilityState === "hidden") return;
+      resetBackgroundSaveDeduplication();
       syncSelectedDateOnDemandWithLatestEditor();
     };
     window.addEventListener("focus", onFocus);

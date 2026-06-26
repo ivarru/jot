@@ -242,6 +242,39 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("syncs a propagated edit on pagehide before the autosave debounce fires", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "before app switch",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await waitFor(() => {
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe(
+        "before app switch"
+      );
+    });
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor).not.toBeNull();
+    editor!.value = "saved while switching apps";
+    editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    window.dispatchEvent(new PageTransitionEvent("pagehide"));
+
+    await waitFor(() => {
+      expect(testState.remoteNote?.markdown).toBe("saved while switching apps");
+    });
+    expect(testState.drafts.get("2030-02-02")?.markdown).toBe("saved while switching apps");
+
+    dispose();
+  });
+
   it("does not submit a stale link modal after date navigation", async () => {
     testState.drafts.set("2030-02-02", draft("2030-02-02", "Read <https://example.com/docs/sync-model> today"));
     testState.drafts.set("2030-02-03", draft("2030-02-03", "Next day note"));
