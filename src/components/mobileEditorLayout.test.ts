@@ -38,8 +38,15 @@ describe("mobile editor layout styles", () => {
   it("uses a larger quote glyph without changing the shared icon button size", () => {
     expect(blockFor(".format-letter")).toContain("font-size: 14px;");
     expect(blockFor(".format-letter-quote")).toContain("font-size: 18px;");
+    expect(blockFor(".format-letter-code")).toContain("font-size: 24px;");
+    expect(blockFor(".format-letter-code")).toContain("transform: translateY(5.5px);");
     expect(mobileStyles()).toContain("width: 28px;");
     expect(mobileStyles()).toContain("height: 28px;");
+  });
+
+  it("hides menu trigger tooltips while their popover is open", () => {
+    expect(blockFor('[data-tooltip][aria-expanded="true"]::after')).toContain("visibility: hidden;");
+    expect(blockFor('[data-tooltip][aria-expanded="true"]::after')).toContain("opacity: 0;");
   });
 
   function mobileStyles(): string {

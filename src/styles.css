@@ -478,6 +478,62 @@ select {
   position: relative;
 }
 
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  position: absolute;
+  z-index: 70;
+  top: calc(100% + 6px);
+  left: 50%;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 24px));
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text), transparent 8%);
+  color: var(--bg);
+  content: attr(data-tooltip);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
+  text-align: center;
+  transform: translate(-50%, 2px);
+  transition: opacity 80ms ease, transform 80ms ease;
+  transition-delay: 0ms;
+  white-space: normal;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition-delay: 120ms;
+}
+
+[data-tooltip][aria-expanded="true"]::after {
+  visibility: hidden;
+  opacity: 0;
+  transition-delay: 0ms;
+}
+
+.toolbar-status-column [data-tooltip]::after,
+.about-modal-header [data-tooltip]::after {
+  right: 0;
+  left: auto;
+  text-align: right;
+  transform: translate(0, 2px);
+}
+
+.toolbar-status-column [data-tooltip]:hover::after,
+.toolbar-status-column [data-tooltip]:focus-visible::after,
+.about-modal-header [data-tooltip]:hover::after,
+.about-modal-header [data-tooltip]:focus-visible::after {
+  transform: translate(0, 0);
+}
+
 .icon-button {
   display: inline-grid;
   width: 30px;
@@ -540,6 +596,13 @@ select {
 
 .format-letter-quote {
   font-size: 18px;
+}
+
+.format-letter-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 24px;
+  line-height: 0.9;
+  transform: translateY(5.5px);
 }
 
 .task-checkbox-format-icon {

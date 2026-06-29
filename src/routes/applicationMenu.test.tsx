@@ -57,6 +57,24 @@ describe("application menu", () => {
     dispose();
   });
 
+  it("closes the insert image menu when clicking outside it", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    openInsertImageMenu(host);
+    expect(host.querySelector(".image-insert-menu-popover")).not.toBeNull();
+
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    await settle();
+
+    expect(host.querySelector(".image-insert-menu-popover")).toBeNull();
+
+    dispose();
+  });
+
   it("opens the About dialog with project metadata", async () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -119,6 +137,10 @@ describe("application menu", () => {
 
 function openMenu(host: ParentNode): void {
   host.querySelector<HTMLButtonElement>("button[aria-label='Open menu']")!.click();
+}
+
+function openInsertImageMenu(host: ParentNode): void {
+  host.querySelector<HTMLButtonElement>("button[aria-label='Insert image']")!.click();
 }
 
 function clickButton(host: ParentNode, label: string): void {

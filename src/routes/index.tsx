@@ -304,6 +304,7 @@ export default function Home() {
   const [suppressLocalPersist, setSuppressLocalPersist] = createSignal(false);
   const [editorChangeEpoch, setEditorChangeEpoch] = createSignal(0);
   let datePickerRoot: HTMLDivElement | undefined;
+  let insertImageMenuElement: HTMLDivElement | undefined;
   let milkdownController: MilkdownEditorController | null = null;
   let plainTextEditorElement: HTMLTextAreaElement | null = null;
   let pendingEditorModeSelection: MarkdownSelection | null | undefined;
@@ -732,6 +733,19 @@ export default function Home() {
 
     document.addEventListener("pointerdown", closeTopMenuFromOutsidePointer);
     onCleanup(() => document.removeEventListener("pointerdown", closeTopMenuFromOutsidePointer));
+  });
+
+  createEffect(() => {
+    if (!insertImageMenuOpen()) return;
+
+    const closeInsertImageMenuFromOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && insertImageMenuElement?.contains(target)) return;
+      setInsertImageMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeInsertImageMenuFromOutsidePointer);
+    onCleanup(() => document.removeEventListener("pointerdown", closeInsertImageMenuFromOutsidePointer));
   });
 
   createEffect(
@@ -2568,7 +2582,12 @@ export default function Home() {
           <header class="app-toolbar">
             <div class="toolbar-column toolbar-date-column">
               <div class="date-selector-row">
-                <button type="button" aria-label="Previous day" onClick={() => void navigateToDate(addDays(selectedDate()!, -1))}>
+                <button
+                  type="button"
+                  aria-label="Previous day"
+                  data-tooltip="Previous day"
+                  onClick={() => void navigateToDate(addDays(selectedDate()!, -1))}
+                >
                   ‹
                 </button>
                 <div
@@ -2617,6 +2636,7 @@ export default function Home() {
                         <button
                           type="button"
                           aria-label="Previous month"
+                          data-tooltip="Previous month"
                           onClick={() => setDatePickerMonth((month) => addMonths(month, -1))}
                         >
                           ‹
@@ -2625,6 +2645,7 @@ export default function Home() {
                         <button
                           type="button"
                           aria-label="Next month"
+                          data-tooltip="Next month"
                           onClick={() => setDatePickerMonth((month) => addMonths(month, 1))}
                         >
                           ›
@@ -2664,7 +2685,12 @@ export default function Home() {
                     </div>
                   </Show>
                 </div>
-                <button type="button" aria-label="Next day" onClick={() => void navigateToDate(addDays(selectedDate()!, 1))}>
+                <button
+                  type="button"
+                  aria-label="Next day"
+                  data-tooltip="Next day"
+                  onClick={() => void navigateToDate(addDays(selectedDate()!, 1))}
+                >
                   ›
                 </button>
               </div>
@@ -2676,7 +2702,7 @@ export default function Home() {
                   disabled={selectedIsToday()}
                   onClick={() => void navigateToDate(today())}
                   aria-label={selectedIsToday() ? "Selected date is today" : `Jump to today, ${today()}`}
-                  title={selectedIsToday() ? "Today" : `Jump to today (${today()})`}
+                  data-tooltip={selectedIsToday() ? "Today" : `Jump to today (${today()})`}
                 >
                   <TodayIcon />
                 </button>
@@ -2686,7 +2712,7 @@ export default function Home() {
                   aria-label="Toggle raw Markdown"
                   aria-keyshortcuts={EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS}
                   aria-pressed={editorMode() === "text"}
-                  title={`Toggle raw Markdown (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
+                  data-tooltip={`Toggle raw Markdown (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
                   disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                   onPointerDown={captureEditorModeSelection}
                   onClick={() => updateEditorMode(nextEditorMode(editorMode()))}
@@ -2713,7 +2739,7 @@ export default function Home() {
                 class="icon-button"
                 aria-label="Undo"
                 aria-keyshortcuts="Control+Z Meta+Z"
-                title="Undo (Ctrl/Cmd+Z)"
+                data-tooltip="Undo (Ctrl/Cmd+Z)"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent() || !editorHistoryAvailability().canUndo}
                 onClick={() => applyEditorHistoryShortcut("undo")}
               >
@@ -2724,7 +2750,7 @@ export default function Home() {
                 class="icon-button"
                 aria-label="Redo"
                 aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y"
-                title="Redo (Ctrl/Cmd+Shift+Z)"
+                data-tooltip="Redo (Ctrl/Cmd+Shift+Z)"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent() || !editorHistoryAvailability().canRedo}
                 onClick={() => applyEditorHistoryShortcut("redo")}
               >
@@ -2735,7 +2761,7 @@ export default function Home() {
                 class="icon-button"
                 aria-label="Dedent"
                 aria-keyshortcuts="Shift+Tab"
-                title="Dedent (Shift+Tab)"
+                data-tooltip="Dedent (Shift+Tab)"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                 onPointerDown={(event) => applyStructuralToolbarPointerShortcut(event, true)}
                 onMouseDown={preserveStructuralToolbarMouseSelection}
@@ -2749,7 +2775,7 @@ export default function Home() {
                 classList={{ "is-active": listItemFormatState().task }}
                 aria-label="Toggle task checkbox"
                 aria-pressed={listItemFormatState().task}
-                title="Toggle task checkbox"
+                data-tooltip="Toggle task checkbox"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                 onPointerDown={preserveFormattingToolbarSelection}
                 onClick={toggleTaskListItemAtSelection}
@@ -2761,7 +2787,7 @@ export default function Home() {
                 class="icon-button"
                 aria-label="Indent"
                 aria-keyshortcuts="Tab"
-                title="Indent (Tab)"
+                data-tooltip="Indent (Tab)"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                 onPointerDown={(event) => applyStructuralToolbarPointerShortcut(event, false)}
                 onMouseDown={preserveStructuralToolbarMouseSelection}
@@ -2775,7 +2801,7 @@ export default function Home() {
                 classList={{ "is-active": inlineFormatState().italic }}
                 aria-label="Toggle italic format"
                 aria-pressed={inlineFormatState().italic}
-                title="Toggle italic format"
+                data-tooltip="Toggle italic format"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                 onPointerDown={preserveFormattingToolbarSelection}
                 onClick={() => toggleInlineMarkAtSelection("italic")}
@@ -2788,7 +2814,7 @@ export default function Home() {
                 classList={{ "is-active": inlineFormatState().bold }}
                 aria-label="Toggle bold format"
                 aria-pressed={inlineFormatState().bold}
-                title="Toggle bold format"
+                data-tooltip="Toggle bold format"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                 onPointerDown={preserveFormattingToolbarSelection}
                 onClick={() => toggleInlineMarkAtSelection("bold")}
@@ -2801,7 +2827,7 @@ export default function Home() {
                 classList={{ "is-active": blockFormatState().quote }}
                 aria-label="Toggle block quote format"
                 aria-pressed={blockFormatState().quote}
-                title="Toggle block quote format"
+                data-tooltip="Toggle block quote format"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                 onPointerDown={preserveFormattingToolbarSelection}
                 onClick={toggleBlockQuoteAtSelection}
@@ -2812,9 +2838,9 @@ export default function Home() {
                 type="button"
                 class="icon-button format-toggle-button"
                 classList={{ "is-active": inlineFormatState().code }}
-                aria-label="Toggle code format"
+                aria-label="Toggle inline code format"
                 aria-pressed={inlineFormatState().code}
-                title="Toggle code format"
+                data-tooltip="Toggle inline code format"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                 onPointerDown={preserveFormattingToolbarSelection}
                 onClick={toggleCodeFormatAtSelection}
@@ -2826,7 +2852,7 @@ export default function Home() {
                 class="icon-button"
                 aria-label="Insert or edit link"
                 aria-keyshortcuts={LINK_EDIT_ARIA_SHORTCUTS}
-                title={`Insert or edit link (${LINK_EDIT_SHORTCUT_LABEL})`}
+                data-tooltip={`Insert or edit link (${LINK_EDIT_SHORTCUT_LABEL})`}
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                 onPointerDown={preserveFormattingToolbarSelection}
                 onClick={() => void openLinkModal()}
@@ -2838,7 +2864,7 @@ export default function Home() {
                 class="icon-button"
                 aria-label="Insert Daily Note section link"
                 aria-keyshortcuts="Control+Enter Meta+Enter"
-                title="Insert Daily Note section link"
+                data-tooltip="Insert Daily Note section link"
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent() || sectionLinkInsertionBlocked()}
                 onPointerDown={captureSectionLinkSourceSelection}
                 onClick={openSectionLinkPicker}
@@ -2858,11 +2884,17 @@ export default function Home() {
                   }}
                 />
                 <div class="image-attachment-controls">
-                  <div class="image-insert-menu">
+                  <div
+                    ref={(element) => {
+                      insertImageMenuElement = element;
+                    }}
+                    class="image-insert-menu"
+                  >
                     <button
                       type="button"
                       class="icon-button icon-menu-button"
                       aria-label="Insert image"
+                      data-tooltip="Insert image"
                       aria-haspopup="menu"
                       aria-expanded={insertImageMenuOpen()}
                       disabled={!selectedDateCanWrite() || imageAttachmentFlowActive()}
@@ -2913,7 +2945,7 @@ export default function Home() {
                 type="button"
                 class={`sync-status ${syncStatusClass(syncStatus())}`}
                 aria-label={`Sync status: ${syncStatusLabel(syncStatus())}. Force synchronization`}
-                title={`Sync status: ${syncStatusLabel(syncStatus())}. Force synchronization`}
+                data-tooltip={`Sync status: ${syncStatusLabel(syncStatus())}. Force synchronization`}
                 disabled={!selectedDateDriveSync.canSyncSelectedDateOnDemand()}
                 onClick={() => void selectedDateDriveSync.syncSelectedDateOnDemand()}
               />
@@ -2923,7 +2955,7 @@ export default function Home() {
                   role="status"
                   aria-live="polite"
                   aria-label="Sync delayed"
-                  title="Sync delayed"
+                  data-tooltip="Sync delayed"
                 >
                   <SyncDelayedIcon />
                 </span>
@@ -2938,6 +2970,7 @@ export default function Home() {
                   type="button"
                   class="icon-button"
                   aria-label="Open menu"
+                  data-tooltip="Open menu"
                   aria-haspopup="menu"
                   aria-expanded={topMenuOpen()}
                   onClick={() => setTopMenuOpen((open) => !open)}
@@ -3125,7 +3158,7 @@ export default function Home() {
                           type="button"
                           class="icon-button link-modal-paste-button"
                           aria-label="Use clipboard text"
-                          title="Use clipboard text"
+                          data-tooltip="Use clipboard text"
                           disabled={linkModalClipboardTextDisabled()}
                           onClick={() => void useLinkModalClipboardText()}
                         >
@@ -3151,7 +3184,7 @@ export default function Home() {
                           type="button"
                           class="icon-button link-modal-paste-button"
                           aria-label="Use clipboard URL"
-                          title="Use clipboard URL"
+                          data-tooltip="Use clipboard URL"
                           disabled={linkModalClipboardUrlDisabled()}
                           onClick={() => void useLinkModalClipboardUrl()}
                         >
@@ -3196,6 +3229,7 @@ export default function Home() {
                       <button
                         type="button"
                         aria-label="Previous target month"
+                        data-tooltip="Previous target month"
                         onClick={() => setSectionLinkDatePickerMonth((month) => addMonths(month, -1))}
                       >
                         ‹
@@ -3204,6 +3238,7 @@ export default function Home() {
                       <button
                         type="button"
                         aria-label="Next target month"
+                        data-tooltip="Next target month"
                         onClick={() => setSectionLinkDatePickerMonth((month) => addMonths(month, 1))}
                       >
                         ›
@@ -3341,6 +3376,7 @@ export default function Home() {
                     type="button"
                     class="icon-button"
                     aria-label="Close about dialog"
+                    data-tooltip="Close about dialog"
                     onClick={() => setAboutOpen(false)}
                   >
                     <CloseIcon />
@@ -4057,23 +4093,7 @@ function TaskCheckboxFormatIcon() {
 }
 
 function CodeFormatIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    >
-      <path d="m8 18-6-6 6-6" />
-      <path d="m16 6 6 6-6 6" />
-      <path d="m14 4-4 16" />
-    </svg>
-  );
+  return <span class="format-letter format-letter-code" aria-hidden="true">`</span>;
 }
 
 function UndoIcon() {

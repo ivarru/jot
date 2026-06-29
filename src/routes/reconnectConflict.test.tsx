@@ -133,7 +133,7 @@ describe("Home reconnect and conflict handling", () => {
 
     const linkButton = host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']");
     expect(linkButton).not.toBeNull();
-    expect(linkButton!.title).toBe("Insert or edit link (Ctrl/Cmd+K)");
+    expect(linkButton!.getAttribute("data-tooltip")).toBe("Insert or edit link (Ctrl/Cmd+K)");
     linkButton!.click();
     await settle();
 
@@ -930,9 +930,9 @@ describe("Home reconnect and conflict handling", () => {
     editor!.setSelectionRange("Use ".length, "Use foo".length);
     editor!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
-    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']");
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle inline code format']");
     expect(toggle).not.toBeNull();
-    expect(toggle!.title).toBe("Toggle code format");
+    expect(toggle!.getAttribute("data-tooltip")).toBe("Toggle inline code format");
     toggle!.click();
     await settle();
 
@@ -958,7 +958,7 @@ describe("Home reconnect and conflict handling", () => {
     expect(editor).not.toBeNull();
     editor!.setSelectionRange("Use ".length, "Use foo".length);
 
-    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']")!.click();
+    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle inline code format']")!.click();
     await settle();
 
     expect(editor!.value).toBe("Use `foo` today");
@@ -993,7 +993,7 @@ describe("Home reconnect and conflict handling", () => {
     expect(editor).not.toBeNull();
     editor!.setSelectionRange("Use ".length, "Use ".length);
 
-    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']");
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle inline code format']");
     expect(toggle).not.toBeNull();
     toggle!.click();
     await settle();
@@ -1061,7 +1061,7 @@ describe("Home reconnect and conflict handling", () => {
 
     const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle block quote format']");
     expect(toggle).not.toBeNull();
-    expect(toggle!.title).toBe("Toggle block quote format");
+    expect(toggle!.getAttribute("data-tooltip")).toBe("Toggle block quote format");
     expect(toggle!.textContent).toBe('"');
     toggle!.click();
     await settle();
@@ -1180,7 +1180,7 @@ describe("Home reconnect and conflict handling", () => {
       "Toggle bold format",
       "Toggle block quote format",
       "Toggle task checkbox",
-      "Toggle code format",
+      "Toggle inline code format",
       "Insert or edit link"
     ]) {
       const button = host.querySelector<HTMLButtonElement>(`button[aria-label='${label}']`);
@@ -1213,7 +1213,7 @@ describe("Home reconnect and conflict handling", () => {
     const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
     expect(editor).not.toBeNull();
 
-    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']")!.click();
+    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle inline code format']")!.click();
     await settle();
 
     expect(testState.inlineCodeToggleCount).toBe(0);
@@ -1242,7 +1242,7 @@ describe("Home reconnect and conflict handling", () => {
     expect(editor).not.toBeNull();
     editor!.setSelectionRange(0, "first\nsecond".length);
 
-    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']");
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle inline code format']");
     expect(toggle).not.toBeNull();
     toggle!.click();
     await settle();
@@ -1350,7 +1350,7 @@ describe("Home reconnect and conflict handling", () => {
     await settle();
 
     editor!.setSelectionRange("abc ".length, "abc ".length);
-    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']")!.click();
+    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle inline code format']")!.click();
     await settle();
 
     expect(editor!.value).toBe("abc ``");
@@ -1379,7 +1379,7 @@ describe("Home reconnect and conflict handling", () => {
     const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
     const italic = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle italic format']");
     const bold = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle bold format']");
-    const code = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']");
+    const code = host.querySelector<HTMLButtonElement>("button[aria-label='Toggle inline code format']");
     expect(editor).not.toBeNull();
     expect(italic).not.toBeNull();
     expect(bold).not.toBeNull();
@@ -1472,7 +1472,7 @@ describe("Home reconnect and conflict handling", () => {
     await settle();
 
     editor!.setSelectionRange("abc ".length, "abc ".length);
-    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle code format']")!.click();
+    host.querySelector<HTMLButtonElement>("button[aria-label='Toggle inline code format']")!.click();
     await settle();
     expect(editor!.value).toBe("abc ``");
 
@@ -1516,7 +1516,7 @@ describe("Home reconnect and conflict handling", () => {
 
     const indent = host.querySelector<HTMLButtonElement>("button[aria-label='Indent']");
     expect(indent).not.toBeNull();
-    expect(indent!.title).toBe("Indent (Tab)");
+    expect(indent!.getAttribute("data-tooltip")).toBe("Indent (Tab)");
     indent!.click();
     await settle();
 
@@ -1525,7 +1525,7 @@ describe("Home reconnect and conflict handling", () => {
     editor!.setSelectionRange("* before".length, "* before".length);
     const dedent = host.querySelector<HTMLButtonElement>("button[aria-label='Dedent']");
     expect(dedent).not.toBeNull();
-    expect(dedent!.title).toBe("Dedent (Shift+Tab)");
+    expect(dedent!.getAttribute("data-tooltip")).toBe("Dedent (Shift+Tab)");
     dedent!.click();
     await settle();
 
@@ -1606,7 +1606,7 @@ describe("Home reconnect and conflict handling", () => {
       "Toggle italic format",
       "Toggle bold format",
       "Toggle block quote format",
-      "Toggle code format",
+      "Toggle inline code format",
       "Insert or edit link",
       "Insert Daily Note section link",
       "Insert image"
@@ -1619,8 +1619,8 @@ describe("Home reconnect and conflict handling", () => {
       "Toggle raw Markdown"
     ]);
     expect(host.querySelector<HTMLButtonElement>(`button[aria-label='Jump to today, ${todayIsoDate()}']`)!.disabled).toBe(false);
-    expect(rawModeButton(host).title).toBe("Toggle raw Markdown (Ctrl/Cmd+Shift+M)");
-    expect(host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.title).toBe(
+    expect(rawModeButton(host).getAttribute("data-tooltip")).toBe("Toggle raw Markdown (Ctrl/Cmd+Shift+M)");
+    expect(host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.getAttribute("data-tooltip")).toBe(
       "Insert or edit link (Ctrl/Cmd+K)"
     );
     expect(host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.getAttribute("aria-keyshortcuts")).toBe(
@@ -2205,7 +2205,7 @@ describe("Home reconnect and conflict handling", () => {
 
     const undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
     expect(undo).not.toBeNull();
-    expect(undo!.title).toBe("Undo (Ctrl/Cmd+Z)");
+    expect(undo!.getAttribute("data-tooltip")).toBe("Undo (Ctrl/Cmd+Z)");
     undo!.click();
     await settle();
 
@@ -2213,7 +2213,7 @@ describe("Home reconnect and conflict handling", () => {
 
     const redo = host.querySelector<HTMLButtonElement>("button[aria-label='Redo']");
     expect(redo).not.toBeNull();
-    expect(redo!.title).toBe("Redo (Ctrl/Cmd+Shift+Z)");
+    expect(redo!.getAttribute("data-tooltip")).toBe("Redo (Ctrl/Cmd+Shift+Z)");
     redo!.click();
     await settle();
 

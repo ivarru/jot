@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import type { IsoDate } from "~/domain/dates";
+import { todayIsoDate, type IsoDate } from "~/domain/dates";
 import type { LocalDraft, SaveDailyNoteInput } from "~/storage/types";
 import Home from "./index";
 
@@ -222,6 +222,50 @@ describe("Home WYSIWYG toolbar", () => {
       await waitFor(() => {
         expect(host.querySelector<HTMLTextAreaElement>(".plain-text-editor")?.value).toBe("* [ ] plain");
       });
+    } finally {
+      dispose();
+    }
+  });
+
+  it("uses fast custom tooltips for toolbar icon controls", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitForEditable(host, "quote me");
+
+      const expectedTooltips = [
+        "Previous day",
+        `Jump to today (${todayIsoDate()})`,
+        "Toggle raw Markdown (Ctrl/Cmd+Shift+M)",
+        "Next day",
+        "Undo (Ctrl/Cmd+Z)",
+        "Redo (Ctrl/Cmd+Shift+Z)",
+        "Dedent (Shift+Tab)",
+        "Toggle task checkbox",
+        "Indent (Tab)",
+        "Toggle italic format",
+        "Toggle bold format",
+        "Toggle block quote format",
+        "Toggle inline code format",
+        "Insert or edit link (Ctrl/Cmd+K)",
+        "Insert Daily Note section link",
+        "Insert image",
+        "Sync status: Synced. Force synchronization",
+        "Open menu"
+      ];
+
+      for (const tooltip of expectedTooltips) {
+        const control = host.querySelector<HTMLElement>(`.app-toolbar [data-tooltip='${tooltip}']`);
+        expect(control, tooltip).not.toBeNull();
+        expect(control!.getAttribute("title"), tooltip).toBeNull();
+      }
+
+      const codeButton = button(host, "Toggle inline code format");
+      expect(codeButton.querySelector(".format-letter-code")?.textContent).toBe("`");
+      expect(codeButton.querySelector("svg")).toBeNull();
     } finally {
       dispose();
     }
