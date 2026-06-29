@@ -391,7 +391,7 @@ describe("daily note sync model", () => {
 
     await expect(saveAndSyncDailyNoteSnapshot(DATE, "", client, remote)).resolves.toEqual({
       markdown: "",
-      status: "local-only"
+      status: "synced"
     });
 
     expect(remote.peek(DATE)).toBeNull();

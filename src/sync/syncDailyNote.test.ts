@@ -125,6 +125,22 @@ class SharedRemoteStorageProvider implements RemoteStorageProvider {
 }
 
 describe("daily note sync", () => {
+  it("marks an empty missing remote note synced after checking Drive", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+
+    await expect(loadDailyNoteSession("2030-02-02", drafts, remote)).resolves.toEqual({
+      markdown: "",
+      status: "synced"
+    });
+    await expect(drafts.load("2030-02-02")).resolves.toMatchObject({
+      markdown: "",
+      baselineMarkdown: "",
+      baselineRevisionId: null,
+      dirty: false
+    });
+  });
+
   it("loads an existing local draft without requiring remote access", async () => {
     const drafts = new MemoryDraftStore();
     const remote = new RecordingRemoteStorageProvider();
@@ -137,18 +153,18 @@ describe("daily note sync", () => {
     });
   });
 
-  it("refreshes a clean local-only draft when another client has created the remote note", async () => {
+  it("refreshes an empty clean draft when another client has created the remote note", async () => {
     const remote = new SharedRemoteStorageProvider();
     const clientA = new MemoryDraftStore();
     const clientB = new MemoryDraftStore();
 
     await expect(loadDailyNoteSession("2030-02-02", clientA, remote)).resolves.toEqual({
       markdown: "",
-      status: "local-only"
+      status: "synced"
     });
     await expect(loadDailyNoteSession("2030-02-02", clientB, remote)).resolves.toEqual({
       markdown: "",
-      status: "local-only"
+      status: "synced"
     });
 
     await saveAndSyncDailyNoteSnapshot("2030-02-02", "A writes first", clientA, remote);
@@ -372,7 +388,7 @@ describe("daily note sync", () => {
 
     await expect(saveAndSyncDailyNoteSnapshot("2030-02-02", "", drafts, remote)).resolves.toEqual({
       markdown: "",
-      status: "local-only"
+      status: "synced"
     });
 
     expect(remote.savedInputs).toEqual([]);

@@ -1677,6 +1677,27 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("shows synced after checking Drive for a date with no existing note", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await waitFor(() => {
+      const sync = host.querySelector<HTMLButtonElement>(".sync-status");
+      expect(sync).not.toBeNull();
+      expect(sync!.getAttribute("aria-label")).toContain("Synced");
+      expect(sync!.classList.contains("sync-status-remote")).toBe(true);
+    });
+
+    expect(testState.remoteNote).toBeNull();
+    expect(testState.drafts.get("2030-02-02")).toMatchObject({
+      markdown: "",
+      dirty: false
+    });
+
+    dispose();
+  });
+
   it("does not apply a stale local image preparation error after date navigation", async () => {
     testState.drafts.set("2030-02-02", draft("2030-02-02", "A original"));
     testState.drafts.set("2030-02-03", draft("2030-02-03", "B original"));

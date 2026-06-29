@@ -72,14 +72,14 @@ export async function loadDailyNoteSession(
   if (localDraft !== null) {
     return {
       markdown: localDraft.markdown,
-      status: localDraft.baselineRevisionId === null ? "local-only" : "synced"
+      status: cleanDraftStatus(localDraft.markdown, localDraft.baselineRevisionId)
     };
   }
 
   await drafts.save(createDraft(date, "", "", null, false));
   return {
     markdown: "",
-    status: "local-only"
+    status: "synced"
   };
 }
 
@@ -116,7 +116,7 @@ export async function loadCleanDailyNoteRefresh(
       markdown: localDraft.markdown,
       baselineMarkdown: localDraft.baselineMarkdown,
       baselineRevisionId: localDraft.baselineRevisionId,
-      status: localDraft.baselineRevisionId === null ? "local-only" : "synced"
+      status: cleanDraftStatus(localDraft.markdown, localDraft.baselineRevisionId)
     };
   }
 
@@ -124,7 +124,7 @@ export async function loadCleanDailyNoteRefresh(
     markdown: "",
     baselineMarkdown: "",
     baselineRevisionId: null,
-    status: "local-only"
+    status: "synced"
   };
 }
 
@@ -167,7 +167,7 @@ export async function persistLocalDraft(
   await drafts.save(createDraft(date, markdown, baselineMarkdown, baselineRevisionId, dirty));
 
   if (dirty) return "saved-locally";
-  return baselineRevisionId === null ? "local-only" : "synced";
+  return cleanDraftStatus(markdown, baselineRevisionId);
 }
 
 export async function syncDailyNote(
@@ -181,14 +181,14 @@ export async function syncDailyNote(
   if (draft === null) {
     return {
       markdown: "",
-      status: "local-only"
+      status: "synced"
     };
   }
 
   if (!draft.dirty) {
     return {
       markdown: draft.markdown,
-      status: draft.baselineRevisionId === null ? "local-only" : "synced"
+      status: cleanDraftStatus(draft.markdown, draft.baselineRevisionId)
     };
   }
 
@@ -345,10 +345,15 @@ function currentDraftStartedFromSameBaseline(startedWith: LocalDraft, current: L
   );
 }
 
+function cleanDraftStatus(markdown: string, baselineRevisionId: string | null): "local-only" | "synced" {
+  if (baselineRevisionId !== null) return "synced";
+  return markdown.length === 0 ? "synced" : "local-only";
+}
+
 function draftToSession(draft: LocalDraft): DailyNoteSession {
   return {
     markdown: draft.markdown,
-    status: draft.dirty ? "saved-locally" : "synced"
+    status: draft.dirty ? "saved-locally" : cleanDraftStatus(draft.markdown, draft.baselineRevisionId)
   };
 }
 
