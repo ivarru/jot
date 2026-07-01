@@ -28,6 +28,7 @@ describe("date helpers", () => {
 
   it("reports the weekday", () => {
     expect(dayOfWeek("2026-05-27", "en-US")).toBe("Wed");
+    expect(dayOfWeek("2026-05-27", "en-US", "long")).toBe("Wednesday");
   });
 
   it("calculates the delay until the next local day", () => {

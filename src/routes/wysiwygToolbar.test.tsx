@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import { todayIsoDate, type IsoDate } from "~/domain/dates";
+import { dayOfWeek, todayIsoDate, type IsoDate } from "~/domain/dates";
 import type { LocalDraft, SaveDailyNoteInput } from "~/storage/types";
 import Home from "./index";
 
@@ -238,7 +238,7 @@ describe("Home WYSIWYG toolbar", () => {
 
       const expectedTooltips = [
         "Previous day",
-        `Jump to today (${todayIsoDate()})`,
+        `Jump to today (${dayOfWeek(todayIsoDate(), undefined, "long")})`,
         "Toggle raw Markdown (Ctrl/Cmd+Shift+M)",
         "Next day",
         "Undo (Ctrl/Cmd+Z)",

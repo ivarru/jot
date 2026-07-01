@@ -335,6 +335,7 @@ export default function Home() {
     const date = selectedDate();
     return date !== null && date === today();
   });
+  const todayWeekday = createMemo(() => dayOfWeek(today(), undefined, "long"));
   const datePickerCalendar = createMemo(() => calendarMonth(datePickerMonth()));
   const datePickerMonthLabel = createMemo(() => monthLabel(datePickerMonth()));
   const sectionLinkDatePickerCalendar = createMemo(() => calendarMonth(sectionLinkDatePickerMonth()));
@@ -2695,16 +2696,15 @@ export default function Home() {
                 </button>
               </div>
               <div class="date-context-row">
-                <span class="weekday-label">{weekday()}</span>
                 <button
                   type="button"
-                  class="icon-button today-jump-button"
+                  class="weekday-today-button"
                   disabled={selectedIsToday()}
                   onClick={() => void navigateToDate(today())}
                   aria-label={selectedIsToday() ? "Selected date is today" : `Jump to today, ${today()}`}
-                  data-tooltip={selectedIsToday() ? "Today" : `Jump to today (${today()})`}
+                  data-tooltip={selectedIsToday() ? `Today (${todayWeekday()})` : `Jump to today (${todayWeekday()})`}
                 >
-                  <TodayIcon />
+                  {weekday()}
                 </button>
                 <button
                   type="button"
@@ -4045,29 +4045,6 @@ function SectionLinkIcon() {
       <path d="M12 19v3" />
       <path d="M2 12h3" />
       <path d="M19 12h3" />
-    </svg>
-  );
-}
-
-function TodayIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    >
-      <rect x="4" y="5" width="16" height="15" rx="2" />
-      <path d="M8 3v4" />
-      <path d="M16 3v4" />
-      <path d="M4 10h16" />
-      <path d="M12 14h.01" />
-      <path d="M12 17h.01" />
     </svg>
   );
 }

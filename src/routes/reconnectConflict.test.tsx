@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import { todayIsoDate, type IsoDate } from "~/domain/dates";
+import { dayOfWeek, todayIsoDate, type IsoDate } from "~/domain/dates";
 import type { LocalDraft } from "~/storage/types";
 import {
   cleanupRouteTestDom,
@@ -1580,7 +1580,7 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
-  it("orders toolbar buttons and places raw mode after the today button", async () => {
+  it("orders toolbar buttons and places raw mode after the weekday today button", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
       markdown: "",
@@ -1618,7 +1618,11 @@ describe("Home reconnect and conflict handling", () => {
       `Jump to today, ${todayIsoDate()}`,
       "Toggle raw Markdown"
     ]);
-    expect(host.querySelector<HTMLButtonElement>(`button[aria-label='Jump to today, ${todayIsoDate()}']`)!.disabled).toBe(false);
+    const todayButton = host.querySelector<HTMLButtonElement>(`button[aria-label='Jump to today, ${todayIsoDate()}']`);
+    expect(todayButton).not.toBeNull();
+    expect(todayButton!.disabled).toBe(false);
+    expect(todayButton!.textContent).toBe(dayOfWeek("2030-02-02"));
+    expect(todayButton!.getAttribute("data-tooltip")).toBe(`Jump to today (${dayOfWeek(todayIsoDate(), undefined, "long")})`);
     expect(rawModeButton(host).getAttribute("data-tooltip")).toBe("Toggle raw Markdown (Ctrl/Cmd+Shift+M)");
     expect(host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.getAttribute("data-tooltip")).toBe(
       "Insert or edit link (Ctrl/Cmd+K)"
@@ -1651,6 +1655,8 @@ describe("Home reconnect and conflict handling", () => {
     const todayButton = host.querySelector<HTMLButtonElement>("button[aria-label='Selected date is today']");
     expect(todayButton).not.toBeNull();
     expect(todayButton!.disabled).toBe(true);
+    expect(todayButton!.textContent).toBe(dayOfWeek(today));
+    expect(todayButton!.getAttribute("data-tooltip")).toBe(`Today (${dayOfWeek(today, undefined, "long")})`);
 
     dispose();
   });

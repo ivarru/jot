@@ -210,11 +210,12 @@ select {
 }
 
 .iso-date-input {
-  width: 106px;
+  width: 98px;
   min-height: 32px;
   padding: 0 7px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .date-picker {
@@ -334,20 +335,31 @@ select {
   color: var(--danger);
 }
 
-.weekday-label {
-  color: var(--muted);
+.weekday-today-button {
+  min-width: 34px;
+  min-height: 30px;
+  height: 30px;
+  padding: 0 7px;
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--text);
   font-size: 12px;
   line-height: 1.2;
+}
+
+.weekday-today-button:hover,
+.weekday-today-button:focus-visible {
+  border-color: var(--accent);
+}
+
+.weekday-today-button:disabled {
+  cursor: default;
+  opacity: 0.38;
 }
 
 .app-toolbar button,
 .app-toolbar input {
   font-size: inherit;
-}
-
-.today-jump-button:disabled {
-  cursor: default;
-  opacity: 0.38;
 }
 
 .sync-status {
@@ -1419,7 +1431,7 @@ select {
   }
 
   .iso-date-input {
-    width: 98px;
+    width: 94px;
     min-height: 30px;
     padding: 0 5px;
   }
