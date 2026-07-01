@@ -278,5 +278,5 @@ function renderMath(dom: HTMLElement, value: string, displayMode: boolean, macro
 function sanitizeHtml(html: string): string {
   if (typeof window === "undefined") return html;
   purifier ??= createDOMPurify(window);
-  return purifier.sanitize(html, { USE_PROFILES: { html: true } });
+  return purifier.sanitize(html, { USE_PROFILES: { html: true, svg: true } });
 }

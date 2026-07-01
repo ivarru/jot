@@ -14,6 +14,8 @@ const formulaMarkdown = [
   "",
   "$$\\foo + 1$$",
   "",
+  "$$\\sqrt{2}$$",
+  "",
   "$$\\int_0^1 x^2 dx$$"
 ].join("\n");
 
@@ -31,7 +33,11 @@ test("fake storage renders LaTeX formulas and preserves Markdown", async ({ page
   await expect(macroUseFormula).toHaveAttribute("data-value", "\\foo + 1");
   await expect(macroUseFormula.locator(".katex-html")).toContainText("x+1");
 
-  const blockFormula = blockFormulas.nth(2);
+  const sqrtFormula = blockFormulas.nth(2);
+  await expect(sqrtFormula).toHaveAttribute("data-value", "\\sqrt{2}");
+  await expect(sqrtFormula.locator("svg path")).toBeVisible();
+
+  const blockFormula = blockFormulas.nth(3);
   await expect(blockFormula.locator(".katex-display")).toBeVisible();
   await expect(blockFormula).toHaveAttribute("data-value", "\\int_0^1 x^2 dx");
 

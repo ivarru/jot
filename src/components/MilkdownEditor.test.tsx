@@ -1647,6 +1647,19 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("preserves KaTeX SVG output for square root formulas", async () => {
+    const editor = await createMilkdownLatexTestEditor("$$\\sqrt{2}$$");
+
+    try {
+      const math = editor.root.querySelector<HTMLElement>(".milkdown-math-block");
+      expect(math).not.toBeNull();
+      expect(math!.querySelector(".katex svg path")).not.toBeNull();
+      expect(renderedKatexText(math!)).toContain("2");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
   it("renders standalone single-line double-dollar formulas as display math", async () => {
     const editor = await createMilkdownLatexTestEditor("Before\n\n$$x^2$$\n\nAfter");
 
