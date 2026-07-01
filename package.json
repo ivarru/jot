@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.19.12",
+  "version": "0.20.0",
   "description": "A static progressive web app for personal Daily Notes.",
   "private": true,
   "license": "MIT",
@@ -26,6 +26,7 @@
     "smoke:fake-daily-note-upload": "playwright test tests/smoke/fake-daily-note-upload.spec.ts",
     "smoke:fake-reconnect-conflict": "playwright test tests/smoke/fake-reconnect-conflict.spec.ts",
     "smoke:fake-image": "playwright test tests/smoke/fake-image.spec.ts",
+    "smoke:fake-latex": "playwright test tests/smoke/fake-latex.spec.ts",
     "smoke:fake-code-block-layout": "playwright test tests/smoke/code-block-layout.spec.ts",
     "smoke:toolbar-indent": "playwright test tests/smoke/toolbar-indent.spec.ts",
     "start": "vinxi start",
@@ -40,8 +41,11 @@
     "@solidjs/router": "^0.15.3",
     "@solidjs/start": "^1.1.0",
     "diff": "^8.0.4",
+    "dompurify": "^3.4.11",
+    "katex": "^0.17.0",
     "remark": "^15.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "solid-js": "^1.9.9",
     "ulid": "^3.0.1",
     "vinxi": "^0.5.8"

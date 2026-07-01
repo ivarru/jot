@@ -1,12 +1,12 @@
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
-import { defaultValueCtx, Editor, editorViewCtx, serializerCtx } from "@milkdown/kit/core";
+import { defaultValueCtx, Editor, editorViewCtx, rootCtx, serializerCtx } from "@milkdown/kit/core";
 import type { MarkType, Node as ProseMirrorNode } from "@milkdown/kit/prose/model";
 import { EditorState, Plugin, TextSelection } from "@milkdown/kit/prose/state";
 import { commonmark, inlineCodeSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { toggleMark } from "@milkdown/kit/prose/commands";
-import { $prose } from "@milkdown/kit/utils";
+import { $prose, replaceAll } from "@milkdown/kit/utils";
 import {
   applyMilkdownUpdatedMarkdown,
   createMilkdownMarkdownSyncState,
@@ -17,6 +17,7 @@ import {
   trackMilkdownExternalMarkdown,
   trackMilkdownSerializedMarkdown
 } from "./MilkdownEditor";
+import { createLatexPlugins } from "./milkdownLatex";
 
 describe("MilkdownEditor", () => {
   beforeAll(() => {
@@ -1594,6 +1595,138 @@ describe("MilkdownEditor", () => {
       pendingExternalMarkdown: null
     });
   });
+
+  it("renders and preserves inline LaTeX formulas", async () => {
+    const editor = await createMilkdownLatexTestEditor("Inline $$E = mc^2$$ formula");
+
+    try {
+      expect(editor.root.querySelector(".milkdown-math-inline .katex")).not.toBeNull();
+      expect(editor.root.querySelector<HTMLElement>(".milkdown-math-inline")?.dataset.value).toBe("E = mc^2");
+      expect(serializeTestEditor(editor)).toBe("Inline $$E = mc^2$$ formula\n");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("keeps ordinary dollar amounts as text", async () => {
+    const markdown = "I paid $5 and got $6 back";
+    const editor = await createMilkdownLatexTestEditor(markdown);
+
+    try {
+      expect(editor.root.querySelector(".milkdown-math-inline")).toBeNull();
+      expect(editor.root.textContent).toContain(markdown);
+      expect(serializeTestEditor(editor)).toBe(`${markdown}\n`);
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("keeps single-dollar formulas as text", async () => {
+    const markdown = "Inline $E = mc^2$ formula";
+    const editor = await createMilkdownLatexTestEditor(markdown);
+
+    try {
+      expect(editor.root.querySelector(".milkdown-math-inline")).toBeNull();
+      expect(editor.root.textContent).toContain(markdown);
+      expect(serializeTestEditor(editor)).toBe(`${markdown}\n`);
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("renders and preserves block LaTeX formulas", async () => {
+    const markdown = "Before\n\n$$\n\\int_0^1 x^2 dx\n$$\n\nAfter";
+    const editor = await createMilkdownLatexTestEditor(markdown);
+
+    try {
+      expect(editor.root.querySelector(".milkdown-math-block .katex-display")).not.toBeNull();
+      expect(editor.root.querySelector<HTMLElement>(".milkdown-math-block")?.dataset.value).toBe("\\int_0^1 x^2 dx");
+      expect(serializeTestEditor(editor)).toContain("$$\n\\int_0^1 x^2 dx\n$$");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("renders standalone single-line double-dollar formulas as display math", async () => {
+    const editor = await createMilkdownLatexTestEditor("Before\n\n$$x^2$$\n\nAfter");
+
+    try {
+      expect(editor.root.querySelector(".milkdown-math-block .katex-display")).not.toBeNull();
+      expect(editor.root.querySelector(".milkdown-math-inline")).toBeNull();
+      expect(editor.root.querySelector<HTMLElement>(".milkdown-math-block")?.dataset.value).toBe("x^2");
+      expect(serializeTestEditor(editor)).toContain("$$\nx^2\n$$");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("keeps double-dollar formulas embedded in prose inline", async () => {
+    const editor = await createMilkdownLatexTestEditor("Before $$x^2$$ after");
+
+    try {
+      expect(editor.root.querySelector(".milkdown-math-inline .katex")).not.toBeNull();
+      expect(editor.root.querySelector(".milkdown-math-block")).toBeNull();
+      expect(serializeTestEditor(editor)).toBe("Before $$x^2$$ after\n");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("keeps invalid LaTeX formulas from breaking Milkdown rendering", async () => {
+    const editor = await createMilkdownLatexTestEditor("Invalid $$\\not_a_command$$ formula");
+
+    try {
+      const math = editor.root.querySelector<HTMLElement>(".milkdown-math-inline");
+      expect(math).not.toBeNull();
+      expect(math!.dataset.value).toBe("\\not_a_command");
+      expect(serializeTestEditor(editor)).toBe("Invalid $$\\not_a_command$$ formula\n");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("applies KaTeX gdef macros to following formulas in the same editor", async () => {
+    const editor = await createMilkdownLatexTestEditor("$$\\gdef\\foo{x}$$\n\n$$\\foo + 1$$");
+
+    try {
+      const useSite = mathElementByValue(editor.root, "\\foo + 1");
+      expect(renderedKatexText(useSite)).toContain("x+1");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("does not share KaTeX gdef macros between editors", async () => {
+    const definitionEditor = await createMilkdownLatexTestEditor("$$\\gdef\\foo{x}$$");
+    const isolatedEditor = await createMilkdownLatexTestEditor("$$\\foo + 1$$");
+
+    try {
+      const useSite = mathElementByValue(isolatedEditor.root, "\\foo + 1");
+      const renderedText = renderedKatexText(useSite);
+      expect(renderedText).toContain("\\foo+1");
+      expect(renderedText).not.toContain("x+1");
+    } finally {
+      await isolatedEditor.destroy();
+      await definitionEditor.destroy();
+    }
+  });
+
+  it("rebuilds KaTeX gdef macros when earlier formulas are removed", async () => {
+    const editor = await createMilkdownLatexTestEditor("$$\\gdef\\foo{x}$$\n\n$$\\foo + 1$$");
+
+    try {
+      expect(renderedKatexText(mathElementByValue(editor.root, "\\foo + 1"))).toContain("x+1");
+
+      applyMarkdownToTestEditor(editor, "$$\\foo + 1$$");
+      await animationFrame();
+
+      const renderedText = renderedKatexText(mathElementByValue(editor.root, "\\foo + 1"));
+      expect(renderedText).toContain("\\foo+1");
+      expect(renderedText).not.toContain("x+1");
+    } finally {
+      await editor.destroy();
+    }
+  });
 });
 
 async function waitForEditable(host: HTMLElement): Promise<HTMLElement> {
@@ -1649,6 +1782,55 @@ async function createMilkdownTestEditor(markdown: string) {
     .use(gfm)
     .use($prose((ctx) => createLinkBoundaryTypingPlugin(Plugin, linkSchema.type(ctx))))
     .create();
+}
+
+async function createMilkdownLatexTestEditor(markdown: string) {
+  const root = document.createElement("div");
+  document.body.append(root);
+  const editor = await Editor.make()
+    .config((ctx) => {
+      ctx.set(rootCtx, root);
+      ctx.set(defaultValueCtx, markdown);
+    })
+    .use(commonmark)
+    .use(gfm)
+    .use(createLatexPlugins())
+    .create();
+
+  return {
+    root,
+    destroy: async () => {
+      await editor.destroy();
+      root.remove();
+    },
+    editor
+  };
+}
+
+function serializeTestEditor(testEditor: Awaited<ReturnType<typeof createMilkdownLatexTestEditor>>): string {
+  const serializer = testEditor.editor.ctx.get(serializerCtx);
+  const view = testEditor.editor.ctx.get(editorViewCtx);
+  return serializer(view.state.doc);
+}
+
+function applyMarkdownToTestEditor(
+  testEditor: Awaited<ReturnType<typeof createMilkdownLatexTestEditor>>,
+  markdown: string
+): void {
+  testEditor.editor.action(replaceAll(markdown, false));
+}
+
+function mathElementByValue(root: HTMLElement, value: string): HTMLElement {
+  const element = [...root.querySelectorAll<HTMLElement>(".milkdown-math-inline, .milkdown-math-block")]
+    .find((math) => math.dataset.value === value);
+  expect(element).not.toBeUndefined();
+  return element!;
+}
+
+function renderedKatexText(element: HTMLElement): string {
+  return (element.querySelector(".katex-html")?.textContent ?? "")
+    .replace(/\u200b/g, "")
+    .replace(/\s+/g, "");
 }
 
 function findTextEndPosition(doc: ProseMirrorNode, textToFind: string): number {

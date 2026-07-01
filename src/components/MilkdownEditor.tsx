@@ -250,7 +250,8 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { isInTable, selectedRect },
           { liftListItem, sinkListItem },
           { toggleMark, wrapIn },
-          { $prose, $useKeymap, $view, replaceAll }
+          { $prose, $useKeymap, $view, replaceAll },
+          { createLatexPlugins }
         ] =
           await Promise.all([
             import("@milkdown/kit/core"),
@@ -266,7 +267,8 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             import("@milkdown/kit/prose/tables"),
             import("@milkdown/kit/prose/schema-list"),
             import("@milkdown/kit/prose/commands"),
-            import("@milkdown/kit/utils")
+            import("@milkdown/kit/utils"),
+            import("./milkdownLatex")
           ]);
         if (disposed) return;
         const historyAvailability = (view: EditorView): EditorHistoryAvailability => ({
@@ -466,6 +468,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(commonmark)
           .use(jotImageView)
           .use(gfm)
+          .use(createLatexPlugins())
           .use(automd)
           .use(preventPlainUrlLinkBoundaryPaste)
           .use(clipboard)

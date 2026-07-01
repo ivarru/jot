@@ -1,3 +1,5 @@
+@import "katex/dist/katex.min.css";
+
 :root {
   color-scheme: light dark;
   --bg: #f8f7f4;
@@ -1235,6 +1237,32 @@ select {
 
 .milkdown-root tbody tr:nth-child(even) td {
   background: color-mix(in srgb, var(--border), var(--panel) 78%);
+}
+
+.milkdown-math-inline {
+  display: inline-block;
+  padding: 0 2px;
+  border-radius: 4px;
+  vertical-align: baseline;
+}
+
+.milkdown-math-block {
+  display: block;
+  max-width: 100%;
+  margin: 12px 0;
+  overflow-x: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel), var(--bg) 35%);
+}
+
+.milkdown-math-inline.is-empty,
+.milkdown-math-block.is-empty,
+.milkdown-math-inline.has-error,
+.milkdown-math-block.has-error {
+  color: var(--danger);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
 }
 
 .milkdown-root .ProseMirror :is(ul, ol) {
