@@ -12,6 +12,8 @@ console.log(`Building fake-auth preview. Build log: ${buildLog}`);
 const build = spawnSync(npmCommand, ["run", "build"], {
   env: {
     ...process.env,
+    // Browser tests target the root preview even when the parent Pages workflow exports /jot/.
+    BASE_PATH: "/",
     VITE_ENABLE_FAKE_AUTH: "true"
   },
   stdio: ["ignore", buildLogFd, buildLogFd]
