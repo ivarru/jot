@@ -5,7 +5,7 @@ import {
   setRawMarkdown,
   switchToRawMode,
   switchToWysiwygMode
-} from "./helpers/editor";
+} from "../helpers/editor";
 
 const formulaMarkdown = [
   "Inline $$E = mc^2$$ formula.",

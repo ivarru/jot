@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { clickButton, openDevelopmentStorage, rawModeToggle, setTextareaValue } from "./helpers/editor";
-import { seedConflictState, waitForFakeRemoteNote } from "./helpers/idb";
+import { clickButton, openDevelopmentStorage, rawModeToggle, setTextareaValue } from "../helpers/editor";
+import { seedConflictState, waitForFakeRemoteNote } from "../helpers/idb";
 
 const date = "2030-02-02";
 const baseline = "before\nold\nsame\nafter\n";

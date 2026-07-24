@@ -21,7 +21,9 @@ Move stable decisions to `CONTEXT.md` or `docs/adr/`. Remove items when they are
 - Consider deriving stored image filenames from a content hash rather than the Image Attachment ID. A content-addressed filename could make duplicate detection cheaper, but would need a deliberate migration.
 - Add configurable Daily Note templates. New Daily Notes currently start empty.
 - Add optional render-only support for useful Markdown extensions such as Mermaid diagrams, while keeping Daily Notes valid plain Markdown.
-- Broaden browser/PWA smoke coverage for app-shell/editor load, offline shell loading, date navigation, system theme behavior, local draft persistence across reload, and basic editor typing. Existing Chrome smoke scripts cover fake Daily Note upload, fake reconnect conflict, fake image upload, raw keyboard editing, and WYSIWYG URL paste.
+- Broaden browser/PWA regression coverage for offline shell loading, date navigation, system theme behavior, and local
+  draft persistence across reload. Existing Chrome suites cover preview health, editor input and layout, Daily Note
+  upload, reconnect conflicts, image upload, LaTeX, links, and clipboard behavior.
 - Revisit whether Google Identity Services Authorization Code with PKCE can replace the current token-client flow cleanly on GitHub Pages.
 - If `drive.file` prevents automatic discovery of an existing manually-created Jot Folder, use explicit user selection/opening or Google Picker, or create a new app-owned folder; do not broaden to full Drive scope by default.
 - If static SolidStart output becomes a deployment or routing burden, reconsider whether plain Solid/Vite is a better fit.

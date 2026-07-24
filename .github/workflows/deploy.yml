@@ -37,7 +37,7 @@ jobs:
       - name: Check Google OAuth client id
         run: test -n "$VITE_GOOGLE_CLIENT_ID"
 
-      - name: Verify Pages artifact
+      - name: Verify tests, browser regressions, and Pages artifact
         run: npm run verify:pages
 
       - name: Configure Pages

@@ -2,6 +2,9 @@
 
 Jot's sync model is documented in code by `src/sync/syncModel.test.ts`. It is a bounded deterministic model, not a separate runtime implementation. The model explores short traces over one shared remote Daily Note and one or two independent clients, each with its own local draft store and visible editor state.
 
+See [testing.md](testing.md) for how this model fits into the broader unit, integration, browser, artifact, and manual test
+layers.
+
 The model exists to clarify sync requirements and intended behavior in executable form. It should make the app's expectations precise enough to catch race conditions, invalid state transitions, stale-baseline saves, and other mistakes that are easy to miss in example-based tests alone.
 
 When a sync bug is reported, the preferred workflow is still red-green-refactor:

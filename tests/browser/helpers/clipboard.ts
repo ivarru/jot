@@ -1,12 +1,12 @@
 import { expect, type Page } from "@playwright/test";
 
-export function smokeBaseUrl(): URL {
-  return new URL(process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:4173/");
+export function browserTestBaseUrl(): URL {
+  return new URL(process.env.BROWSER_TEST_BASE_URL ?? "http://127.0.0.1:4173/");
 }
 
 export async function grantClipboardPermissions(page: Page): Promise<void> {
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: smokeBaseUrl().origin
+    origin: browserTestBaseUrl().origin
   });
 }
 

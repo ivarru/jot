@@ -8,10 +8,11 @@ GitHub Pages project hosting serves Jot below `/jot/`, so production Pages build
 
 ```sh
 BASE_PATH=/jot/ npm run build:pages
-npm run smoke:pages
+npm run test:artifact
 ```
 
-`npm run build:pages` writes the static app to `.output/public`. `npm run smoke:pages` runs the Playwright Pages artifact check without starting the preview server, and verifies that the artifact contains:
+`npm run build:pages` writes the static app to `.output/public`. `npm run test:artifact` validates the generated Pages
+artifact without starting the preview server and verifies that it contains:
 
 - `.nojekyll`
 - `index.html`
@@ -30,6 +31,9 @@ npm run smoke:pages
 npm ci
 npm run verify:pages
 ```
+
+The preflight includes Vitest, typecheck, the full fake-provider browser suite, the Pages build, and artifact validation.
+See [testing.md](testing.md) for the test layers and CI coverage matrix.
 
 The workflow uploads `.output/public` with GitHub's Pages artifact action and deploys it through GitHub Pages.
 

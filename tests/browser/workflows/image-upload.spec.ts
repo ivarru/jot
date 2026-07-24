@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
-import { clickButton, openDevelopmentStorage } from "./helpers/editor";
-import { waitForSavedImageMarkdown } from "./helpers/idb";
+import { clickButton, openDevelopmentStorage } from "../helpers/editor";
+import { waitForSavedImageMarkdown } from "../helpers/idb";
 
 const pngBytes = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/evp2cAAAAAASUVORK5CYII=",

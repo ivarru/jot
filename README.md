@@ -18,7 +18,7 @@ The app is built with SolidStart's static output path and is intended to run on 
 - Image attachments from Google Photos, device upload, camera, or clipboard paste.
 - Jot-owned Google Photos album named `jot` for copied image attachments.
 - Plain Markdown image references using `![alt](jot:image:<id>)`.
-- Development-only fake storage, fake image flows, and browser smoke scripts for local testing.
+- Development-only fake storage, fake image flows, and real-browser regression tests.
 
 ## Local Development
 
@@ -28,33 +28,21 @@ Install dependencies:
 npm install
 ```
 
-Run routine checks:
+Run routine verification:
 
 ```sh
-npm run test
-npm run typecheck
-npm run build
+npm run verify
 ```
 
-Playwright smoke checks live under `tests/smoke` and start a fake-storage
-preview server automatically when `SMOKE_BASE_URL` is not set:
+Run the complete fake-provider browser suite:
 
 ```sh
-npm run smoke:raw-keyboard
-npm run smoke:wysiwyg-paste
-npm run smoke:link-modal
-npm run smoke:fake-daily-note-upload
-npm run smoke:fake-reconnect-conflict
-npm run smoke:fake-image
-npm run smoke:fake-code-block-layout
-npm run smoke:toolbar-indent
+npm run test:browser
 ```
 
-The Playwright-managed preview build log is written to
-`/tmp/jot-preview-test-fake-build.log`; the preview server log is written to
-`/tmp/jot-preview-test-fake-preview.log`. To run smoke checks against an
-already-running server instead, set `SMOKE_BASE_URL`, for example
-`SMOKE_BASE_URL=http://127.0.0.1:4173/ npm run smoke:fake-code-block-layout`.
+Use `npm run verify:full` for routine verification plus all browser regressions. Focused browser commands, test-layer
+guidance, environment setup, and the CI coverage matrix are documented in
+[docs/testing.md](docs/testing.md).
 
 Start a local development server:
 
@@ -94,7 +82,8 @@ For the full local Pages preflight:
 BASE_PATH=/jot/ VITE_GOOGLE_CLIENT_ID=your-prod-client-id.apps.googleusercontent.com npm run verify:pages
 ```
 
-`verify:pages` runs tests, typecheck, a Pages build, and artifact smoke checks. The production GitHub Actions workflow uses the same command and expects repository variable `VITE_GOOGLE_CLIENT_ID`.
+`verify:pages` runs tests, typecheck, all fake-provider browser regressions, a Pages build, and artifact validation. The
+production GitHub Actions workflow uses the same command and expects repository variable `VITE_GOOGLE_CLIENT_ID`.
 
 See [docs/deployment.md](docs/deployment.md) for GitHub Pages setup, Google OAuth configuration, required APIs, and release checks.
 
@@ -110,6 +99,7 @@ Project terminology and decisions are documented in:
 
 - [CONTEXT.md](CONTEXT.md)
 - [NOTES.md](NOTES.md) for known issues, future work, and unsettled design questions
+- [docs/testing.md](docs/testing.md)
 - [docs/sync-model.md](docs/sync-model.md)
 - [docs/adr/README.md](docs/adr/README.md)
 

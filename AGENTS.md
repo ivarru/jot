@@ -26,34 +26,33 @@ For sync bugs, first try to refine `src/sync/syncModel.test.ts` or the focused s
 
 ## Verification
 
-Run these before finishing code changes:
+The test layers, commands, browser environment, and CI matrix are documented in
+[docs/testing.md](docs/testing.md).
+
+Run routine verification before finishing code changes:
 
 ```sh
-npm run test
-npm run typecheck
-npm run build
+npm run verify
 ```
 
 Google Drive provider changes must include mocked `fetch` tests for request URLs, methods, auth headers, metadata bodies, media bodies, conflict behavior, and settings behavior. Do not require a live Google account for routine regression coverage.
 
-Browser API workflow changes must include an end-to-end smoke check through a real browser boundary. This applies to file inputs, clipboard, camera, drag/drop, auth popups or redirects, and external pickers. The check must exercise the actual user workflow and assert the resulting app state; verifying that controls render is not sufficient.
+Browser API workflow changes must include an end-to-end browser regression. This applies to file inputs, clipboard,
+camera, drag/drop, auth popups or redirects, and external pickers. The check must exercise the actual user workflow and
+assert the resulting app state; verifying that controls render is not sufficient.
 
-Prefer Playwright tests under `tests/smoke` for new real-browser regressions involving browser editing behavior, viewport layout, DOM geometry, or other interactions that benefit from browser-native assertions. Keep existing focused smoke scripts when they already cover the workflow well.
+Prefer Playwright tests under `tests/browser` for real-browser regressions involving browser editing behavior, viewport
+layout, DOM geometry, or other interactions that benefit from browser-native assertions. Put shallow application-health
+checks in `tests/browser/smoke` and generated-output checks in `tests/artifact`.
 
-For fake-storage browser checks, choose the focused smoke script that covers the workflow you changed. Common setup:
-
-```sh
-VITE_ENABLE_FAKE_AUTH=true npm run build
-npm run preview
-```
-
-Then run the relevant smoke check, for example:
+For fake-provider browser checks, choose the focused browser command that covers the workflow you changed. The suite
+builds and starts its own fake-provider preview unless `BROWSER_TEST_BASE_URL` is set. Common commands:
 
 ```sh
-npm run smoke:fake-daily-note-upload
-npm run smoke:fake-reconnect-conflict
-npm run smoke:fake-image
-npm run smoke:fake-code-block-layout
+npm run test:browser:editing
+npm run test:browser:workflows
+npm run test:browser:code-block-layout
+npm run test:browser:reconnect-conflict
 ```
 
 Do not leave local development or test servers running after development or verification work is complete.

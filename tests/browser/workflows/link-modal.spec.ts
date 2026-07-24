@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { grantClipboardPermissions, smokeBaseUrl, writeClipboardText } from "./helpers/clipboard";
+import { browserTestBaseUrl, grantClipboardPermissions, writeClipboardText } from "../helpers/clipboard";
 import {
   clickButton,
   expectRawMarkdown,
@@ -8,7 +8,7 @@ import {
   rawMarkdown,
   setRawMarkdown,
   switchToRawMode
-} from "./helpers/editor";
+} from "../helpers/editor";
 
 test("link modal supports clipboard autofill, editing, and share-target insertion", async ({ page }) => {
   await assertManifestShareTarget(page);
@@ -24,7 +24,7 @@ test("link modal supports clipboard autofill, editing, and share-target insertio
 });
 
 async function assertManifestShareTarget(page: Page): Promise<void> {
-  const response = await page.request.get(new URL("manifest.webmanifest", smokeBaseUrl()).href);
+  const response = await page.request.get(new URL("manifest.webmanifest", browserTestBaseUrl()).href);
   expect(response.ok(), `manifest.webmanifest returned HTTP ${response.status()}.`).toBe(true);
   const manifest = await response.json();
   expect(manifest.share_target?.action).toBe(".");
@@ -109,7 +109,7 @@ async function assertClipboardButtonLinkEdit(page: Page): Promise<void> {
 }
 
 async function assertShareTargetInsert(page: Page): Promise<void> {
-  const shareUrl = smokeBaseUrl();
+  const shareUrl = browserTestBaseUrl();
   shareUrl.searchParams.set("title", "Shared title");
   shareUrl.searchParams.set("url", "https://example.com/shared");
   await page.goto(shareUrl.href);

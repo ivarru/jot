@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { grantClipboardPermissions, pasteFromBrowserClipboard, writeClipboardText } from "./helpers/clipboard";
+import { grantClipboardPermissions, pasteFromBrowserClipboard, writeClipboardText } from "../helpers/clipboard";
 import {
   expectRawMarkdown,
   focusWysiwygEditorAtEnd,
@@ -8,7 +8,7 @@ import {
   setRawMarkdown,
   switchToRawMode,
   switchToWysiwygMode
-} from "./helpers/editor";
+} from "../helpers/editor";
 
 const pastedUrl = "https://example.com/a:b?x=1";
 const insertedUrl = "https://example.com/from-keyboard:a?x=1";

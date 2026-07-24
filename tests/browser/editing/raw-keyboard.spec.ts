@@ -19,8 +19,8 @@ import {
   setRawMarkdown,
   switchToRawMode,
   switchToWysiwygMode
-} from "./helpers/editor";
-import { seedLocalDraft } from "./helpers/idb";
+} from "../helpers/editor";
+import { seedLocalDraft } from "../helpers/idb";
 
 test.beforeEach(async ({ page }) => {
   await openDevelopmentStorage(page);

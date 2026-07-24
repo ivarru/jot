@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("preview serves referenced build assets as assets", async ({ baseURL }) => {
-  const root = new URL(baseURL ?? process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:4173/");
+  const root = new URL(baseURL ?? process.env.BROWSER_TEST_BASE_URL ?? "http://127.0.0.1:4173/");
   const html = await fetchText(root);
 
   expect(html).not.toContain('href="/assets/');
