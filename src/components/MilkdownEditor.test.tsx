@@ -9,6 +9,7 @@ import { toggleMark } from "@milkdown/kit/prose/commands";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import {
   applyMilkdownUpdatedMarkdown,
+  createInlineCodeBoundaryAffinityPlugin,
   createMilkdownMarkdownSyncState,
   createLinkBoundaryTypingPlugin,
   editorSelectionToMarkdownSourceSelection,
@@ -1217,6 +1218,39 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("treats text prepended from the tinted side of inline code as code", async () => {
+    const testEditor = await createMilkdownDomTestEditor("Use `foo` today");
+
+    try {
+      const codeText = testEditor.root.querySelector("code")?.firstChild;
+      expect(codeText).toBeInstanceOf(Text);
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      await placeNativeCaret(view, codeText!, 0);
+      typeTextThroughView(view, "X");
+
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("Use `Xfoo` today\n");
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
+  it("treats text appended from outside the tint after inline code as plain text", async () => {
+    const testEditor = await createMilkdownDomTestEditor("Use `foo` today");
+
+    try {
+      const paragraph = testEditor.root.querySelector("p");
+      const plainTextAfterCode = paragraph?.lastChild;
+      expect(plainTextAfterCode).toBeInstanceOf(Text);
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      await placeNativeCaret(view, plainTextAfterCode!, 0);
+      typeTextThroughView(view, "X");
+
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("Use `foo`X today\n");
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
   it("keeps text typed after a link outside that link", async () => {
     const editor = await createMilkdownTestEditor("See [decision](#/date/2030-02-01#decisions)");
 
@@ -1795,6 +1829,56 @@ async function createMilkdownTestEditor(markdown: string) {
     .use(gfm)
     .use($prose((ctx) => createLinkBoundaryTypingPlugin(Plugin, linkSchema.type(ctx))))
     .create();
+}
+
+async function createMilkdownDomTestEditor(markdown: string) {
+  const root = document.createElement("div");
+  document.body.append(root);
+  const editor = await Editor.make()
+    .config((ctx) => {
+      ctx.set(rootCtx, root);
+      ctx.set(defaultValueCtx, markdown);
+    })
+    .use(commonmark)
+    .use(gfm)
+    .use($prose((ctx) => createInlineCodeBoundaryAffinityPlugin(Plugin, inlineCodeSchema.type(ctx))))
+    .create();
+
+  return {
+    root,
+    editor,
+    destroy: async () => {
+      await editor.destroy();
+      root.remove();
+    }
+  };
+}
+
+async function placeNativeCaret(
+  view: import("@milkdown/kit/prose/view").EditorView,
+  node: Node,
+  offset: number
+): Promise<void> {
+  const position = view.posAtDOM(node, offset);
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, position)));
+  const selection = document.getSelection();
+  expect(selection).not.toBeNull();
+  const range = document.createRange();
+  range.setStart(node, offset);
+  range.collapse(true);
+  selection!.removeAllRanges();
+  selection!.addRange(range);
+  document.dispatchEvent(new Event("selectionchange"));
+  await Promise.resolve();
+}
+
+function typeTextThroughView(view: import("@milkdown/kit/prose/view").EditorView, text: string): void {
+  const { from, to } = view.state.selection;
+  const handled = view.someProp(
+    "handleTextInput",
+    (handler) => handler(view, from, to, text, () => view.state.tr.insertText(text, from, to))
+  );
+  if (!handled) view.dispatch(view.state.tr.insertText(text, from, to));
 }
 
 async function createMilkdownLatexTestEditor(markdown: string) {

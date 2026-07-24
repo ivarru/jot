@@ -48,6 +48,20 @@ describe("Milkdown code block styles", () => {
     expect(codeRule).toContain("white-space: pre;");
   });
 
+  it("gives inline code a distinct tinted treatment in both color schemes", () => {
+    const rootRule = blockFor(":root");
+    const darkThemeRule = blockFor(":root", styles.indexOf("@media (prefers-color-scheme: dark)"));
+    const inlineCodeRule = blockFor(".milkdown-root :not(pre) > code");
+
+    expect(rootRule).toContain("--inline-code-bg: #e8f1ed;");
+    expect(darkThemeRule).toContain("--inline-code-bg: #293a34;");
+    expect(inlineCodeRule).toContain("background: var(--inline-code-bg);");
+    expect(inlineCodeRule).not.toContain("border:");
+    expect(inlineCodeRule).toContain("border-radius: 4px;");
+    expect(inlineCodeRule).toContain("font-family: ui-monospace");
+    expect(inlineCodeRule).toContain("padding: 0.08em 0.3em;");
+  });
+
   it("updates the code block viewport cap for mobile app padding", () => {
     const mobileRule = mediaBlockFor("@media (max-width: 720px)");
 
@@ -55,8 +69,8 @@ describe("Milkdown code block styles", () => {
     expect(mobileRule).toContain("padding: 10px var(--app-padding-x) 12px;");
   });
 
-  function blockFor(selector: string): string {
-    const start = styles.indexOf(`${selector} {`);
+  function blockFor(selector: string, fromIndex = 0): string {
+    const start = styles.indexOf(`${selector} {`, fromIndex);
     expect(start).toBeGreaterThanOrEqual(0);
     const end = styles.indexOf("}", start);
     expect(end).toBeGreaterThan(start);

@@ -50,6 +50,22 @@ test("WYSIWYG typing can edit between rendered full links", async ({ page }) => 
   await assertWysiwygTypingBetweenRenderedFullLinks(page);
 });
 
+test("WYSIWYG inline-code boundary typing follows the visible caret side", async ({ page }) => {
+  const markdown = "Use `foo` today";
+
+  await setRawMarkdown(page, markdown);
+  await switchToWysiwygMode(page);
+  await focusWysiwygTextOffset(page, "foo", 0);
+  await page.keyboard.insertText("X");
+  await expectUnderlyingMarkdown(page, "Use `Xfoo` today");
+
+  await setRawMarkdown(page, markdown);
+  await switchToWysiwygMode(page);
+  await focusWysiwygTextOffset(page, " today", 0);
+  await page.keyboard.insertText("X");
+  await expectUnderlyingMarkdown(page, "Use `foo`X today");
+});
+
 test("raw internal section link shortcut opens the target section", async ({ page }) => {
   await assertRawInternalSectionLinkShortcut(page);
 });

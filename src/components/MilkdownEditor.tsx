@@ -380,6 +380,9 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         const preventLinkBoundaryTyping = $prose((ctx) =>
           createLinkBoundaryTypingPlugin(Plugin, linkSchema.type(ctx))
         );
+        const preserveInlineCodeBoundaryAffinity = $prose((ctx) =>
+          createInlineCodeBoundaryAffinityPlugin(Plugin, inlineCodeSchema.type(ctx))
+        );
         const preventPlainUrlLinkBoundaryPaste = $prose((ctx) =>
           createPlainUrlLinkBoundaryPlugin(Plugin, TextSelection, linkSchema.type(ctx))
         );
@@ -476,6 +479,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(tableBoundaryNavigation)
           .use(tableEnterKeymap)
           .use(preventLinkBoundaryTyping)
+          .use(preserveInlineCodeBoundaryAffinity)
           .use(inlineFormatStateTracker)
           .use(blockFormatStateTracker)
           .use(pointerBlockQuoteSelectionTracker)
@@ -1142,6 +1146,96 @@ export function createLinkBoundaryTypingPlugin(
       unlinkTrailingLinkWhitespaceTransaction(transactions, newState, linkType) ??
       clearLinkBoundaryStoredMarkTransaction(newState, linkType)
   });
+}
+
+export function createInlineCodeBoundaryAffinityPlugin(
+  Plugin: typeof import("@milkdown/kit/prose/state").Plugin,
+  codeType: MarkType
+) {
+  let boundaryAffinity: { readonly position: number; readonly insideCode: boolean } | null = null;
+
+  return new Plugin({
+    props: {
+      handleTextInput: (view, from, to, text, defaultTransaction) => {
+        if (boundaryAffinity === null || boundaryAffinity.position !== from) return false;
+        const transaction = inlineCodeBoundaryTextInputTransaction(
+          view.state,
+          codeType,
+          from,
+          to,
+          text,
+          boundaryAffinity.insideCode,
+          defaultTransaction()
+        );
+        if (transaction === null) return false;
+
+        view.dispatch(transaction);
+        return true;
+      }
+    },
+    view: (view) => {
+      const ownerDocument = view.dom.ownerDocument;
+      const trackBoundaryAffinity = () => {
+        const domSelection = ownerDocument.getSelection();
+        if (domSelection === null || !domSelection.isCollapsed || domSelection.anchorNode === null) {
+          boundaryAffinity = null;
+          return;
+        }
+        const anchorNode = domSelection.anchorNode;
+        const anchorOffset = domSelection.anchorOffset;
+        if (!containsSelectionNode(view.dom, anchorNode)) {
+          boundaryAffinity = null;
+          return;
+        }
+
+        boundaryAffinity = {
+          position: view.posAtDOM(anchorNode, anchorOffset),
+          insideCode: closestInlineCodeElement(anchorNode, view.dom) !== null
+        };
+      };
+      ownerDocument.addEventListener("selectionchange", trackBoundaryAffinity);
+
+      return {
+        destroy: () => ownerDocument.removeEventListener("selectionchange", trackBoundaryAffinity)
+      };
+    }
+  });
+}
+
+function inlineCodeBoundaryTextInputTransaction(
+  state: EditorState,
+  codeType: MarkType,
+  from: number,
+  to: number,
+  text: string,
+  caretIsInsideCode: boolean,
+  transaction: Transaction
+): Transaction | null {
+  if (from !== to || text.length === 0) return null;
+
+  const position = state.doc.resolve(from);
+  const beforeHasCode = position.nodeBefore !== null
+    && codeType.isInSet(position.nodeBefore.marks) !== undefined;
+  const afterHasCode = position.nodeAfter !== null
+    && codeType.isInSet(position.nodeAfter.marks) !== undefined;
+  if (beforeHasCode === afterHasCode) return null;
+
+  const insertedTo = from + text.length;
+  if (caretIsInsideCode) {
+    transaction.addMark(from, insertedTo, codeType.create());
+  } else {
+    transaction.removeMark(from, insertedTo, codeType);
+  }
+  return transaction;
+}
+
+function closestInlineCodeElement(node: Node, root: HTMLElement): HTMLElement | null {
+  let current = node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : node.parentElement;
+  while (current !== null && current !== root) {
+    if (current.tagName === "CODE" && current.parentElement?.tagName !== "PRE") return current;
+    current = current.parentElement;
+  }
+  return null;
 }
 
 function unlinkTrailingLinkWhitespaceTransaction(
