@@ -1,4 +1,4 @@
-import { batch, createEffect, createMemo, createSignal, on, onCleanup, Show, untrack } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
 import { ImageAttachmentFlow, type LocalImageAttachmentSource, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
 import { commitImageAttachmentReferenceInsertion } from "~/attachments/imageAttachmentInsertionSession";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
@@ -36,11 +36,18 @@ import {
   insertMarkdownLinkAtSelection,
   isSafeExternalHref,
   parseDailyNoteLinkTarget,
+  selectionInsertionEndsInMarkdownHeading,
   selectionOverlapsMarkdownLinkOrCode,
   type DailyNoteHeading,
   type DailyNoteLinkTarget
 } from "~/domain/dailyNoteLinks";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
+import {
+  extractJotTags,
+  filterJotTagSuggestions,
+  insertJotTagAtSelection,
+  normalizeJotTagName
+} from "~/domain/jotTags";
 import {
   addDays,
   dayOfWeek,
@@ -75,12 +82,13 @@ import {
 } from "~/editor/dateBoundEditor";
 import {
   EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS,
-  EDITOR_MODE_TOGGLE_SHORTCUT_LABEL,
   LINK_EDIT_ARIA_SHORTCUTS,
-  LINK_EDIT_SHORTCUT_LABEL,
+  TAG_INSERT_ARIA_SHORTCUTS,
   isEditorModeToggleShortcut,
   isLinkEditShortcut,
+  isTagInsertShortcut,
   nextEditorMode,
+  shortcutLabelsForPlatform,
   type EditorMode
 } from "~/editor/editorModeShortcut";
 import {
@@ -118,6 +126,7 @@ import type { MarkdownSelection } from "~/editor/markdownSelection";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
 import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
+import { TagSuggestionCatalog } from "~/storage/tagSuggestionCatalog";
 import type { RemoteStorageProvider, SyncStatus } from "~/storage/types";
 import {
   isCancelledDailyNoteSyncError,
@@ -195,10 +204,19 @@ interface LinkModalSession {
   readonly draft: LinkEditDraft;
 }
 
+interface TagModalSession {
+  readonly date: IsoDate;
+  readonly baseMarkdown: string;
+  readonly selection: MarkdownSelection;
+}
+
 type LinkModalClipboardStatus = "unknown" | "reading" | "known";
 
 export default function Home() {
   const runtime = createStorageRuntime();
+  const shortcutLabels = shortcutLabelsForPlatform(globalThis.navigator?.platform ?? "");
+  const browserLocalStorage = getLocalStorage();
+  const tagSuggestionCatalog = new TagSuggestionCatalog(browserLocalStorage);
   const initialRoute = routeFromHash();
   const redirectAuthResult = runtime.kind === "google"
     ? runtime.tokenProvider.consumeRedirectAccessToken()
@@ -209,11 +227,12 @@ export default function Home() {
   let imageAltTextInput: HTMLInputElement | undefined;
   let linkTextInput: HTMLInputElement | undefined;
   let linkUrlInput: HTMLInputElement | undefined;
+  let tagNameInput: HTMLInputElement | undefined;
   let aboutCloseButton: HTMLButtonElement | undefined;
   let topMenuElement: HTMLDivElement | undefined;
   const [authenticated, setAuthenticated] = createSignal(
     redirectAuthResult.type === "authenticated" ||
-    runtime.kind === "fake" && ENABLE_FAKE_AUTH && globalThis.localStorage?.getItem("jot.fakeAuth") === "true"
+    runtime.kind === "fake" && ENABLE_FAKE_AUTH && browserLocalStorage?.getItem("jot.fakeAuth") === "true"
   );
   const [authError, setAuthError] = createSignal<string | null>(
     redirectAuthResult.type === "error" ? redirectAuthResult.message : null
@@ -258,6 +277,13 @@ export default function Home() {
   const [linkModalClipboardSuggestion, setLinkModalClipboardSuggestion] = createSignal<ClipboardLinkSuggestion | null>(null);
   const [linkModalClipboardStatus, setLinkModalClipboardStatus] = createSignal<LinkModalClipboardStatus>("unknown");
   const [linkModalError, setLinkModalError] = createSignal<string | null>(null);
+  const [tagModalSession, setTagModalSession] = createSignal<TagModalSession | null>(null);
+  const [tagModalName, setTagModalName] = createSignal("");
+  const [tagModalQuery, setTagModalQuery] = createSignal("");
+  const [activeTagSuggestionIndex, setActiveTagSuggestionIndex] = createSignal(-1);
+  const [tagModalError, setTagModalError] = createSignal<string | null>(null);
+  const [tagSuggestions, setTagSuggestions] = createSignal<readonly string[]>(tagSuggestionCatalog.suggestions());
+  const filteredTagSuggestions = createMemo(() => filterJotTagSuggestions(tagSuggestions(), tagModalQuery()));
   const [pendingShareTargetLink, setPendingShareTargetLink] = createSignal<ClipboardLinkData | null>(
     parseShareTargetLinkData(new URLSearchParams(window.location.search))
   );
@@ -564,6 +590,13 @@ export default function Home() {
     editorMode() === "text" && plainTextEditorElement !== null
       ? plainTextEditorElement.value
       : milkdownController?.getLiveMarkdown() ?? markdown();
+
+  createEffect(on(loadedDate, (date) => {
+    if (date === null) return;
+
+    tagSuggestionCatalog.recordExisting(extractJotTags(untrack(markdown)));
+    setTagSuggestions(tagSuggestionCatalog.suggestions());
+  }));
 
   const flushCurrentVisibleEditorSnapshot = (): {
     readonly changed: boolean;
@@ -1007,6 +1040,15 @@ export default function Home() {
 
   createEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isTagInsertShortcut(event)) {
+        if (!authenticated() || !selectedDateCanWrite() || manualConflictMarkersPresent()) return;
+        if (!eventOriginatesInEditor(event)) return;
+
+        event.preventDefault();
+        openTagModal();
+        return;
+      }
+
       if (isLinkEditShortcut(event)) {
         if (!authenticated() || !selectedDateCanWrite() || manualConflictMarkersPresent()) return;
         if (!eventOriginatesInEditor(event)) return;
@@ -1386,6 +1428,107 @@ export default function Home() {
     }
 
     return currentEditorSelection();
+  };
+
+  const openTagModal = () => {
+    const selection = takeFormattingToolbarSelection();
+    const date = selectedDate();
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
+
+    const sourceMarkdown = currentEditorMarkdown();
+    const sourceSelection = selection ?? { start: sourceMarkdown.length, end: sourceMarkdown.length };
+    if (
+      selectionOverlapsMarkdownLinkOrCode(sourceMarkdown, sourceSelection) ||
+      selectionInsertionEndsInMarkdownHeading(sourceMarkdown, sourceSelection)
+    ) {
+      return;
+    }
+
+    setTagModalSession({
+      date,
+      baseMarkdown: sourceMarkdown,
+      selection: sourceSelection
+    });
+    setTagModalName("");
+    setTagModalQuery("");
+    setActiveTagSuggestionIndex(-1);
+    setTagModalError(null);
+    setTagSuggestions(tagSuggestionCatalog.suggestions());
+    requestAnimationFrame(() => tagNameInput?.focus());
+  };
+
+  const closeTagModal = () => {
+    setTagModalSession(null);
+    setTagModalName("");
+    setTagModalQuery("");
+    setActiveTagSuggestionIndex(-1);
+    setTagModalError(null);
+  };
+
+  const submitTagModal = () => {
+    const session = tagModalSession();
+    if (session === null) return;
+    if (
+      !canEditDailyNoteDate(session.date, dateBoundEditorState()) ||
+      !selectedDateCanWrite() ||
+      manualConflictMarkersPresent() ||
+      currentEditorMarkdown() !== session.baseMarkdown
+    ) {
+      setTagModalError("The Daily Note changed. Reopen the tag picker.");
+      return;
+    }
+    if (
+      selectionOverlapsMarkdownLinkOrCode(session.baseMarkdown, session.selection) ||
+      selectionInsertionEndsInMarkdownHeading(session.baseMarkdown, session.selection)
+    ) {
+      setTagModalError("Move the cursor outside headings, existing links, or code, then reopen the tag picker.");
+      return;
+    }
+
+    const name = normalizeJotTagName(tagModalName());
+    if (name === null) {
+      setTagModalError("Use letters and numbers separated by hyphens.");
+      return;
+    }
+
+    const result = insertJotTagAtSelection(session.baseMarkdown, session.selection, name);
+    tagSuggestionCatalog.recordUse(name);
+    setTagSuggestions(tagSuggestionCatalog.suggestions());
+    applyUndoableMarkdownTransform(session.date, result.markdown, result.selection);
+    closeTagModal();
+  };
+
+  const dismissTagSuggestion = (name: string) => {
+    tagSuggestionCatalog.dismiss(name);
+    setTagSuggestions(tagSuggestionCatalog.suggestions());
+    setActiveTagSuggestionIndex(-1);
+    setTagModalName(tagModalQuery());
+  };
+
+  const moveActiveTagSuggestion = (direction: 1 | -1) => {
+    const suggestions = filteredTagSuggestions();
+    if (suggestions.length === 0) return;
+
+    const current = activeTagSuggestionIndex();
+    if (direction === -1 && current <= 0) {
+      setActiveTagSuggestionIndex(-1);
+      setTagModalName(tagModalQuery());
+      return;
+    }
+
+    const next = direction === 1
+      ? Math.min(current + 1, suggestions.length - 1)
+      : current - 1;
+    setActiveTagSuggestionIndex(next);
+    setTagModalName(suggestions[next] ?? tagModalQuery());
+    setTagModalError(null);
+  };
+
+  const handleTagNameKeyDown = (event: KeyboardEvent & { currentTarget: HTMLInputElement }) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    if (filteredTagSuggestions().length === 0) return;
+    event.preventDefault();
+    moveActiveTagSuggestion(event.key === "ArrowDown" ? 1 : -1);
   };
 
   const captureSectionLinkSourceSelection = (event: PointerEvent) => {
@@ -2507,11 +2650,13 @@ export default function Home() {
     resetDailyNoteUploadState();
     selectedDateDriveSync.cancelInFlightWork();
     await drafts.clearAll();
+    tagSuggestionCatalog.clear();
+    setTagSuggestions([]);
     if (runtime.kind === "google") {
       await runtime.tokenProvider.revoke?.();
     }
     clearStoredActiveImagePicker();
-    globalThis.localStorage?.removeItem("jot.fakeAuth");
+    browserLocalStorage?.removeItem("jot.fakeAuth");
     setAuthReconnectRequired(false);
     setReconnectPromptPostponed(false);
     setAuthenticated(false);
@@ -2543,7 +2688,7 @@ export default function Home() {
                   void signIn(runtime)
                     .then(() => {
                       if (runtime.kind === "fake") {
-                        globalThis.localStorage?.setItem("jot.fakeAuth", "true");
+                        browserLocalStorage?.setItem("jot.fakeAuth", "true");
                       }
                       setAuthReconnectRequired(false);
                       setReconnectPromptPostponed(false);
@@ -2712,7 +2857,7 @@ export default function Home() {
                   aria-label="Toggle raw Markdown"
                   aria-keyshortcuts={EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS}
                   aria-pressed={editorMode() === "text"}
-                  data-tooltip={`Toggle raw Markdown (${EDITOR_MODE_TOGGLE_SHORTCUT_LABEL})`}
+                  data-tooltip={`Toggle raw Markdown (${shortcutLabels.editorModeToggle})`}
                   disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                   onPointerDown={captureEditorModeSelection}
                   onClick={() => updateEditorMode(nextEditorMode(editorMode()))}
@@ -2739,7 +2884,7 @@ export default function Home() {
                 class="icon-button"
                 aria-label="Undo"
                 aria-keyshortcuts="Control+Z Meta+Z"
-                data-tooltip="Undo (Ctrl/Cmd+Z)"
+                data-tooltip={`Undo (${shortcutLabels.undo})`}
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent() || !editorHistoryAvailability().canUndo}
                 onClick={() => applyEditorHistoryShortcut("undo")}
               >
@@ -2750,7 +2895,7 @@ export default function Home() {
                 class="icon-button"
                 aria-label="Redo"
                 aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y"
-                data-tooltip="Redo (Ctrl/Cmd+Shift+Z)"
+                data-tooltip={`Redo (${shortcutLabels.redo})`}
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent() || !editorHistoryAvailability().canRedo}
                 onClick={() => applyEditorHistoryShortcut("redo")}
               >
@@ -2852,12 +2997,24 @@ export default function Home() {
                 class="icon-button"
                 aria-label="Insert or edit link"
                 aria-keyshortcuts={LINK_EDIT_ARIA_SHORTCUTS}
-                data-tooltip={`Insert or edit link (${LINK_EDIT_SHORTCUT_LABEL})`}
+                data-tooltip={`Insert or edit link (${shortcutLabels.linkEdit})`}
                 disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
                 onPointerDown={preserveFormattingToolbarSelection}
                 onClick={() => void openLinkModal()}
               >
                 <LinkFormatIcon />
+              </button>
+              <button
+                type="button"
+                class="icon-button"
+                aria-label="Add tag"
+                aria-keyshortcuts={TAG_INSERT_ARIA_SHORTCUTS}
+                data-tooltip={`Add tag (${shortcutLabels.tagInsert})`}
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onPointerDown={preserveFormattingToolbarSelection}
+                onClick={openTagModal}
+              >
+                <TagIcon />
               </button>
               <button
                 type="button"
@@ -3122,6 +3279,112 @@ export default function Home() {
                 </div>
               </div>
             )}
+          </Show>
+
+          <Show when={tagModalSession()}>
+            <div class="modal-backdrop" role="presentation">
+              <form
+                class="tag-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="tag-modal-title"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  submitTagModal();
+                }}
+                onKeyDown={(event) => {
+                  if (isEscapeKey(event)) closeTagModal();
+                }}
+              >
+                <div class="tag-modal-header">
+                  <h2 id="tag-modal-title">Add tag</h2>
+                  <p>Insert at the cursor. Put tags after a paragraph or list item, or on a Tags line below a heading.</p>
+                </div>
+                <label class="tag-modal-field">
+                  Tag
+                  <span class="tag-name-control">
+                    <span aria-hidden="true">#</span>
+                    <input
+                      ref={tagNameInput}
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-controls="tag-suggestion-list"
+                      aria-expanded={filteredTagSuggestions().length > 0}
+                      aria-activedescendant={
+                        activeTagSuggestionIndex() < 0
+                          ? undefined
+                          : `tag-suggestion-${filteredTagSuggestions()[activeTagSuggestionIndex()] ?? ""}`
+                      }
+                      autocomplete="off"
+                      spellcheck={false}
+                      value={tagModalName()}
+                      onInput={(event) => {
+                        const value = event.currentTarget.value;
+                        setTagModalName(value);
+                        setTagModalQuery(value);
+                        setActiveTagSuggestionIndex(-1);
+                        setTagModalError(null);
+                      }}
+                      onKeyDown={handleTagNameKeyDown}
+                    />
+                  </span>
+                </label>
+                <Show when={filteredTagSuggestions().length > 0}>
+                  <div
+                    id="tag-suggestion-list"
+                    class="tag-suggestions"
+                    role="listbox"
+                    aria-label="Previously used tags"
+                  >
+                    <For each={filteredTagSuggestions()}>
+                      {(name, index) => (
+                        <span
+                          id={`tag-suggestion-${name}`}
+                          class="tag-suggestion"
+                          classList={{ "is-active": activeTagSuggestionIndex() === index() }}
+                          role="option"
+                          aria-selected={activeTagSuggestionIndex() === index()}
+                        >
+                          <button
+                            type="button"
+                            aria-label={`#${name}`}
+                            onClick={() => {
+                              setTagModalName(name);
+                              setTagModalQuery(name);
+                              setActiveTagSuggestionIndex(-1);
+                              setTagModalError(null);
+                              tagNameInput?.focus();
+                            }}
+                          >
+                            #{name}
+                          </button>
+                          <button
+                            type="button"
+                            class="tag-suggestion-remove"
+                            aria-label={`Remove #${name} from suggestions`}
+                            data-tooltip={`Remove #${name} from suggestions`}
+                            onClick={() => dismissTagSuggestion(name)}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={tagModalError()}>
+                  {(message) => <p class="tag-modal-error">{message()}</p>}
+                </Show>
+                <div class="modal-actions">
+                  <button type="button" onClick={closeTagModal}>
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={normalizeJotTagName(tagModalName()) === null}>
+                    Add
+                  </button>
+                </div>
+              </form>
+            </div>
           </Show>
 
           <Show when={linkModalSession()}>
@@ -3952,6 +4215,14 @@ function getSessionStorage(): Storage | null {
   }
 }
 
+function getLocalStorage(): Storage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function defaultImageAltText(
   picked: PickedGooglePhotosMediaItem,
   reusable: ReusableImageAttachment | null
@@ -4002,6 +4273,10 @@ function LinkFormatIcon() {
       <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />
     </svg>
   );
+}
+
+function TagIcon() {
+  return <span class="format-letter format-letter-tag" aria-hidden="true">#</span>;
 }
 
 function ClipboardPasteIcon() {

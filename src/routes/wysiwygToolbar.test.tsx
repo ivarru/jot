@@ -1,5 +1,6 @@
 import { render } from "solid-js/web";
 import { dayOfWeek, todayIsoDate, type IsoDate } from "~/domain/dates";
+import { shortcutLabelsForPlatform } from "~/editor/editorModeShortcut";
 import type { LocalDraft, SaveDailyNoteInput } from "~/storage/types";
 import Home from "./index";
 
@@ -236,13 +237,14 @@ describe("Home WYSIWYG toolbar", () => {
     try {
       await waitForEditable(host, "quote me");
 
+      const shortcutLabels = shortcutLabelsForPlatform(navigator.platform);
       const expectedTooltips = [
         "Previous day",
         `Jump to today (${dayOfWeek(todayIsoDate(), undefined, "long")})`,
-        "Toggle raw Markdown (Ctrl/Cmd+Shift+M)",
+        `Toggle raw Markdown (${shortcutLabels.editorModeToggle})`,
         "Next day",
-        "Undo (Ctrl/Cmd+Z)",
-        "Redo (Ctrl/Cmd+Shift+Z)",
+        `Undo (${shortcutLabels.undo})`,
+        `Redo (${shortcutLabels.redo})`,
         "Dedent (Shift+Tab)",
         "Toggle task checkbox",
         "Indent (Tab)",
@@ -250,7 +252,8 @@ describe("Home WYSIWYG toolbar", () => {
         "Toggle bold format",
         "Toggle block quote format",
         "Toggle inline code format",
-        "Insert or edit link (Ctrl/Cmd+K)",
+        `Insert or edit link (${shortcutLabels.linkEdit})`,
+        `Add tag (${shortcutLabels.tagInsert})`,
         "Insert Daily Note section link",
         "Insert image",
         "Sync status: Synced. Force synchronization",

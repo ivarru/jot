@@ -18,6 +18,7 @@ The app is built with SolidStart's static output path and is intended to run on 
 - Image attachments from Google Photos, device upload, camera, or clipboard paste.
 - Jot-owned Google Photos album named `jot` for copied image attachments.
 - Plain Markdown image references using `![alt](jot:image:<id>)`.
+- Portable reference tags using `[#tag](jot:tag/tag)`, with WYSIWYG chips and browser-local suggestions.
 - Development-only fake storage, fake image flows, and real-browser regression tests.
 
 ## Local Development
@@ -98,6 +99,7 @@ Manual Google Photos validation is tracked in [docs/manual-google-photos-retest.
 Project terminology and decisions are documented in:
 
 - [CONTEXT.md](CONTEXT.md)
+- [Tag syntax and usage](docs/tags.md)
 - [NOTES.md](NOTES.md) for known issues, future work, and unsettled design questions
 - [docs/testing.md](docs/testing.md)
 - [docs/sync-model.md](docs/sync-model.md)

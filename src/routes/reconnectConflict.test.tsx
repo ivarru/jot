@@ -1,5 +1,6 @@
 import { render } from "solid-js/web";
 import { dayOfWeek, todayIsoDate, type IsoDate } from "~/domain/dates";
+import { shortcutLabelsForPlatform } from "~/editor/editorModeShortcut";
 import type { LocalDraft } from "~/storage/types";
 import {
   cleanupRouteTestDom,
@@ -58,6 +59,10 @@ describe("Home reconnect and conflict handling", () => {
     };
     const host = document.createElement("div");
     document.body.append(host);
+    localStorage.setItem("jot.tagSuggestions.v1", JSON.stringify({
+      known: ["private-project"],
+      dismissed: ["mistake"]
+    }));
 
     const dispose = render(() => <Home />, host);
     await testState.delayedDraftLoad.started.promise;
@@ -78,6 +83,7 @@ describe("Home reconnect and conflict handling", () => {
 
     expect(testState.drafts.size).toBe(0);
     expect(localStorage.getItem("jot.fakeAuth")).toBeNull();
+    expect(localStorage.getItem("jot.tagSuggestions.v1")).toBeNull();
 
     dispose();
   });
@@ -133,7 +139,9 @@ describe("Home reconnect and conflict handling", () => {
 
     const linkButton = host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']");
     expect(linkButton).not.toBeNull();
-    expect(linkButton!.getAttribute("data-tooltip")).toBe("Insert or edit link (Ctrl/Cmd+K)");
+    expect(linkButton!.getAttribute("data-tooltip")).toBe(
+      `Insert or edit link (${shortcutLabelsForPlatform(navigator.platform).linkEdit})`
+    );
     linkButton!.click();
     await settle();
 
@@ -182,6 +190,245 @@ describe("Home reconnect and conflict handling", () => {
     expect(dialog(host, "Insert link")).not.toBeNull();
     const inputs = Array.from(host.querySelectorAll<HTMLInputElement>(".link-modal input"));
     expect(inputs.map((input) => input.value)).toEqual(["selected text", ""]);
+
+    dispose();
+  });
+
+  it("inserts a tag at the raw editor cursor with Ctrl+Alt+K", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "Review this",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+    rawModeButton(host).click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']");
+    expect(editor).not.toBeNull();
+    editor!.setSelectionRange(editor!.value.length, editor!.value.length);
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "k",
+      code: "KeyK",
+      ctrlKey: true,
+      altKey: true
+    });
+    editor!.dispatchEvent(event);
+    await settle();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(dialog(host, "Add tag")).not.toBeNull();
+    const input = host.querySelector<HTMLInputElement>(".tag-modal input");
+    expect(input).not.toBeNull();
+    input!.value = "Follow Up";
+    input!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    host.querySelector<HTMLButtonElement>(".tag-modal button[type='submit']")!.click();
+    await settle();
+
+    expect(editor!.value).toBe("Review this [#follow-up](jot:tag/follow-up)");
+    dispose();
+  });
+
+  it("does not open the tag picker inside Markdown links or inline code", async () => {
+    const source = "Read [the docs](https://example.com) and `sample code`";
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: source,
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+    rawModeButton(host).click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!;
+    const tagButton = host.querySelector<HTMLButtonElement>("button[aria-label='Add tag']")!;
+
+    editor.setSelectionRange(source.indexOf("the docs") + 2, source.indexOf("the docs") + 2);
+    tagButton.click();
+    await settle();
+    expect(dialog(host, "Add tag")).toBeNull();
+
+    editor.setSelectionRange(source.indexOf("sample code") + 2, source.indexOf("sample code") + 2);
+    tagButton.click();
+    await settle();
+    expect(dialog(host, "Add tag")).toBeNull();
+    expect(editor.value).toBe(source);
+    expect(localStorage.getItem("jot.tagSuggestions.v1")).toBeNull();
+
+    dispose();
+  });
+
+  it("does not open the tag picker at any insertion point in a heading", async () => {
+    const source = "Lead paragraph\n\n# Important heading\n\nParagraph";
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: source,
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+    rawModeButton(host).click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!;
+    const tagButton = host.querySelector<HTMLButtonElement>("button[aria-label='Add tag']")!;
+    const headingStart = source.indexOf("#");
+    editor.setSelectionRange(0, headingStart);
+    tagButton.click();
+    await settle();
+    expect(dialog(host, "Add tag")).toBeNull();
+
+    for (const offset of [headingStart, source.indexOf("heading") + 2, source.indexOf("\n", headingStart)]) {
+      editor.setSelectionRange(offset, offset);
+      tagButton.click();
+      await settle();
+      expect(dialog(host, "Add tag")).toBeNull();
+    }
+    expect(editor.value).toBe(source);
+
+    dispose();
+  });
+
+  it("still initializes when reading the localStorage property throws", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get: () => {
+        throw new DOMException("Blocked", "SecurityError");
+      }
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    let dispose: (() => void) | undefined;
+    try {
+      dispose = render(() => <Home />, host);
+      expect(host.textContent).toContain("Jot");
+    } finally {
+      dispose?.();
+      if (descriptor === undefined) {
+        Reflect.deleteProperty(globalThis, "localStorage");
+      } else {
+        Object.defineProperty(globalThis, "localStorage", descriptor);
+      }
+    }
+  });
+
+  it("discovers suggestions on note load without parsing tag-like edits on every keystroke", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "Review",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+    rawModeButton(host).click();
+    await settle();
+
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!;
+    editor.value = "Review [#typed](jot:tag/typed)";
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+    clickButton(host, "Add tag");
+    await settle();
+
+    expect(host.querySelector("button[aria-label='#typed']")).toBeNull();
+    expect(editor.value).toBe("Review [#typed](jot:tag/typed)");
+
+    dispose();
+  });
+
+  it("suggests tags from notes and can hide a mistaken suggestion without editing the note", async () => {
+    const source = "Review [#research](jot:tag/research) [#mistake](jot:tag/mistake)";
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: source,
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+    clickButton(host, "Add tag");
+    await settle();
+
+    expect(button(host, "#research")).not.toBeNull();
+    expect(button(host, "#mistake")).not.toBeNull();
+    clickButton(host, "Remove #mistake from suggestions");
+    await settle();
+
+    expect(host.querySelector("button[aria-label='#mistake']")).toBeNull();
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+    expect(editor?.value).toBe(source);
+
+    clickButton(host, "Cancel");
+    clickButton(host, "Add tag");
+    await settle();
+    expect(host.querySelector("button[aria-label='#mistake']")).toBeNull();
+    expect(button(host, "#research")).not.toBeNull();
+
+    dispose();
+  });
+
+  it("filters tag suggestions by prefix and selects them with the arrow keys", async () => {
+    const source = [
+      "Tags: [#research](jot:tag/research) [#release-notes](jot:tag/release-notes)",
+      "[#testing](jot:tag/testing)"
+    ].join(" ");
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: source,
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+    clickButton(host, "Add tag");
+    await settle();
+
+    const input = host.querySelector<HTMLInputElement>(".tag-modal input")!;
+    input.value = "Re";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await settle();
+
+    expect(host.querySelector("button[aria-label='#research']")).not.toBeNull();
+    expect(host.querySelector("button[aria-label='#release-notes']")).not.toBeNull();
+    expect(host.querySelector("button[aria-label='#testing']")).toBeNull();
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowDown" }));
+    await settle();
+    expect(input.value).toBe("research");
+    expect(host.querySelector("[role='option'][aria-selected='true']")?.textContent).toContain("#research");
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowDown" }));
+    await settle();
+    expect(input.value).toBe("release-notes");
+    expect(host.querySelector("[role='option'][aria-selected='true']")?.textContent).toContain("#release-notes");
 
     dispose();
   });
@@ -1608,6 +1855,7 @@ describe("Home reconnect and conflict handling", () => {
       "Toggle block quote format",
       "Toggle inline code format",
       "Insert or edit link",
+      "Add tag",
       "Insert Daily Note section link",
       "Insert image"
     ]);
@@ -1623,12 +1871,18 @@ describe("Home reconnect and conflict handling", () => {
     expect(todayButton!.disabled).toBe(false);
     expect(todayButton!.textContent).toBe(dayOfWeek("2030-02-02"));
     expect(todayButton!.getAttribute("data-tooltip")).toBe(`Jump to today (${dayOfWeek(todayIsoDate(), undefined, "long")})`);
-    expect(rawModeButton(host).getAttribute("data-tooltip")).toBe("Toggle raw Markdown (Ctrl/Cmd+Shift+M)");
+    const shortcutLabels = shortcutLabelsForPlatform(navigator.platform);
+    expect(rawModeButton(host).getAttribute("data-tooltip")).toBe(
+      `Toggle raw Markdown (${shortcutLabels.editorModeToggle})`
+    );
     expect(host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.getAttribute("data-tooltip")).toBe(
-      "Insert or edit link (Ctrl/Cmd+K)"
+      `Insert or edit link (${shortcutLabels.linkEdit})`
     );
     expect(host.querySelector<HTMLButtonElement>("button[aria-label='Insert or edit link']")!.getAttribute("aria-keyshortcuts")).toBe(
       "Control+K Meta+K"
+    );
+    expect(host.querySelector<HTMLButtonElement>("button[aria-label='Add tag']")!.getAttribute("aria-keyshortcuts")).toBe(
+      "Control+Alt+K Meta+Alt+K"
     );
     expect(
       host.querySelector("button[aria-label='Toggle block quote format'] .format-letter-quote")
@@ -2211,7 +2465,9 @@ describe("Home reconnect and conflict handling", () => {
 
     const undo = host.querySelector<HTMLButtonElement>("button[aria-label='Undo']");
     expect(undo).not.toBeNull();
-    expect(undo!.getAttribute("data-tooltip")).toBe("Undo (Ctrl/Cmd+Z)");
+    expect(undo!.getAttribute("data-tooltip")).toBe(
+      `Undo (${shortcutLabelsForPlatform(navigator.platform).undo})`
+    );
     undo!.click();
     await settle();
 
@@ -2219,7 +2475,9 @@ describe("Home reconnect and conflict handling", () => {
 
     const redo = host.querySelector<HTMLButtonElement>("button[aria-label='Redo']");
     expect(redo).not.toBeNull();
-    expect(redo!.getAttribute("data-tooltip")).toBe("Redo (Ctrl/Cmd+Shift+Z)");
+    expect(redo!.getAttribute("data-tooltip")).toBe(
+      `Redo (${shortcutLabelsForPlatform(navigator.platform).redo})`
+    );
     redo!.click();
     await settle();
 

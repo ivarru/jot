@@ -162,6 +162,20 @@ export function selectionOverlapsMarkdownLinkOrCode(markdown: string, selection:
   return found;
 }
 
+export function selectionInsertionEndsInMarkdownHeading(markdown: string, selection: MarkdownSelection): boolean {
+  const selectedRange = normalizedSelection(markdown, selection);
+  const insertionOffset = selectedRange.end;
+  const root = markdownParser.parse(markdown) as Root;
+
+  return root.children.some((node) => {
+    if (node.type !== "heading") return false;
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (typeof start !== "number" || typeof end !== "number") return false;
+    return insertionOffset >= start && insertionOffset <= end;
+  });
+}
+
 export function markdownLinkAtOffset(markdown: string, cursorOffset: number): MarkdownLinkAtOffset | null {
   const offset = Math.max(0, Math.min(markdown.length, cursorOffset));
   const full = fullMarkdownLinkAtOffset(markdown, offset);

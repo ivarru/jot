@@ -43,7 +43,7 @@ npm run test:browser:workflows
 npm run test:smoke
 ```
 
-Focused aliases such as `npm run test:browser:raw-keyboard` and
+Focused aliases such as `npm run test:browser:raw-keyboard`, `npm run test:browser:tagging`, and
 `npm run test:browser:reconnect-conflict` are useful while developing. Pass normal Playwright options after `--`, for
 example:
 

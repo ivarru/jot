@@ -72,6 +72,17 @@ _Avoid_: App-private document, projected file, proprietary note
 The expectation that Jot keeps a **Daily Note**'s markdown text intact except for edits the user explicitly makes.
 _Avoid_: Autoformatting, normalization, markdown rewriting
 
+**Reference Tag**:
+An ordinary markdown link in a **Daily Note** whose `jot:tag/<canonical-name>` destination associates a reusable name
+with a paragraph, list item, or section. The visible label convention is `#<canonical-name>`.
+_Avoid_: Hashtag, label metadata, custom inline node
+
+**Tag Suggestion Catalog**:
+Browser-local convenience state containing previously encountered or inserted **Reference Tags**. Removing an entry
+from the catalog hides the suggestion without editing any **Daily Note**. Signing out clears the catalog so it cannot
+carry tag names or dismissals into another account.
+_Avoid_: Tag index, synced tag database, note metadata
+
 **Sync Conflict**:
 A state where the local and remote versions of a **Daily Note** have both changed since the last successful save. A **Sync Conflict** preserves both versions in the **Daily Note** text using Git-style conflict markers.
 _Avoid_: Overwrite, failed save, silent merge
@@ -153,6 +164,15 @@ Domain expert: Yes. It is stored as a Plain Markdown File.
 Dev: Should Jot reformat the Daily Note when saving?
 
 Domain expert: No. Source Preservation means Jot changes only what the user explicitly edits.
+
+Dev: How is a paragraph or list item tagged for future reference?
+
+Domain expert: Add a trailing Reference Tag link. For a section, put Reference Tags in a `Tags:` paragraph immediately
+below its heading.
+
+Dev: Does removing a mistaken entry from the Tag Suggestion Catalog remove it from Daily Notes?
+
+Domain expert: No. The catalog is browser-local convenience state; Reference Tags in Daily Notes remain unchanged.
 
 Dev: If the same Daily Note changes locally and remotely, should one version silently win?
 

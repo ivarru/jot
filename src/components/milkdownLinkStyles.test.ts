@@ -17,6 +17,16 @@ describe("Milkdown link styles", () => {
     expect(relativeSectionRule).toContain("color: var(--link-internal);");
   });
 
+  it("renders Jot tags as distinct tinted chips", () => {
+    const tagRule = blockFor('.milkdown-root a[href^="jot:tag/"]');
+
+    expect(tagRule).toContain("background:");
+    expect(tagRule).toContain("border-radius:");
+    expect(tagRule).toContain("font-size: 0.88rem;");
+    expect(tagRule).toContain("text-decoration: none;");
+    expect(tagRule).not.toContain("border:");
+  });
+
   function blockFor(selector: string): string {
     const start = styles.indexOf(`${selector} {`);
     expect(start).toBeGreaterThanOrEqual(0);

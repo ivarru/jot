@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.20.2",
+  "version": "0.21.0",
   "description": "A static progressive web app for personal Daily Notes.",
   "private": true,
   "license": "MIT",
@@ -28,6 +28,7 @@
     "test:browser:code-block-layout": "playwright test tests/browser/editing/code-block-layout.spec.ts",
     "test:browser:toolbar-indent": "playwright test tests/browser/editing/toolbar-indent.spec.ts",
     "test:browser:link-modal": "playwright test tests/browser/workflows/link-modal.spec.ts",
+    "test:browser:tagging": "playwright test tests/browser/workflows/tagging.spec.ts",
     "test:browser:daily-note-upload": "playwright test tests/browser/workflows/daily-note-upload.spec.ts",
     "test:browser:reconnect-conflict": "playwright test tests/browser/workflows/reconnect-conflict.spec.ts",
     "test:browser:image-upload": "playwright test tests/browser/workflows/image-upload.spec.ts",

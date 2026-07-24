@@ -758,6 +758,7 @@ select {
 .daily-note-upload-modal,
 .reconnect-modal,
 .link-modal,
+.tag-modal,
 .section-link-modal,
 .sync-conflict-resolution-modal {
   display: grid;
@@ -791,6 +792,7 @@ select {
 .daily-note-upload-modal-header,
 .reconnect-modal-header,
 .link-modal-header,
+.tag-modal-header,
 .section-link-modal-header,
 .sync-conflict-resolution-header {
   display: grid;
@@ -808,6 +810,7 @@ select {
 .daily-note-upload-modal h2,
 .reconnect-modal h2,
 .link-modal h2,
+.tag-modal h2,
 .section-link-modal h2,
 .sync-conflict-resolution-modal h2 {
   margin: 0;
@@ -817,6 +820,7 @@ select {
 .daily-note-upload-modal p,
 .reconnect-modal p,
 .link-modal p,
+.tag-modal p,
 .section-link-modal p,
 .sync-conflict-resolution-modal p {
   margin: 0;
@@ -856,6 +860,84 @@ select {
 
 .link-modal-error {
   color: var(--danger);
+  font-size: 13px;
+}
+
+.tag-modal-field {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tag-name-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  padding-inline-start: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.tag-name-control:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 78%);
+}
+
+.tag-name-control input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.tag-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.tag-suggestion {
+  display: inline-flex;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent), transparent 84%);
+}
+
+.tag-suggestion button {
+  min-height: 30px;
+  padding: 4px 4px 4px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+}
+
+.tag-suggestion .tag-suggestion-remove {
+  padding: 4px 9px 4px 5px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.tag-suggestion button:hover,
+.tag-suggestion button:focus-visible {
+  background: color-mix(in srgb, var(--accent), transparent 88%);
+}
+
+.tag-suggestion.is-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tag-modal-error {
+  color: var(--danger) !important;
   font-size: 13px;
 }
 
@@ -1173,6 +1255,18 @@ select {
 
 .milkdown-root a[href^="#"]:not([href^="#/date/"]) {
   color: var(--link-internal);
+}
+
+.milkdown-root a[href^="jot:tag/"] {
+  display: inline-block;
+  padding: 0.04em 0.42em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent), transparent 84%);
+  color: var(--accent);
+  font-size: 0.88rem;
+  font-weight: 650;
+  line-height: 1.4;
+  text-decoration: none;
 }
 
 .milkdown-root blockquote {

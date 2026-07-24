@@ -8,6 +8,7 @@ import {
   isSafeExternalHref,
   markdownLinkAtOffset,
   parseDailyNoteLinkTarget,
+  selectionInsertionEndsInMarkdownHeading,
   selectionOverlapsMarkdownLinkOrCode
 } from "./dailyNoteLinks";
 
@@ -140,6 +141,19 @@ describe("Daily Note links", () => {
       start: markdown.indexOf("[decision]"),
       end: markdown.indexOf("[decision]")
     })).toBe(false);
+  });
+
+  it("detects heading selections including insertion points at heading boundaries", () => {
+    const markdown = "Paragraph\n\n# Decisions\n\nAfter";
+    const headingStart = markdown.indexOf("#");
+    const headingEnd = markdown.indexOf("\n", headingStart);
+
+    expect(selectionInsertionEndsInMarkdownHeading(markdown, collapsedAt(markdown, "Decisions"))).toBe(true);
+    expect(selectionInsertionEndsInMarkdownHeading(markdown, { start: headingStart, end: headingStart })).toBe(true);
+    expect(selectionInsertionEndsInMarkdownHeading(markdown, { start: headingEnd, end: headingEnd })).toBe(true);
+    expect(selectionInsertionEndsInMarkdownHeading(markdown, { start: 0, end: headingStart })).toBe(true);
+    expect(selectionInsertionEndsInMarkdownHeading(markdown, collapsedAt(markdown, "Paragraph"))).toBe(false);
+    expect(selectionInsertionEndsInMarkdownHeading(markdown, { start: headingEnd, end: markdown.length })).toBe(false);
   });
 
   it("classifies safe external hrefs without treating Daily Note links as external", () => {
