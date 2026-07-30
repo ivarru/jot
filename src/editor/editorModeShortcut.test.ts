@@ -1,4 +1,5 @@
 import {
+  dailyNoteNavigationDelta,
   shortcutLabelsForPlatform,
   isEditorModeToggleShortcut,
   isLinkEditShortcut,
@@ -50,11 +51,46 @@ describe("editor mode shortcut", () => {
     }))).toBe(false);
   });
 
+  it("uses Ctrl+Alt or Cmd+Option with P and N for Daily Note navigation", () => {
+    expect(dailyNoteNavigationDelta(keyboardEvent({
+      key: "π",
+      code: "KeyP",
+      metaKey: true,
+      altKey: true
+    }))).toBe(-1);
+    expect(dailyNoteNavigationDelta(keyboardEvent({
+      key: "n",
+      code: "KeyN",
+      ctrlKey: true,
+      altKey: true
+    }))).toBe(1);
+  });
+
+  it("ignores nearby Daily Note navigation shortcuts and composing input", () => {
+    expect(dailyNoteNavigationDelta(keyboardEvent({ key: "p", code: "KeyP", ctrlKey: true }))).toBeNull();
+    expect(dailyNoteNavigationDelta(keyboardEvent({
+      key: "p",
+      code: "KeyP",
+      ctrlKey: true,
+      altKey: true,
+      shiftKey: true
+    }))).toBeNull();
+    expect(dailyNoteNavigationDelta(keyboardEvent({
+      key: "n",
+      code: "KeyN",
+      ctrlKey: true,
+      altKey: true,
+      isComposing: true
+    }))).toBeNull();
+  });
+
   it("shows only shortcuts for the current platform", () => {
     expect(shortcutLabelsForPlatform("MacIntel")).toEqual({
       editorModeToggle: "Cmd+Shift+M",
       linkEdit: "Cmd+K",
       tagInsert: "Cmd+Option+K",
+      previousDay: "Cmd+Option+P",
+      nextDay: "Cmd+Option+N",
       undo: "Cmd+Z",
       redo: "Cmd+Shift+Z"
     });
@@ -62,6 +98,8 @@ describe("editor mode shortcut", () => {
       editorModeToggle: "Ctrl+Shift+M",
       linkEdit: "Ctrl+K",
       tagInsert: "Ctrl+Alt+K",
+      previousDay: "Ctrl+Alt+P",
+      nextDay: "Ctrl+Alt+N",
       undo: "Ctrl+Z",
       redo: "Ctrl+Shift+Z"
     });

@@ -236,6 +236,54 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("moves to the next and previous Daily Note from the editor shortcuts", async () => {
+    testState.drafts.set("2030-02-01", draft("2030-02-01", "Previous day"));
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "Next day"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+    rawModeButton(host).click();
+    await settle();
+    const initialRawEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!;
+    initialRawEditor.value = "Saved before shortcut navigation";
+    initialRawEditor.dispatchEvent(new InputEvent("input", { bubbles: true }));
+
+    const nextEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "n",
+      code: "KeyN",
+      ctrlKey: true,
+      altKey: true
+    });
+    host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!.dispatchEvent(nextEvent);
+    await waitFor(() => {
+      expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")!.value).toBe("2030-02-03");
+    });
+    expect(nextEvent.defaultPrevented).toBe(true);
+
+    const previousEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "p",
+      code: "KeyP",
+      ctrlKey: true,
+      altKey: true
+    });
+    host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!.dispatchEvent(previousEvent);
+    await waitFor(() => {
+      expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")!.value).toBe("2030-02-02");
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!.value).toBe(
+        "Saved before shortcut navigation"
+      );
+    });
+    expect(previousEvent.defaultPrevented).toBe(true);
+
+    dispose();
+  });
+
   it("does not open the tag picker inside Markdown links or inline code", async () => {
     const source = "Read [the docs](https://example.com) and `sample code`";
     testState.remoteNote = {
@@ -1872,6 +1920,12 @@ describe("Home reconnect and conflict handling", () => {
     expect(todayButton!.textContent).toBe(dayOfWeek("2030-02-02"));
     expect(todayButton!.getAttribute("data-tooltip")).toBe(`Jump to today (${dayOfWeek(todayIsoDate(), undefined, "long")})`);
     const shortcutLabels = shortcutLabelsForPlatform(navigator.platform);
+    const previousDayButton = host.querySelector<HTMLButtonElement>("button[aria-label='Previous day']")!;
+    const nextDayButton = host.querySelector<HTMLButtonElement>("button[aria-label='Next day']")!;
+    expect(previousDayButton.getAttribute("data-tooltip")).toBe(`Previous day (${shortcutLabels.previousDay})`);
+    expect(previousDayButton.getAttribute("aria-keyshortcuts")).toBe("Control+Alt+P Meta+Alt+P");
+    expect(nextDayButton.getAttribute("data-tooltip")).toBe(`Next day (${shortcutLabels.nextDay})`);
+    expect(nextDayButton.getAttribute("aria-keyshortcuts")).toBe("Control+Alt+N Meta+Alt+N");
     expect(rawModeButton(host).getAttribute("data-tooltip")).toBe(
       `Toggle raw Markdown (${shortcutLabels.editorModeToggle})`
     );

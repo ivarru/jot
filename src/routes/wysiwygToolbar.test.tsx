@@ -239,10 +239,10 @@ describe("Home WYSIWYG toolbar", () => {
 
       const shortcutLabels = shortcutLabelsForPlatform(navigator.platform);
       const expectedTooltips = [
-        "Previous day",
+        `Previous day (${shortcutLabels.previousDay})`,
         `Jump to today (${dayOfWeek(todayIsoDate(), undefined, "long")})`,
         `Toggle raw Markdown (${shortcutLabels.editorModeToggle})`,
-        "Next day",
+        `Next day (${shortcutLabels.nextDay})`,
         `Undo (${shortcutLabels.undo})`,
         `Redo (${shortcutLabels.redo})`,
         "Dedent (Shift+Tab)",

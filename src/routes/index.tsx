@@ -83,7 +83,10 @@ import {
 import {
   EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS,
   LINK_EDIT_ARIA_SHORTCUTS,
+  NEXT_DAY_ARIA_SHORTCUTS,
+  PREVIOUS_DAY_ARIA_SHORTCUTS,
   TAG_INSERT_ARIA_SHORTCUTS,
+  dailyNoteNavigationDelta,
   isEditorModeToggleShortcut,
   isLinkEditShortcut,
   isTagInsertShortcut,
@@ -1201,6 +1204,20 @@ export default function Home() {
     }
     window.location.hash = nextHash.slice(1);
   };
+
+  createEffect(() => {
+    const onDailyNoteNavigationShortcut = (event: KeyboardEvent) => {
+      const delta = dailyNoteNavigationDelta(event);
+      const date = selectedDate();
+      if (delta === null || date === null || !authenticated()) return;
+      if (!eventOriginatesInEditor(event) || document.querySelector("[role='dialog']") !== null) return;
+
+      event.preventDefault();
+      void navigateToDate(addDays(date, delta));
+    };
+    window.addEventListener("keydown", onDailyNoteNavigationShortcut);
+    onCleanup(() => window.removeEventListener("keydown", onDailyNoteNavigationShortcut));
+  });
 
   const startDailyNoteUpload = () => {
     setTopMenuOpen(false);
@@ -2736,7 +2753,8 @@ export default function Home() {
                 <button
                   type="button"
                   aria-label="Previous day"
-                  data-tooltip="Previous day"
+                  aria-keyshortcuts={PREVIOUS_DAY_ARIA_SHORTCUTS}
+                  data-tooltip={`Previous day (${shortcutLabels.previousDay})`}
                   onClick={() => void navigateToDate(addDays(selectedDate()!, -1))}
                 >
                   ‹
@@ -2839,7 +2857,8 @@ export default function Home() {
                 <button
                   type="button"
                   aria-label="Next day"
-                  data-tooltip="Next day"
+                  aria-keyshortcuts={NEXT_DAY_ARIA_SHORTCUTS}
+                  data-tooltip={`Next day (${shortcutLabels.nextDay})`}
                   onClick={() => void navigateToDate(addDays(selectedDate()!, 1))}
                 >
                   ›
