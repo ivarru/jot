@@ -1142,9 +1142,24 @@ export function createLinkBoundaryTypingPlugin(
   linkType: MarkType
 ) {
   return new Plugin({
-    appendTransaction: (transactions, oldState, newState): Transaction | null =>
-      unlinkAppendedLinkInputTransaction(transactions, oldState, newState, linkType) ??
-      unlinkTrailingLinkWhitespaceTransaction(transactions, newState, linkType) ??
+    props: {
+      handleTextInput: (view, from, to, text, defaultTransaction) => {
+        if (
+          from !== to ||
+          text.length === 0 ||
+          view.state.selection.from !== from ||
+          !isAtLinkRightBoundary(view.state.selection, linkType)
+        ) {
+          return false;
+        }
+
+        const transaction = defaultTransaction()
+          .removeMark(from, from + text.length, linkType);
+        view.dispatch(transaction);
+        return true;
+      }
+    },
+    appendTransaction: (_transactions, _oldState, newState): Transaction | null =>
       clearLinkBoundaryStoredMarkTransaction(newState, linkType)
   });
 }
@@ -1237,56 +1252,6 @@ function closestInlineCodeElement(node: Node, root: HTMLElement): HTMLElement | 
     current = current.parentElement;
   }
   return null;
-}
-
-function unlinkAppendedLinkInputTransaction(
-  transactions: readonly Transaction[],
-  oldState: EditorState,
-  newState: EditorState,
-  linkType: MarkType
-): Transaction | null {
-  if (!oldState.selection.empty || !isAtLinkRightBoundary(oldState.selection, linkType)) return null;
-  if (!transactions.some((transaction) => transaction.docChanged)) return null;
-
-  let insertedFrom = oldState.selection.from;
-  let insertedTo = oldState.selection.from;
-  for (const transaction of transactions) {
-    insertedFrom = transaction.mapping.map(insertedFrom, -1);
-    insertedTo = transaction.mapping.map(insertedTo, 1);
-  }
-
-  if (insertedFrom >= insertedTo || !newState.doc.rangeHasMark(insertedFrom, insertedTo, linkType)) return null;
-  return newState.tr
-    .removeMark(insertedFrom, insertedTo, linkType)
-    .setMeta("addToHistory", false);
-}
-
-function unlinkTrailingLinkWhitespaceTransaction(
-  transactions: readonly Transaction[],
-  state: EditorState,
-  linkType: MarkType
-): Transaction | null {
-  if (!transactions.some((transaction) => transaction.docChanged)) return null;
-
-  const selection = state.selection;
-  if (!selection.empty) return null;
-
-  const before = selection.$from.nodeBefore;
-  if (before === null || !before.isText || before.text === undefined) return null;
-
-  const link = linkType.isInSet(before.marks);
-  if (link === undefined) return null;
-
-  const after = selection.$from.nodeAfter;
-  const afterLink = after === null ? undefined : linkType.isInSet(after.marks);
-  if (afterLink !== undefined && afterLink.eq(link)) return null;
-
-  const trailingWhitespace = before.text.match(/\s+$/)?.[0] ?? "";
-  if (trailingWhitespace.length === 0) return null;
-
-  return state.tr
-    .removeMark(selection.from - trailingWhitespace.length, selection.from, linkType)
-    .setMeta("addToHistory", false);
 }
 
 function clearLinkBoundaryStoredMarkTransaction(state: EditorState, linkType: MarkType): Transaction | null {

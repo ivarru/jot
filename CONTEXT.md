@@ -71,7 +71,8 @@ _Avoid_: App-private document, projected file, proprietary note
 **Source Preservation**:
 The expectation that Jot keeps a non-empty **Daily Note**'s markdown text intact except for edits the user explicitly
 makes. A document containing only whitespace has no visible note content and is canonicalized to the empty string when
-persisted.
+persisted. Existing whitespace-only notes are deliberately not scanned or rewritten; canonicalization happens when a
+later persistence operation receives their content.
 _Avoid_: Autoformatting, normalization, markdown rewriting
 
 **Reference Tag**:
@@ -166,7 +167,8 @@ Domain expert: Yes. It is stored as a Plain Markdown File.
 Dev: Should Jot reformat the Daily Note when saving?
 
 Domain expert: No. Source Preservation means Jot changes only what the user explicitly edits, except that a
-whitespace-only document is saved as empty because it has no visible note content.
+whitespace-only document is saved as empty because it has no visible note content. Existing whitespace-only notes are
+deliberately left unchanged until their content passes through a later persistence operation.
 
 Dev: How is a paragraph or list item tagged for future reference?
 

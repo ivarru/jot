@@ -1320,11 +1320,10 @@ describe("MilkdownEditor", () => {
     try {
       const view = editor.ctx.get(editorViewCtx);
       const serializer = editor.ctx.get(serializerCtx);
-      const linkType = linkSchema.type(editor.ctx);
       const cursor = findTextEndPosition(view.state.doc, "https://example.com/a:b?x=1");
-      const link = linkType.create({ href: "https://example.com/a:b?x=1" });
 
-      view.dispatch(view.state.tr.replaceRangeWith(cursor, cursor, view.state.schema.text(" ", [link])));
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor)));
+      typeTextThroughView(view, " ");
 
       expect(serializer(view.state.doc)).toBe("<https://example.com/a:b?x=1> \n");
     } finally {
@@ -1338,14 +1337,37 @@ describe("MilkdownEditor", () => {
     try {
       const view = editor.ctx.get(editorViewCtx);
       const serializer = editor.ctx.get(serializerCtx);
-      const linkType = linkSchema.type(editor.ctx);
       const cursor = findTextEndPosition(view.state.doc, "https://example.com/a:b?x=1");
-      const link = linkType.create({ href: "https://example.com/a:b?x=1" });
 
       view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor)));
-      view.dispatch(view.state.tr.replaceRangeWith(cursor, cursor, view.state.schema.text("next", [link])));
+      typeTextThroughView(view, "next");
 
       expect(serializer(view.state.doc)).toBe("<https://example.com/a:b?x=1>next\n");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
+  it("preserves an explicitly inserted link adjacent to an existing link", async () => {
+    const editor = await createMilkdownTestEditor("[a](https://example.com/a)");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const serializer = editor.ctx.get(serializerCtx);
+      const linkType = linkSchema.type(editor.ctx);
+      const cursor = findTextEndPosition(view.state.doc, "a");
+      const adjacentLink = linkType.create({ href: "https://example.com/b" });
+
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor)));
+      view.dispatch(view.state.tr.replaceRangeWith(
+        cursor,
+        cursor,
+        view.state.schema.text("b", [adjacentLink])
+      ));
+
+      expect(serializer(view.state.doc)).toBe(
+        "[a](https://example.com/a)[b](https://example.com/b)\n"
+      );
     } finally {
       await editor.destroy();
     }
