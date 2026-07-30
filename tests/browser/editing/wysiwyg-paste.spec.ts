@@ -39,11 +39,16 @@ test("WYSIWYG URL typing and paste keep raw Markdown link syntax stable", async 
 
   await switchToWysiwygMode(page);
   await placeCursorAtEndOfWysiwygLink(page, pastedUrl);
-  await insertWysiwygText(page, " ");
+  await insertWysiwygText(page, "notes");
   await switchToRawMode(page);
-  await expectRawMarkdown(page, expectedUrlMarkdown(`${pastedUrl} `));
-  expect(await rawMarkdown(page)).not.toContain(`[${pastedUrl} ](${pastedUrl})`);
+  await expectRawMarkdown(page, `<${pastedUrl}>notes\n`);
+  expect(await rawMarkdown(page)).not.toContain(`[${pastedUrl}notes](${pastedUrl})`);
   await expectRawMarkdownNotToEscapeColons(page);
+
+  await switchToWysiwygMode(page);
+  await expectWysiwygLink(page, pastedUrl);
+  await switchToRawMode(page);
+  await expectRawMarkdown(page, `<${pastedUrl}>notes\n`);
 });
 
 async function insertWysiwygText(page: Page, text: string): Promise<void> {
@@ -83,9 +88,7 @@ async function placeCursorAtEndOfWysiwygLink(page: Page, url: string): Promise<v
 }
 
 function expectedUrlMarkdown(url: string): string {
-  const trailingSpace = url.endsWith(" ") ? " " : "";
-  const trimmedUrl = trailingSpace.length > 0 ? url.trimEnd() : url;
-  return `<${trimmedUrl}>${trailingSpace}\n`;
+  return `<${url}>\n`;
 }
 
 async function expectRawMarkdownNotToEscapeColons(page: Page): Promise<void> {

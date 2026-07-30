@@ -1332,6 +1332,25 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("keeps appended browser input outside a link even when the browser inherits the link mark", async () => {
+    const editor = await createMilkdownTestEditor("<https://example.com/a:b?x=1>");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const serializer = editor.ctx.get(serializerCtx);
+      const linkType = linkSchema.type(editor.ctx);
+      const cursor = findTextEndPosition(view.state.doc, "https://example.com/a:b?x=1");
+      const link = linkType.create({ href: "https://example.com/a:b?x=1" });
+
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor)));
+      view.dispatch(view.state.tr.replaceRangeWith(cursor, cursor, view.state.schema.text("next", [link])));
+
+      expect(serializer(view.state.doc)).toBe("<https://example.com/a:b?x=1>next\n");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
   it("keeps text typed inside a link in that link", async () => {
     const editor = await createMilkdownTestEditor("See [decision](#/date/2030-02-01#decisions)");
 

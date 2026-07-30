@@ -1142,7 +1142,8 @@ export function createLinkBoundaryTypingPlugin(
   linkType: MarkType
 ) {
   return new Plugin({
-    appendTransaction: (transactions, _oldState, newState): Transaction | null =>
+    appendTransaction: (transactions, oldState, newState): Transaction | null =>
+      unlinkAppendedLinkInputTransaction(transactions, oldState, newState, linkType) ??
       unlinkTrailingLinkWhitespaceTransaction(transactions, newState, linkType) ??
       clearLinkBoundaryStoredMarkTransaction(newState, linkType)
   });
@@ -1236,6 +1237,28 @@ function closestInlineCodeElement(node: Node, root: HTMLElement): HTMLElement | 
     current = current.parentElement;
   }
   return null;
+}
+
+function unlinkAppendedLinkInputTransaction(
+  transactions: readonly Transaction[],
+  oldState: EditorState,
+  newState: EditorState,
+  linkType: MarkType
+): Transaction | null {
+  if (!oldState.selection.empty || !isAtLinkRightBoundary(oldState.selection, linkType)) return null;
+  if (!transactions.some((transaction) => transaction.docChanged)) return null;
+
+  let insertedFrom = oldState.selection.from;
+  let insertedTo = oldState.selection.from;
+  for (const transaction of transactions) {
+    insertedFrom = transaction.mapping.map(insertedFrom, -1);
+    insertedTo = transaction.mapping.map(insertedTo, 1);
+  }
+
+  if (insertedFrom >= insertedTo || !newState.doc.rangeHasMark(insertedFrom, insertedTo, linkType)) return null;
+  return newState.tr
+    .removeMark(insertedFrom, insertedTo, linkType)
+    .setMeta("addToHistory", false);
 }
 
 function unlinkTrailingLinkWhitespaceTransaction(
