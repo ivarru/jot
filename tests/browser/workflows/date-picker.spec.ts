@@ -13,6 +13,7 @@ test("the date picker marks only notes with visible content", async ({ page }) =
   await seedLocalDraft(page, contentDate, "Visible note");
   await seedLocalDraft(page, whitespaceDate, " \n\t");
   await page.reload();
+  await expect(wysiwygEditor(page)).toBeVisible();
 
   await dateInput.click();
   await expect(page.getByRole("dialog", { name: "Date picker" })).toBeVisible();
