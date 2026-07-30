@@ -452,7 +452,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             }));
             ctx.update(inlineSyncConfig.key, (config) => ({
               ...config,
-              shouldSyncNode: shouldSyncMilkdownInlineMarkdown(config.shouldSyncNode)
+              shouldSyncNode: shouldSyncMilkdownInlineMarkdown(
+                config.shouldSyncNode,
+                config.placeholderConfig
+              )
             }));
             ctx.get(listenerCtx).updated((ctx, doc) => {
               if (disposed || activeSession !== session) return;

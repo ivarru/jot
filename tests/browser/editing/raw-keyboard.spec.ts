@@ -53,11 +53,32 @@ test("WYSIWYG typing can edit between rendered full links", async ({ page }) => 
 test("WYSIWYG typing after a rendered link stays outside the link", async ({ page }) => {
   const url = "https://example.com/a:b?x=1";
 
-  await setRawMarkdown(page, `<${url}>`);
+  await setRawMarkdown(page, `See <${url}>`);
   await switchToWysiwygMode(page);
   await focusWysiwygTextOffset(page, url, url.length);
   await cdpInsertText(page, "next");
-  await expectUnderlyingMarkdown(page, `<${url}>next`);
+  await expectUnderlyingMarkdown(page, `See <${url}>next`);
+});
+
+test("WYSIWYG typing after a rendered link in a heading stays outside the link", async ({ page }) => {
+  const url = "https://example.com/a:b?x=1";
+
+  await setRawMarkdown(page, `# Heading <${url}>`);
+  await switchToWysiwygMode(page);
+  await focusWysiwygTextOffset(page, url, url.length);
+  await cdpInsertText(page, "next");
+  await expectUnderlyingMarkdown(page, `# Heading <${url}>next`);
+});
+
+test("WYSIWYG inline Markdown still synchronizes away from a heading link", async ({ page }) => {
+  const url = "https://example.com/a:b?x=1";
+
+  await setRawMarkdown(page, `# Heading <${url}>`);
+  await switchToWysiwygMode(page);
+  await focusWysiwygTextOffset(page, "Heading", 3);
+  await cdpInsertText(page, " *important* ");
+  await expect(page.locator(".milkdown-root h1 em")).toHaveText("important");
+  await expectUnderlyingMarkdown(page, `# Hea *important* ding <${url}>`);
 });
 
 test("WYSIWYG inline-code boundary typing follows the visible caret side", async ({ page }) => {

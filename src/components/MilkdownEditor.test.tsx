@@ -5,6 +5,7 @@ import type { MarkType, Node as ProseMirrorNode } from "@milkdown/kit/prose/mode
 import { EditorState, Plugin, TextSelection } from "@milkdown/kit/prose/state";
 import { commonmark, inlineCodeSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
+import { automd, inlineSyncConfig } from "@milkdown/plugin-automd";
 import { toggleMark } from "@milkdown/kit/prose/commands";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import {
@@ -19,6 +20,7 @@ import {
   trackMilkdownSerializedMarkdown
 } from "./MilkdownEditor";
 import { createLatexPlugins } from "./milkdownLatex";
+import { shouldSyncMilkdownInlineMarkdown } from "./milkdownInlineSync";
 
 describe("MilkdownEditor", () => {
   beforeAll(() => {
@@ -1268,6 +1270,46 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("keeps text typed at the DOM endpoint of a heading autolink outside that link", async () => {
+    const testEditor = await createMilkdownDomTestEditor("# Heading <https://example.com/a:b?x=1>");
+
+    try {
+      const linkText = testEditor.root.querySelector("a")?.firstChild;
+      expect(linkText).toBeInstanceOf(Text);
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      view.focus();
+      expect(view.hasFocus()).toBe(true);
+      await placeNativeCaret(view, linkText!, linkText!.textContent!.length);
+      typeTextThroughView(view, "next");
+      await animationFrame();
+
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc))
+        .toBe("# Heading <https://example.com/a:b?x=1>next\n");
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
+  it("keeps inline Markdown sync enabled for edits away from a heading autolink", async () => {
+    const testEditor = await createMilkdownDomTestEditor("# Heading <https://example.com>");
+
+    try {
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      const headingStart = findTextNodePosition(view.state.doc, "Heading");
+      expect(headingStart).not.toBeNull();
+      view.focus();
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, headingStart!)));
+      typeTextThroughView(view, "*important* ");
+      await animationFrame();
+
+      expect(testEditor.root.querySelector("h1 em")?.textContent).toBe("important");
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc))
+        .toBe("# *important* Heading <https://example.com>\n");
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
   it("maps a cursor after an autolink to the Markdown position after the closing angle bracket", async () => {
     const markdown = "<https://example.com/a:b?x=1>";
     const editor = await createMilkdownTestEditor(markdown);
@@ -1879,9 +1921,18 @@ async function createMilkdownDomTestEditor(markdown: string) {
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, markdown);
+      ctx.update(inlineSyncConfig.key, (config) => ({
+        ...config,
+        shouldSyncNode: shouldSyncMilkdownInlineMarkdown(
+          config.shouldSyncNode,
+          config.placeholderConfig
+        )
+      }));
     })
     .use(commonmark)
     .use(gfm)
+    .use(automd)
+    .use($prose((ctx) => createLinkBoundaryTypingPlugin(Plugin, linkSchema.type(ctx))))
     .use($prose((ctx) => createInlineCodeBoundaryAffinityPlugin(Plugin, inlineCodeSchema.type(ctx))))
     .create();
 

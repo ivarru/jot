@@ -148,7 +148,10 @@ async function createEditor(markdown: string) {
       ctx.set(defaultValueCtx, markdown);
       ctx.update(inlineSyncConfig.key, (config) => ({
         ...config,
-        shouldSyncNode: shouldSyncMilkdownInlineMarkdown(config.shouldSyncNode)
+        shouldSyncNode: shouldSyncMilkdownInlineMarkdown(
+          config.shouldSyncNode,
+          config.placeholderConfig
+        )
       }));
     })
     .use(commonmark)
