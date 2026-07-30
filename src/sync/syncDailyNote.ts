@@ -1,4 +1,5 @@
 import { mergeDailyNote, type MergeResult } from "~/domain/merge";
+import { hasDailyNoteContent, normalizeDailyNoteMarkdown } from "~/domain/dailyNoteMarkdown";
 import { createDraft } from "~/storage/localDraftStore";
 import type { IsoDate } from "~/domain/dates";
 import type { LocalDraft, LocalDraftStore, RemoteDailyNote, RemoteStorageProvider, SyncStatus } from "~/storage/types";
@@ -158,16 +159,17 @@ export async function persistLocalDraft(
   drafts: LocalDraftStore,
   control: DailyNoteSyncControl = {}
 ): Promise<SyncStatus> {
+  const normalizedMarkdown = normalizeDailyNoteMarkdown(markdown);
   const existing = await drafts.load(date);
   assertCanContinue(control);
   const baselineMarkdown = existing?.baselineMarkdown ?? "";
   const baselineRevisionId = existing?.baselineRevisionId ?? null;
-  const dirty = markdown !== baselineMarkdown;
+  const dirty = normalizedMarkdown !== baselineMarkdown;
 
-  await drafts.save(createDraft(date, markdown, baselineMarkdown, baselineRevisionId, dirty));
+  await drafts.save(createDraft(date, normalizedMarkdown, baselineMarkdown, baselineRevisionId, dirty));
 
   if (dirty) return "saved-locally";
-  return cleanDraftStatus(markdown, baselineRevisionId);
+  return cleanDraftStatus(normalizedMarkdown, baselineRevisionId);
 }
 
 export async function syncDailyNote(
@@ -347,7 +349,7 @@ function currentDraftStartedFromSameBaseline(startedWith: LocalDraft, current: L
 
 function cleanDraftStatus(markdown: string, baselineRevisionId: string | null): "local-only" | "synced" {
   if (baselineRevisionId !== null) return "synced";
-  return markdown.length === 0 ? "synced" : "local-only";
+  return hasDailyNoteContent(markdown) ? "local-only" : "synced";
 }
 
 function draftToSession(draft: LocalDraft): DailyNoteSession {

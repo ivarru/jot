@@ -5,9 +5,13 @@ describe("Local Draft note existence", () => {
     expect(isExistingDailyNoteDraft(createDraft("2030-02-01", "", "", null, false))).toBe(false);
   });
 
-  it("counts non-empty, remote-backed, or dirty drafts as existing notes", () => {
+  it("does not count empty or whitespace-only drafts as existing notes, regardless of sync history", () => {
+    expect(isExistingDailyNoteDraft(createDraft("2030-02-01", " \n\t", "", null, true))).toBe(false);
+    expect(isExistingDailyNoteDraft(createDraft("2030-02-01", "", "remote", "revision-1", true))).toBe(false);
+  });
+
+  it("counts drafts with visible content as existing notes", () => {
     expect(isExistingDailyNoteDraft(createDraft("2030-02-01", "local", "", null, false))).toBe(true);
-    expect(isExistingDailyNoteDraft(createDraft("2030-02-01", "", "", "revision-1", false))).toBe(true);
-    expect(isExistingDailyNoteDraft(createDraft("2030-02-01", "", "remote", "revision-1", true))).toBe(true);
+    expect(isExistingDailyNoteDraft(createDraft("2030-02-01", "\n local \n", "remote", "revision-1", true))).toBe(true);
   });
 });

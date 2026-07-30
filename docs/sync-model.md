@@ -53,6 +53,8 @@ The model currently checks these properties:
 - A save must not use a remote revision as its baseline unless that revision was visible in the editor.
 - A late save must not mark a newer local edit clean.
 - An unchanged empty note must not create a remote file.
+- A whitespace-only snapshot is normalized to empty before local persistence or remote sync.
+- Calendar note markers represent visible note content, not the presence of a local draft, sync revision, or zero-byte remote file.
 
 The strongest practical rule is: a local edit may only sync against a baseline revision that the user could have seen in the editor. If the app cannot prove that, it must keep the local draft dirty or produce a conflict instead of silently advancing the baseline.
 

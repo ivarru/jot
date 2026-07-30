@@ -1,4 +1,5 @@
 import type { IsoDate } from "~/domain/dates";
+import { hasDailyNoteContent } from "~/domain/dailyNoteMarkdown";
 import type {
   DateBoundEditorState,
   DateBoundEditorTransition,
@@ -43,7 +44,7 @@ export interface SelectedDateDriveSyncInput {
   readonly setLastSyncError: (error: SyncErrorState | null) => void;
   readonly setPendingSyncConflict: (conflict: DailyNoteSyncConflict | null) => void;
   readonly setSyncStatus: (status: SyncStatus) => void;
-  readonly markExistingNoteDate: (date: IsoDate) => void;
+  readonly setExistingNoteDate: (date: IsoDate, exists: boolean) => void;
   readonly handleRemoteError: (error: unknown, retry?: SyncErrorState | null) => boolean;
   readonly errorMessage: (error: unknown) => string;
 }
@@ -379,7 +380,11 @@ export function createSelectedDateDriveSync(input: SelectedDateDriveSyncInput): 
         if (result.transition === null) return;
         input.applyTransition(result.transition);
         if (result.transition.state.loadedDate !== null) {
-          input.markExistingNoteDate(result.transition.state.loadedDate);
+          input.setExistingNoteDate(
+            result.transition.state.loadedDate,
+            hasDailyNoteContent(result.session.markdown) ||
+              (result.session.conflict !== undefined && hasDailyNoteContent(result.session.conflict.remoteMarkdown))
+          );
         }
         input.setSyncStatus(result.session.status);
         input.setPendingSyncConflict(result.session.conflict ?? null);

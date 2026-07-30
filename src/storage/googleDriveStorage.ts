@@ -14,7 +14,7 @@ export const GOOGLE_DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.fi
 
 const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
 const DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
-const FILE_FIELDS = "id,name,mimeType,modifiedTime,version";
+const FILE_FIELDS = "id,name,mimeType,modifiedTime,version,size";
 const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const MARKDOWN_MIME_TYPE = "text/markdown";
 const JSON_MIME_TYPE = "application/json";
@@ -37,6 +37,7 @@ interface DriveFile {
   readonly mimeType: string;
   readonly modifiedTime?: string;
   readonly version?: string;
+  readonly size?: string;
 }
 
 interface DriveListResponse {
@@ -109,7 +110,12 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
       parentId: dailyNotesFolderId,
       mimeType: MARKDOWN_MIME_TYPE
     });
-    return Array.from(new Set(files.map((file) => filenameToDailyNoteDate(file.name)).filter((date) => date !== null))).sort();
+    return Array.from(new Set(
+      files
+        .filter((file) => file.size !== "0")
+        .map((file) => filenameToDailyNoteDate(file.name))
+        .filter((date) => date !== null)
+    )).sort();
   }
 
   async saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {

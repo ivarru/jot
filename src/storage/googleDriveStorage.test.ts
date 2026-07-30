@@ -180,7 +180,8 @@ describe("GoogleDriveStorageProvider", () => {
         files: [
           file("note-a", "2030-02-01.md", "text/markdown", "1"),
           file("note-b", "not-a-note.md", "text/markdown", "1"),
-          file("note-c", "2030-02-01.md", "text/markdown", "2")
+          file("note-c", "2030-02-01.md", "text/markdown", "2"),
+          file("empty-note", "2030-02-02.md", "text/markdown", "1", undefined, "0")
         ],
         nextPageToken: "next-page"
       }),
@@ -196,6 +197,7 @@ describe("GoogleDriveStorageProvider", () => {
     expect(decodedUrl(firstListRequest?.url)).toContain("mimeType = 'text/markdown'");
     expect(decodedUrl(firstListRequest?.url)).toContain("pageSize=100");
     expect(decodedUrl(firstListRequest?.url)).toContain("fields=nextPageToken,files(");
+    expect(decodedUrl(firstListRequest?.url)).toContain("size");
     expect(decodedUrl(secondListRequest?.url)).toContain("pageToken=next-page");
     expect(fetch.requests).toHaveLength(5);
   });
@@ -805,14 +807,16 @@ function file(
   name: string,
   mimeType: string,
   version: string,
-  modifiedTime = "2030-01-01T00:00:00.000Z"
+  modifiedTime = "2030-01-01T00:00:00.000Z",
+  size = "1"
 ): object {
   return {
     id,
     name,
     mimeType,
     version,
-    modifiedTime
+    modifiedTime,
+    size
   };
 }
 

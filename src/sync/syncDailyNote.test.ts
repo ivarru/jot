@@ -398,6 +398,47 @@ describe("daily note sync", () => {
     });
   });
 
+  it("normalizes a whitespace-only note snapshot to empty before saving", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+
+    await expect(saveAndSyncDailyNoteSnapshot("2030-02-02", " \n\t", drafts, remote)).resolves.toEqual({
+      markdown: "",
+      status: "synced"
+    });
+
+    expect(remote.savedInputs).toEqual([]);
+    await expect(drafts.load("2030-02-02")).resolves.toMatchObject({
+      markdown: "",
+      baselineMarkdown: "",
+      dirty: false
+    });
+  });
+
+  it("saves an empty body when whitespace clears an existing remote-backed note", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    await drafts.save(createDraft("2030-02-02", "before", "before", "revision-before", false));
+
+    await expect(saveAndSyncDailyNoteSnapshot("2030-02-02", " \n\t", drafts, remote)).resolves.toEqual({
+      markdown: "",
+      status: "synced"
+    });
+
+    expect(remote.savedInputs).toEqual([
+      {
+        date: "2030-02-02",
+        markdown: "",
+        expectedRevisionId: "revision-before"
+      }
+    ]);
+    await expect(drafts.load("2030-02-02")).resolves.toMatchObject({
+      markdown: "",
+      baselineMarkdown: "",
+      dirty: false
+    });
+  });
+
   it("syncs dirty drafts for dates that are not currently open", async () => {
     const drafts = new MemoryDraftStore();
     const remote = new RecordingRemoteStorageProvider();

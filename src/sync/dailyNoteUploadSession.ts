@@ -6,6 +6,7 @@ import {
   type PendingDailyNoteUpload
 } from "~/domain/dailyNoteUpload";
 import type { IsoDate } from "~/domain/dates";
+import { hasDailyNoteContent } from "~/domain/dailyNoteMarkdown";
 import { captureVisibleDailyNoteSnapshot, type DateBoundEditorState } from "~/editor/dateBoundEditor";
 import type { LocalDraftStore, RemoteStorageProvider } from "~/storage/types";
 import {
@@ -154,5 +155,5 @@ function assertCanContinue(input: { readonly canContinue?: DailyNoteSyncControl[
 }
 
 function nonEmptyMarkdown(markdown: string): string | null {
-  return markdown.length === 0 ? null : markdown;
+  return hasDailyNoteContent(markdown) ? markdown : null;
 }

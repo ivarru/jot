@@ -518,8 +518,13 @@ export default function Home() {
     setExistingNoteDatesLoading(false);
   };
 
-  const markExistingNoteDate = (date: IsoDate) => {
-    setExistingNoteDates((dates) => new Set([...dates, date]));
+  const setExistingNoteDate = (date: IsoDate, exists: boolean) => {
+    setExistingNoteDates((dates) => {
+      const next = new Set(dates);
+      if (exists) next.add(date);
+      else next.delete(date);
+      return next;
+    });
   };
 
   const cancelBackgroundSyncWork = () => {
@@ -581,7 +586,7 @@ export default function Home() {
     setLastSyncError,
     setPendingSyncConflict,
     setSyncStatus,
-    markExistingNoteDate,
+    setExistingNoteDate,
     handleRemoteError,
     errorMessage
   });

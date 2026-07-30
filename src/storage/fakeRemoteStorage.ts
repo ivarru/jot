@@ -1,4 +1,5 @@
 import type { IsoDate } from "~/domain/dates";
+import { hasDailyNoteContent } from "~/domain/dailyNoteMarkdown";
 import { type ImageAttachmentMetadata, type JotImageAlbumMetadata } from "~/domain/imageAttachments";
 import { DEFAULT_JOT_SETTINGS, type JotSettings, normalizeJotSettings } from "~/domain/settings";
 import { withStore } from "./indexedDb";
@@ -21,7 +22,7 @@ export class FakeRemoteStorageProvider implements RemoteStorageProvider {
 
   async listDailyNoteDates(): Promise<IsoDate[]> {
     const notes = await withStore<RemoteDailyNote[]>("fakeRemoteNotes", "readonly", (store) => store.getAll());
-    return notes.map((note) => note.date).sort();
+    return notes.filter((note) => hasDailyNoteContent(note.markdown)).map((note) => note.date).sort();
   }
 
   async saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {

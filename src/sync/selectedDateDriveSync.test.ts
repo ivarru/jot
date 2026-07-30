@@ -200,6 +200,31 @@ describe("Selected Date Drive Sync lifecycle", () => {
     expect(harness.markedExistingDates).toEqual([DATE]);
   });
 
+  it("does not mark a date after saving a whitespace-only note", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    const harness = createHarness({
+      drafts,
+      remote,
+      state: editorState({
+        selectedDate: DATE,
+        loadedDate: DATE,
+        markdown: " \n\t"
+      }),
+      syncStatus: "saved-locally"
+    });
+    harness.markedExistingDates.push(DATE);
+
+    await harness.sync.saveAndSyncSnapshot({
+      date: DATE,
+      markdown: " \n\t"
+    });
+
+    expect(remote.savedInputs).toEqual([]);
+    expect(harness.state.markdown).toBe("");
+    expect(harness.markedExistingDates).toEqual([]);
+  });
+
   it("applies sync conflict state from save results at the lifecycle seam", async () => {
     const drafts = new MemoryDraftStore();
     const remote = new ConflictRemoteStorageProvider();
@@ -304,7 +329,11 @@ function createHarness(input: {
       syncStatus = status;
       syncStatuses.push(status);
     },
-    markExistingNoteDate: (date) => markedExistingDates.push(date),
+    setExistingNoteDate: (date, exists) => {
+      const existingIndex = markedExistingDates.indexOf(date);
+      if (exists && existingIndex === -1) markedExistingDates.push(date);
+      if (!exists && existingIndex !== -1) markedExistingDates.splice(existingIndex, 1);
+    },
     handleRemoteError: () => false,
     errorMessage: (error) => error instanceof Error ? error.message : String(error)
   });

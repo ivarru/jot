@@ -1,4 +1,5 @@
 import type { IsoDate } from "~/domain/dates";
+import { hasDailyNoteContent } from "~/domain/dailyNoteMarkdown";
 import type { LocalDraft, LocalDraftStore } from "./types";
 import { withStore } from "./indexedDb";
 
@@ -41,7 +42,7 @@ export class IndexedDbLocalDraftStore implements LocalDraftStore {
 }
 
 export function isExistingDailyNoteDraft(draft: LocalDraft): boolean {
-  return draft.dirty || draft.markdown.length > 0 || draft.baselineRevisionId !== null;
+  return hasDailyNoteContent(draft.markdown);
 }
 
 function idbRequestToPromise<T>(request: IDBRequest<T>): Promise<T> {

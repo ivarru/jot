@@ -400,6 +400,22 @@ describe("daily note sync model", () => {
       dirty: false
     });
   });
+
+  it("models a whitespace-only snapshot as an unchanged empty note", async () => {
+    const client = new MemoryDraftStore();
+    const remote = new ModelRemoteStorageProvider();
+
+    await expect(saveAndSyncDailyNoteSnapshot(DATE, " \n\t", client, remote)).resolves.toEqual({
+      markdown: "",
+      status: "synced"
+    });
+
+    expect(remote.peek(DATE)).toBeNull();
+    await expect(client.load(DATE)).resolves.toMatchObject({
+      markdown: "",
+      dirty: false
+    });
+  });
 });
 
 async function findFirstModelFailure(input: {
