@@ -1875,7 +1875,7 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
-  it("orders toolbar buttons and places raw mode after the weekday today button", async () => {
+  it("orders toolbar buttons and places image insertion after raw mode in the left column", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
       markdown: "",
@@ -1904,15 +1904,15 @@ describe("Home reconnect and conflict handling", () => {
       "Toggle inline code format",
       "Insert or edit link",
       "Add tag",
-      "Insert Daily Note section link",
-      "Insert image"
+      "Insert Daily Note section link"
     ]);
     const dateContextLabels = Array.from(host.querySelectorAll(".date-context-row button")).map((element) =>
       element.getAttribute("aria-label")
     );
     expect(dateContextLabels).toEqual([
       `Jump to today, ${todayIsoDate()}`,
-      "Toggle raw Markdown"
+      "Toggle raw Markdown",
+      "Insert image"
     ]);
     const todayButton = host.querySelector<HTMLButtonElement>(`button[aria-label='Jump to today, ${todayIsoDate()}']`);
     expect(todayButton).not.toBeNull();

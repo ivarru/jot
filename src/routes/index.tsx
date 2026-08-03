@@ -2888,6 +2888,64 @@ export default function Home() {
                 >
                   <span class="format-letter" aria-hidden="true">R</span>
                 </button>
+                <Show when={runtime.imageAttachments !== null}>
+                  <input
+                    ref={uploadImageInput}
+                    class="hidden-file-input"
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      event.currentTarget.value = "";
+                      void handleLocalImageFile(file, "device-upload");
+                    }}
+                  />
+                  <div class="image-attachment-controls">
+                    <div
+                      ref={(element) => {
+                        insertImageMenuElement = element;
+                      }}
+                      class="image-insert-menu"
+                    >
+                      <button
+                        type="button"
+                        class="icon-button icon-menu-button"
+                        aria-label="Insert image"
+                        data-tooltip="Insert image"
+                        aria-haspopup="menu"
+                        aria-expanded={insertImageMenuOpen()}
+                        disabled={!selectedDateCanWrite() || imageAttachmentFlowActive()}
+                        onClick={() => setInsertImageMenuOpen((open) => !open)}
+                      >
+                        <InsertImageIcon />
+                        <span class="dropdown-caret" aria-hidden="true" />
+                      </button>
+                      <Show when={insertImageMenuOpen()}>
+                        <div class="image-insert-menu-popover" role="menu" aria-label="Insert image source">
+                          <Show when={runtime.kind === "google"}>
+                            <button type="button" role="menuitem" onClick={() => void startGooglePhotosImagePick()}>
+                              Google Photos
+                            </button>
+                          </Show>
+                          <button type="button" role="menuitem" onClick={startLocalImageFilePick}>
+                            Upload from device
+                          </button>
+                          <button type="button" role="menuitem" onClick={() => void startCameraCapture()}>
+                            Use camera
+                          </button>
+                          <div class="image-insert-menu-hint" role="presentation">.. or just paste</div>
+                        </div>
+                      </Show>
+                    </div>
+                    <Show when={imageAttachmentStatus() !== "idle"}>
+                      <span class="image-attachment-source">
+                        {cameraStream() !== null
+                          ? "Camera ready"
+                          : imageAttachmentStatusLabel(imageAttachmentStatus())}
+                      </span>
+                    </Show>
+                  </div>
+                </Show>
               </div>
             </div>
             <div class="toolbar-column toolbar-editor-column">
@@ -3052,64 +3110,6 @@ export default function Home() {
               >
                 <SectionLinkIcon />
               </button>
-              <Show when={runtime.imageAttachments !== null}>
-                <input
-                  ref={uploadImageInput}
-                  class="hidden-file-input"
-                  type="file"
-                  accept="image/*"
-                  onChange={(event) => {
-                    const file = event.currentTarget.files?.[0];
-                    event.currentTarget.value = "";
-                    void handleLocalImageFile(file, "device-upload");
-                  }}
-                />
-                <div class="image-attachment-controls">
-                  <div
-                    ref={(element) => {
-                      insertImageMenuElement = element;
-                    }}
-                    class="image-insert-menu"
-                  >
-                    <button
-                      type="button"
-                      class="icon-button icon-menu-button"
-                      aria-label="Insert image"
-                      data-tooltip="Insert image"
-                      aria-haspopup="menu"
-                      aria-expanded={insertImageMenuOpen()}
-                      disabled={!selectedDateCanWrite() || imageAttachmentFlowActive()}
-                      onClick={() => setInsertImageMenuOpen((open) => !open)}
-                    >
-                      <InsertImageIcon />
-                      <span class="dropdown-caret" aria-hidden="true" />
-                    </button>
-                    <Show when={insertImageMenuOpen()}>
-                      <div class="image-insert-menu-popover" role="menu" aria-label="Insert image source">
-                        <Show when={runtime.kind === "google"}>
-                          <button type="button" role="menuitem" onClick={() => void startGooglePhotosImagePick()}>
-                            Google Photos
-                          </button>
-                        </Show>
-                        <button type="button" role="menuitem" onClick={startLocalImageFilePick}>
-                          Upload from device
-                        </button>
-                        <button type="button" role="menuitem" onClick={() => void startCameraCapture()}>
-                          Use camera
-                        </button>
-                        <div class="image-insert-menu-hint" role="presentation">.. or just paste</div>
-                      </div>
-                    </Show>
-                  </div>
-                  <Show when={imageAttachmentStatus() !== "idle"}>
-                    <span class="image-attachment-source">
-                      {cameraStream() !== null
-                        ? "Camera ready"
-                        : imageAttachmentStatusLabel(imageAttachmentStatus())}
-                    </span>
-                  </Show>
-                </div>
-              </Show>
               <Show when={reconnectInlineVisible()}>
                 <button
                   type="button"
