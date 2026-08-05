@@ -1151,7 +1151,7 @@ export function createLinkBoundaryTypingPlugin(
           from !== to ||
           text.length === 0 ||
           view.state.selection.from !== from ||
-          !isAtLinkRightBoundary(view.state.selection, linkType)
+          !isAtLinkBoundary(view.state.selection, linkType)
         ) {
           return false;
         }
@@ -1260,7 +1260,7 @@ function closestInlineCodeElement(node: Node, root: HTMLElement): HTMLElement | 
 function clearLinkBoundaryStoredMarkTransaction(state: EditorState, linkType: MarkType): Transaction | null {
   const selection = state.selection;
   if (!selection.empty) return null;
-  if (!isAtLinkRightBoundary(selection, linkType)) return null;
+  if (!isAtLinkBoundary(selection, linkType)) return null;
 
   const currentMarks = state.storedMarks ?? selection.$from.marks();
   const nextMarks = currentMarks.filter((mark) => mark.type !== linkType);
@@ -1269,16 +1269,14 @@ function clearLinkBoundaryStoredMarkTransaction(state: EditorState, linkType: Ma
   return state.tr.setStoredMarks(nextMarks).setMeta("addToHistory", false);
 }
 
-function isAtLinkRightBoundary(selection: Selection, linkType: MarkType): boolean {
+function isAtLinkBoundary(selection: Selection, linkType: MarkType): boolean {
   const before = selection.$from.nodeBefore;
-  if (before === null) return false;
-
-  const beforeLink = linkType.isInSet(before.marks);
-  if (beforeLink === undefined) return false;
-
   const after = selection.$from.nodeAfter;
+  const beforeLink = before === null ? undefined : linkType.isInSet(before.marks);
   const afterLink = after === null ? undefined : linkType.isInSet(after.marks);
-  return afterLink === undefined || !afterLink.eq(beforeLink);
+  if (beforeLink === undefined && afterLink === undefined) return false;
+  if (beforeLink === undefined || afterLink === undefined) return true;
+  return !beforeLink.eq(afterLink);
 }
 
 function focusEditable(

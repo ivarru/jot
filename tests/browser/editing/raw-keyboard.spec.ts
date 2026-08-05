@@ -70,6 +70,26 @@ test("WYSIWYG typing after a rendered link in a heading stays outside the link",
   await expectUnderlyingMarkdown(page, `# Heading <${url}>next`);
 });
 
+test("WYSIWYG typing before a line-start link stays outside the link", async ({ page }) => {
+  const markdown = "[Jot](https://example.com/jot)";
+
+  await setRawMarkdown(page, markdown);
+  await switchToWysiwygMode(page);
+  await focusBeforeWysiwygLink(page, "Jot");
+  await page.keyboard.insertText("Before ");
+  await expectUnderlyingMarkdown(page, `Before ${markdown}`);
+});
+
+test("WYSIWYG typing before a list-item-start link stays outside the link", async ({ page }) => {
+  const markdown = "* [Jot](https://example.com/jot)";
+
+  await setRawMarkdown(page, markdown);
+  await switchToWysiwygMode(page);
+  await focusBeforeWysiwygLink(page, "Jot");
+  await page.keyboard.insertText("Before ");
+  await expectUnderlyingMarkdown(page, "* Before [Jot](https://example.com/jot)");
+});
+
 test("WYSIWYG inline Markdown still synchronizes away from a heading link", async ({ page }) => {
   const url = "https://example.com/a:b?x=1";
 
@@ -146,6 +166,23 @@ async function assertRawTabUndo(page: Page, before: string, afterTab: string): P
     await pressUndo(page, process.platform !== "darwin");
   }
   await expectNormalizedRawMarkdown(page, before);
+}
+
+async function focusBeforeWysiwygLink(page: Page, text: string): Promise<void> {
+  const focused = await page.locator(".milkdown-root [contenteditable=true]").evaluate((editor, linkText) => {
+    const link = [...editor.querySelectorAll("a")].find((candidate) => candidate.textContent?.includes(linkText));
+    if (link?.firstChild === null || link?.firstChild === undefined) return false;
+
+    (editor as HTMLElement).focus();
+    const selection = getSelection();
+    const range = document.createRange();
+    range.setStart(link.firstChild, 0);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    return document.activeElement === editor && selection?.isCollapsed === true;
+  }, text);
+  expect(focused, `Could not focus before WYSIWYG link ${JSON.stringify(text)}.`).toBe(true);
 }
 
 async function assertRawTabNoop(page: Page, markdown: string): Promise<void> {

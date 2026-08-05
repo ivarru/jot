@@ -1270,6 +1270,24 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("keeps text typed before a link outside that link", async () => {
+    const editor = await createMilkdownTestEditor("* [decision](#/date/2030-02-01#decisions)");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const serializer = editor.ctx.get(serializerCtx);
+      const cursor = findTextNodePosition(view.state.doc, "decision");
+      expect(cursor).not.toBeNull();
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cursor!)));
+
+      typeTextThroughView(view, "before ");
+
+      expect(serializer(view.state.doc)).toBe("* before [decision](#/date/2030-02-01#decisions)\n");
+    } finally {
+      await editor.destroy();
+    }
+  });
+
   it("keeps text typed at the DOM endpoint of a heading autolink outside that link", async () => {
     const testEditor = await createMilkdownDomTestEditor("# Heading <https://example.com/a:b?x=1>");
 
