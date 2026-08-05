@@ -378,7 +378,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           }
         }));
         const preventLinkBoundaryTyping = $prose((ctx) =>
-          createLinkBoundaryTypingPlugin(Plugin, TextSelection, linkSchema.type(ctx))
+          createLinkBoundaryTypingPlugin(Plugin, linkSchema.type(ctx))
         );
         const preserveInlineCodeBoundaryAffinity = $prose((ctx) =>
           createInlineCodeBoundaryAffinityPlugin(Plugin, inlineCodeSchema.type(ctx))
@@ -1142,31 +1142,22 @@ function toggleInlineMarkInView(
 
 export function createLinkBoundaryTypingPlugin(
   Plugin: typeof import("@milkdown/kit/prose/state").Plugin,
-  TextSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
   linkType: MarkType
 ) {
   return new Plugin({
     props: {
       handleTextInput: (view, from, to, text, defaultTransaction) => {
-        const domInsertionPosition = domLinkBoundaryInsertionPosition(view, linkType);
         if (
           from !== to ||
           text.length === 0 ||
           view.state.selection.from !== from ||
-          (domInsertionPosition === null && !isAtLinkBoundary(view.state.selection, linkType))
+          !isAtLinkBoundary(view.state.selection, linkType)
         ) {
           return false;
         }
 
-        const insertionPosition = domInsertionPosition ?? from;
-        const transaction = domInsertionPosition === null
-          ? defaultTransaction().removeMark(from, from + text.length, linkType)
-          : view.state.tr
-            .insertText(text, insertionPosition, insertionPosition)
-            .removeMark(insertionPosition, insertionPosition + text.length, linkType);
-        if (domInsertionPosition !== null) {
-          transaction.setSelection(TextSelection.create(transaction.doc, insertionPosition + text.length));
-        }
+        const transaction = defaultTransaction()
+          .removeMark(from, from + text.length, linkType);
         view.dispatch(transaction);
         return true;
       }
@@ -1174,43 +1165,6 @@ export function createLinkBoundaryTypingPlugin(
     appendTransaction: (_transactions, _oldState, newState): Transaction | null =>
       clearLinkBoundaryStoredMarkTransaction(newState, linkType)
   });
-}
-
-function domLinkBoundaryInsertionPosition(
-  view: EditorView,
-  linkType: MarkType
-): number | null {
-  const selection = view.dom.ownerDocument.getSelection();
-  if (selection === null || !selection.isCollapsed || selection.anchorNode === null) return null;
-  if (!containsSelectionNode(view.dom, selection.anchorNode)) return null;
-
-  const link = closestLinkElement(selection.anchorNode, view.dom);
-  if (link === null) return null;
-
-  const prefix = view.dom.ownerDocument.createRange();
-  prefix.selectNodeContents(link);
-  prefix.setEnd(selection.anchorNode, selection.anchorOffset);
-  const suffix = view.dom.ownerDocument.createRange();
-  suffix.selectNodeContents(link);
-  suffix.setStart(selection.anchorNode, selection.anchorOffset);
-  const atLeftEdge = prefix.toString().length === 0;
-  const atRightEdge = suffix.toString().length === 0;
-  if (atLeftEdge === atRightEdge) return null;
-
-  const insertionPosition = view.posAtDOM(link, atLeftEdge ? 0 : link.childNodes.length);
-  const position = view.state.doc.resolve(insertionPosition);
-  const boundaryNode = atLeftEdge ? position.nodeAfter : position.nodeBefore;
-  const boundaryLink = boundaryNode === null ? undefined : linkType.isInSet(boundaryNode.marks);
-  return boundaryLink === undefined ? null : insertionPosition;
-}
-
-function closestLinkElement(node: Node, root: HTMLElement): HTMLAnchorElement | null {
-  let current = node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement;
-  while (current !== null && current !== root) {
-    if (current instanceof HTMLAnchorElement) return current;
-    current = current.parentElement;
-  }
-  return null;
 }
 
 export function createInlineCodeBoundaryAffinityPlugin(
