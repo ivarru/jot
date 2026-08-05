@@ -1421,6 +1421,10 @@ select {
   flex: 1;
 }
 
+.milkdown-root .milkdown-list-item-block .children > .content-dom > p:first-child {
+  margin-block-start: 0;
+}
+
 .milkdown-root .jot-list-marker {
   color: var(--muted);
   font-size: 1.15em;

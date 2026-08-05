@@ -97,6 +97,42 @@ test("WYSIWYG inline-code boundary typing follows the visible caret side", async
   await expectUnderlyingMarkdown(page, "Use `foo`X today");
 });
 
+test("background saving preserves a compact list of links", async ({ page }) => {
+  const markdown = [
+    "* [pi-msg (github.com)](https://github.com/zachpmanson/pi-msg)",
+    "* [omp (Oh my Pi)](https://omp.sh/)",
+    "* [Weakest link oldest theorem (Pedro Santa Clara, www.linkedin.com)](https://www.linkedin.com/pulse/weakest-link-oldest-theorem-pedro-santa-clara-vl6oe/)"
+  ].join("\n");
+
+  await setRawMarkdown(page, markdown);
+  await switchToWysiwygMode(page);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  await expectNormalizedRawMarkdown(page, markdown);
+});
+
+test("loose-list bullets align with their first line of text", async ({ page }) => {
+  await setRawMarkdown(page, "* first\n\n* second");
+  await switchToWysiwygMode(page);
+
+  const centerOffsets = await page.locator(".milkdown-list-item-block > .list-item").evaluateAll((items) =>
+    items.map((item) => {
+      const label = item.querySelector(".label-wrapper")?.getBoundingClientRect();
+      const paragraph = item.querySelector(".children p")?.getBoundingClientRect();
+      if (label === undefined || paragraph === undefined) throw new Error("List item layout is incomplete.");
+      return Math.abs((label.top + label.bottom) / 2 - (paragraph.top + paragraph.bottom) / 2);
+    })
+  );
+
+  expect(centerOffsets).not.toHaveLength(0);
+  expect(Math.max(...centerOffsets)).toBeLessThanOrEqual(1);
+});
+
 test("raw internal section link shortcut opens the target section", async ({ page }) => {
   await assertRawInternalSectionLinkShortcut(page);
 });

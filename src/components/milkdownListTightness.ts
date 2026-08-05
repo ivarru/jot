@@ -1,5 +1,6 @@
 import type { Node as ProseMirrorNode } from "@milkdown/kit/prose/model";
 import type { EditorState, Plugin, Transaction } from "@milkdown/kit/prose/state";
+import type { EditorView } from "@milkdown/kit/prose/view";
 
 interface ListTightnessUpdate {
   readonly pos: number;
@@ -12,18 +13,26 @@ interface ProseMirrorPluginSpec {
     oldState: EditorState,
     newState: EditorState
   ) => Transaction | null;
+  readonly view: (view: EditorView) => object;
 }
 
 type ProseMirrorPluginConstructor = new (spec: ProseMirrorPluginSpec) => Plugin;
 
 export function createListTightnessPlugin(PluginConstructor: ProseMirrorPluginConstructor): Plugin {
   return new PluginConstructor({
+    view: (view) => {
+      const tr = view.state.tr;
+      if (applyListTightnessUpdates(view.state.doc, tr)) {
+        view.dispatch(tr.setMeta("addToHistory", false));
+      }
+      return {};
+    },
     appendTransaction: (transactions, _oldState, newState) => {
       if (!transactions.some((transaction) => transaction.docChanged)) return null;
 
       const tr = newState.tr;
       const changed = applyListTightnessUpdates(newState.doc, tr);
-      return changed ? tr : null;
+      return changed ? tr.setMeta("addToHistory", false) : null;
     }
   });
 }

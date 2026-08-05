@@ -7,6 +7,12 @@ import { $prose } from "@milkdown/kit/utils";
 import { createListTightnessPlugin } from "./milkdownListTightness";
 
 describe("milkdown task list markdown", () => {
+  it("preserves a newly loaded tight list before any edit transaction", async () => {
+    await expect(serializeMilkdownMarkdownWithoutEditing("- first\n- second\n")).resolves.toBe(
+      "* first\n* second\n"
+    );
+  });
+
   it("accepts GFM checkbox syntax and preserves tight task lists after editing", async () => {
     await expect(
       serializeMilkdownMarkdownAfterTextEdit("- [ ] unchecked\n- [x] checked\n", "unchecked", "!")
@@ -25,6 +31,25 @@ describe("milkdown task list markdown", () => {
     );
   });
 });
+
+async function serializeMilkdownMarkdownWithoutEditing(markdown: string): Promise<string> {
+  const preserveListTightness = $prose(() => createListTightnessPlugin(Plugin));
+  const editor = await Editor.make()
+    .config((ctx) => {
+      ctx.set(defaultValueCtx, markdown);
+    })
+    .use(commonmark)
+    .use(gfm)
+    .use(preserveListTightness)
+    .create();
+
+  try {
+    const view = editor.ctx.get(editorViewCtx);
+    return editor.ctx.get(serializerCtx)(view.state.doc);
+  } finally {
+    await editor.destroy();
+  }
+}
 
 async function serializeMilkdownMarkdownAfterTextEdit(markdown: string, textToEdit: string, insertedText: string): Promise<string> {
   const preserveListTightness = $prose(() => createListTightnessPlugin(Plugin));
