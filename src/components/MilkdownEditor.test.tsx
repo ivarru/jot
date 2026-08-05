@@ -1288,6 +1288,32 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("uses the visible left link edge when the browser reports the model cursor at the right edge", async () => {
+    const testEditor = await createMilkdownDomTestEditor("[decision](#/date/2030-02-01#decisions)");
+
+    try {
+      const linkText = testEditor.root.querySelector("a")?.firstChild;
+      expect(linkText).toBeInstanceOf(Text);
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      const linkEnd = findTextEndPosition(view.state.doc, "decision");
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, linkEnd)));
+
+      const selection = document.getSelection();
+      const range = document.createRange();
+      range.setStart(linkText!, 0);
+      range.collapse(true);
+      selection!.removeAllRanges();
+      selection!.addRange(range);
+      typeTextThroughView(view, "before ");
+
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe(
+        "before [decision](#/date/2030-02-01#decisions)\n"
+      );
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
   it("keeps text typed at the DOM endpoint of a heading autolink outside that link", async () => {
     const testEditor = await createMilkdownDomTestEditor("# Heading <https://example.com/a:b?x=1>");
 
@@ -1928,7 +1954,7 @@ async function createMilkdownTestEditor(markdown: string) {
     })
     .use(commonmark)
     .use(gfm)
-    .use($prose((ctx) => createLinkBoundaryTypingPlugin(Plugin, linkSchema.type(ctx))))
+    .use($prose((ctx) => createLinkBoundaryTypingPlugin(Plugin, TextSelection, linkSchema.type(ctx))))
     .create();
 }
 
@@ -1950,7 +1976,7 @@ async function createMilkdownDomTestEditor(markdown: string) {
     .use(commonmark)
     .use(gfm)
     .use(automd)
-    .use($prose((ctx) => createLinkBoundaryTypingPlugin(Plugin, linkSchema.type(ctx))))
+    .use($prose((ctx) => createLinkBoundaryTypingPlugin(Plugin, TextSelection, linkSchema.type(ctx))))
     .use($prose((ctx) => createInlineCodeBoundaryAffinityPlugin(Plugin, inlineCodeSchema.type(ctx))))
     .create();
 
