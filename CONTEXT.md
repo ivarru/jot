@@ -98,6 +98,12 @@ _Avoid_: Cache, autosave buffer, unsaved text
 Replication between a **Local Draft** and the corresponding Google Drive file for a **Daily Note**.
 _Avoid_: Save, backup, upload
 
+**Daily Note Replication**:
+The safety-critical coordination of Local Draft persistence, Drive Sync, and visible editor state for one explicit date,
+markdown snapshot, and remote baseline. It must preserve dirty content and surface a Sync Conflict rather than silently
+replace a newer Daily Note.
+_Avoid_: Sync pipeline, sync service, note save
+
 **Jot Settings**:
 Jot-owned configuration that applies across the app, including Drive Sync timing. It is separate from **Daily Notes**.
 _Avoid_: User preferences, note settings, config cache
@@ -186,6 +192,11 @@ Domain expert: No. The Daily Note should show a Sync Conflict that preserves bot
 Dev: Is saving to Google Drive the first durability boundary for edits?
 
 Domain expert: No. A Local Draft protects edits first; Drive Sync replicates them remotely.
+
+Dev: What information must remain together while a Daily Note is replicated?
+
+Domain expert: Daily Note Replication carries the explicit date, markdown snapshot, and remote baseline through every
+asynchronous step. A result for one date or snapshot cannot make another one clean.
 
 Dev: Where do sync timing settings belong conceptually?
 

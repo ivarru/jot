@@ -12,7 +12,7 @@ Move stable decisions to `CONTEXT.md` or `docs/adr/`. Remove items when they are
 
 ## Known Issues
 
-- Google Drive file uploads do not expose a compare-and-swap write control that Jot can rely on for plain `.md` files. The app can detect stale revisions before writing and after later refreshes, but the final Drive media update is not known to be atomic against a near-simultaneous writer.
+- No known issues are currently recorded here.
 
 ## Future Work
 

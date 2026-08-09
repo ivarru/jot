@@ -17,8 +17,8 @@ import {
   saveAndSyncDailyNoteSnapshot,
   syncDailyNote,
   type CleanDailyNoteRefresh
-} from "./syncDailyNote";
-import { saveSelectedDailyNoteSnapshot } from "./selectedDailyNoteSession";
+} from "./replicationCore";
+import { replicateDailyNoteSnapshot } from "./selectedSession";
 
 const DATE: IsoDate = "2030-02-02";
 
@@ -362,7 +362,7 @@ describe("daily note sync model", () => {
       editorChangeEpoch: 2
     });
 
-    const result = await saveSelectedDailyNoteSnapshot({
+    const result = await replicateDailyNoteSnapshot({
       snapshot: { date: DATE, markdown: typo },
       authReconnectRequired: false,
       drafts: client,

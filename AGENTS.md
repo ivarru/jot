@@ -22,7 +22,7 @@ Before finishing such changes, add or update regression tests that cover stale d
 
 Bug fixes must start by reproducing the issue with a failing regression test. Do not change production code first and then add a passing test afterward.
 
-For sync bugs, first try to refine `src/sync/syncModel.test.ts` or the focused sync tests so the failure appears as a named trace or regression case. The sync model is described in [docs/sync-model.md](docs/sync-model.md). If the issue is outside the model's scope, add the closest focused regression test and document why the model was not the right fit.
+For sync bugs, first try to refine `src/sync/dailyNoteReplication/syncModel.test.ts` or the focused sync tests so the failure appears as a named trace or regression case. The sync model is described in [docs/sync-model.md](docs/sync-model.md). If the issue is outside the model's scope, add the closest focused regression test and document why the model was not the right fit.
 
 ## Verification
 

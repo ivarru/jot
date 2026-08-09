@@ -14,7 +14,7 @@ import {
   buildDailyNoteUploadPlan,
   saveDailyNoteUploadPlan
 } from "./dailyNoteUploadSession";
-import { CancelledDailyNoteSyncError } from "./syncDailyNote";
+import { CancelledDailyNoteSyncError } from "./dailyNoteReplication";
 
 describe("daily note upload session", () => {
   it("uses the visible selected Daily Note as existing upload content", async () => {

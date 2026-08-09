@@ -10,13 +10,12 @@ import type {
   SaveDailyNoteResult,
   SyncStatus
 } from "~/storage/types";
-import { createSelectedDateDriveSync } from "./selectedDateDriveSync";
-import type { DailyNoteSyncConflict } from "./syncDailyNote";
-import type { SyncErrorState } from "./syncErrorRetry";
+import { createDailyNoteReplication, type DailyNoteSyncConflict } from "./index";
+import type { SyncErrorState } from "../syncErrorRetry";
 
 const DATE: IsoDate = "2030-02-02";
 
-describe("Selected Date Drive Sync lifecycle", () => {
+describe("Daily Note Replication lifecycle", () => {
   it("loads a cached Daily Note and follows with a clean remote refresh", async () => {
     const drafts = new MemoryDraftStore();
     const remote = new RecordingRemoteStorageProvider();
@@ -306,7 +305,7 @@ function createHarness(input: {
   const syncStatuses: SyncStatus[] = [];
   const markedExistingDates: IsoDate[] = [];
 
-  const sync = createSelectedDateDriveSync({
+  const sync = createDailyNoteReplication({
     authenticated: () => true,
     authReconnectRequired: () => false,
     drafts: input.drafts,

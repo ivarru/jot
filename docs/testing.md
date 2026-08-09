@@ -8,7 +8,7 @@ with real-browser coverage added when browser behavior is part of the risk.
 | Layer | Location | Runner | Responsibility |
 | --- | --- | --- | --- |
 | Unit and integration | `src/**/*.test.ts(x)` | Vitest and jsdom | Domain logic, editor/model integration, components, storage, mocked providers, and focused regressions |
-| Sync model | `src/sync/syncModel.test.ts` | Vitest | Bounded traces and invariants for Daily Note synchronization |
+| Sync model | `src/sync/dailyNoteReplication/syncModel.test.ts` | Vitest | Bounded traces and invariants for Daily Note Replication |
 | Browser editing | `tests/browser/editing` | Playwright | Native selection, keyboard input, clipboard behavior, layout, and DOM geometry |
 | Browser workflows | `tests/browser/workflows` | Playwright | Complete user workflows against development storage and fake providers |
 | Browser smoke | `tests/browser/smoke` | Playwright | A small critical-path check that the built preview starts and serves its assets |

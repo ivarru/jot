@@ -20,6 +20,7 @@ This directory records durable architecture decisions for Jot. ADRs explain why 
 | [0006: Render List Bullets with CSS](0006-render-list-bullets-with-css.md) | Accepted | WYSIWYG list marker rendering and cross-platform font consistency. |
 | [0007: Reference Tags as Markdown Links](0007-reference-tags-as-markdown-links.md) | Accepted | Portable tag syntax, structural association, and suggestion-state boundaries. |
 | [0008: Normalize Whitespace-Only Notes Prospectively](0008-normalize-whitespace-notes-prospectively.md) | Accepted | Whitespace normalization boundary and deliberate absence of a data migration. |
+| [0009: Concentrate Daily Note Replication](0009-concentrate-daily-note-replication.md) | Accepted | One public sync module with internal protocol, editor-session, and lifecycle seams. |
 
 ## Maintenance
 

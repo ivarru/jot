@@ -7,8 +7,8 @@ import type {
 } from "~/editor/dateBoundEditor";
 import { canEditDailyNoteDate } from "~/editor/dateBoundEditor";
 import type { LocalDraftStore, RemoteStorageProvider, SyncStatus } from "~/storage/types";
-import type { DailyNoteConflictResolution, DailyNoteSyncConflict } from "./syncDailyNote";
-import { isCancelledDailyNoteSyncError, persistLocalDraft, type DailyNoteSyncControl } from "./syncDailyNote";
+import type { DailyNoteConflictResolution, DailyNoteSyncConflict } from "./replicationCore";
+import { isCancelledDailyNoteSyncError, persistLocalDraft, type DailyNoteSyncControl } from "./replicationCore";
 import {
   captureSaveRetrySnapshot,
   loadSelectedDailyNoteLocalSession,
@@ -16,7 +16,7 @@ import {
   reconnectSelectedDailyNoteAction,
   refreshCleanSelectedDailyNoteSession,
   resolveSelectedDailyNoteConflict,
-  saveSelectedDailyNoteSnapshot,
+  replicateDailyNoteSnapshot,
   saveVisibleDailyNoteSnapshot,
   selectedDailyNoteBlurSaveAction,
   selectedDailyNoteManualSyncAction,
@@ -25,13 +25,13 @@ import {
   type LoadSelectedDailyNoteLocalSessionResult,
   type LoadSelectedDailyNoteSessionResult,
   type RefreshCleanSelectedDailyNoteSessionResult,
-  type SaveSelectedDailyNoteSnapshotResult
-} from "./selectedDailyNoteSession";
-import { resolveSyncErrorRetry, type SyncErrorState } from "./syncErrorRetry";
+  type ReplicateDailyNoteSnapshotResult
+} from "./selectedSession";
+import { resolveSyncErrorRetry, type SyncErrorState } from "../syncErrorRetry";
 
 export type SelectedDatePollingMode = "clean-refresh" | "dirty-save";
 
-export interface SelectedDateDriveSyncInput {
+export interface DailyNoteReplicationInput {
   readonly authenticated: () => boolean;
   readonly authReconnectRequired: () => boolean;
   readonly drafts: LocalDraftStore;
@@ -49,7 +49,7 @@ export interface SelectedDateDriveSyncInput {
   readonly errorMessage: (error: unknown) => string;
 }
 
-export interface SelectedDateDriveSync {
+export interface DailyNoteReplication {
   readonly cancelInFlightWork: () => void;
   readonly loadSelectedDate: (date: IsoDate) => Promise<void>;
   readonly loadSelectedDateFromLocalDraft: (date: IsoDate) => Promise<void>;
@@ -65,7 +65,7 @@ export interface SelectedDateDriveSync {
   readonly syncSelectedDateOnDemand: () => Promise<void>;
   readonly pollingMode: () => SelectedDatePollingMode | null;
   readonly pollSelectedDate: () => Promise<void>;
-  readonly applySaveResult: (result: SaveSelectedDailyNoteSnapshotResult) => void;
+  readonly applySaveResult: (result: ReplicateDailyNoteSnapshotResult) => void;
   readonly resolvePendingConflict: (
     conflict: DailyNoteSyncConflict,
     resolution: DailyNoteConflictResolution
@@ -77,7 +77,7 @@ export interface SelectedDateDriveSync {
   readonly reconnect: () => Promise<void>;
 }
 
-export function createSelectedDateDriveSync(input: SelectedDateDriveSyncInput): SelectedDateDriveSync {
+export function createDailyNoteReplication(input: DailyNoteReplicationInput): DailyNoteReplication {
   let generation = 0;
 
   const cancelInFlightWork = (): void => {
@@ -162,7 +162,7 @@ export function createSelectedDateDriveSync(input: SelectedDateDriveSyncInput): 
     if (!input.authReconnectRequired() && canEditDailyNoteDate(snapshot.date, input.getState())) {
       input.setSyncStatus("syncing");
     }
-    const result = await saveSelectedDailyNoteSnapshot({
+    const result = await replicateDailyNoteSnapshot({
       snapshot,
       authReconnectRequired: input.authReconnectRequired(),
       drafts: input.drafts,
@@ -371,7 +371,7 @@ export function createSelectedDateDriveSync(input: SelectedDateDriveSyncInput): 
     }
   };
 
-  const applySaveResult = (result: SaveSelectedDailyNoteSnapshotResult): void => {
+  const applySaveResult = (result: ReplicateDailyNoteSnapshotResult): void => {
     switch (result.type) {
       case "auth-required":
         if (result.applyStatus !== null) input.setSyncStatus(result.applyStatus);

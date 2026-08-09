@@ -17,7 +17,7 @@ import {
   rebaseAndSyncDailyNoteSnapshot,
   saveAndSyncDailyNoteSnapshot,
   syncDirtyDailyNoteDrafts
-} from "./syncDailyNote";
+} from "./replicationCore";
 
 class MemoryDraftStore implements LocalDraftStore {
   readonly drafts = new Map<IsoDate, LocalDraft>();

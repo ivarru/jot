@@ -132,12 +132,14 @@ import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
 import { TagSuggestionCatalog } from "~/storage/tagSuggestionCatalog";
 import type { RemoteStorageProvider, SyncStatus } from "~/storage/types";
 import {
+  createDailyNoteReplication,
   isCancelledDailyNoteSyncError,
   saveAndSyncDailyNoteSnapshot,
-  syncDirtyDailyNoteDrafts
-} from "~/sync/syncDailyNote";
-import { createSelectedDateDriveSync } from "~/sync/selectedDateDriveSync";
-import type { DailyNoteConflictResolution, DailyNoteSyncConflict, DailyNoteSyncControl } from "~/sync/syncDailyNote";
+  syncDirtyDailyNoteDrafts,
+  type DailyNoteConflictResolution,
+  type DailyNoteSyncConflict,
+  type DailyNoteSyncControl
+} from "~/sync/dailyNoteReplication";
 import {
   buildDailyNoteUploadPlan,
   saveDailyNoteUploadPlan
@@ -576,7 +578,7 @@ export default function Home() {
     }
   };
 
-  const selectedDateDriveSync = createSelectedDateDriveSync({
+  const dailyNoteReplication = createDailyNoteReplication({
     authenticated,
     authReconnectRequired,
     drafts,
@@ -635,7 +637,7 @@ export default function Home() {
   const saveLatestVisibleEditorSnapshot = (options: { readonly dedupeBackground?: boolean } = {}) => {
     const flushed = flushCurrentVisibleEditorSnapshot();
     if (flushed === null) {
-      void selectedDateDriveSync.saveCurrentEditorSnapshot();
+      void dailyNoteReplication.saveCurrentEditorSnapshot();
       return;
     }
 
@@ -645,7 +647,7 @@ export default function Home() {
       lastBackgroundSaveSnapshotKey = snapshotKey;
     }
 
-    void selectedDateDriveSync.saveAndSyncSnapshot(flushed.snapshot);
+    void dailyNoteReplication.saveAndSyncSnapshot(flushed.snapshot);
   };
 
   const saveLatestVisibleEditorSnapshotForBackground = () => {
@@ -659,11 +661,11 @@ export default function Home() {
   const syncSelectedDateOnDemandWithLatestEditor = () => {
     const flushed = flushCurrentVisibleEditorSnapshot();
     if (flushed?.changed) {
-      void selectedDateDriveSync.saveAndSyncSnapshot(flushed.snapshot);
+      void dailyNoteReplication.saveAndSyncSnapshot(flushed.snapshot);
       return;
     }
 
-    void selectedDateDriveSync.syncSelectedDateOnDemand();
+    void dailyNoteReplication.syncSelectedDateOnDemand();
   };
 
   createEffect(() => {
@@ -725,7 +727,7 @@ export default function Home() {
         setImportingImageResolutionName(null);
         setImageAttachmentDisplays({});
 
-        void selectedDateDriveSync.loadSelectedDateFromLocalDraft(date);
+        void dailyNoteReplication.loadSelectedDateFromLocalDraft(date);
 
       },
       { defer: false }
@@ -834,7 +836,7 @@ export default function Home() {
       if (!authenticated() || snapshot === null || suppressLocalPersist()) return;
 
       const timeout = window.setTimeout(() => {
-        void selectedDateDriveSync.persistVisibleLocalDraft(snapshot);
+        void dailyNoteReplication.persistVisibleLocalDraft(snapshot);
       }, LOCAL_DRAFT_DEBOUNCE_MS);
 
       onCleanup(() => window.clearTimeout(timeout));
@@ -850,7 +852,7 @@ export default function Home() {
         if (authReconnectRequired()) return;
 
         const timeout = window.setTimeout(() => {
-          void selectedDateDriveSync.saveAndSyncSnapshot(snapshot);
+          void dailyNoteReplication.saveAndSyncSnapshot(snapshot);
         }, settings().autosaveDebounceMs);
 
         onCleanup(() => window.clearTimeout(timeout));
@@ -936,19 +938,19 @@ export default function Home() {
           settings().dirtyPollingIntervalMs
         ] as const,
       () => {
-        const mode = selectedDateDriveSync.pollingMode();
+        const mode = dailyNoteReplication.pollingMode();
         if (mode === null) return;
 
         if (mode === "clean-refresh") {
           const interval = window.setInterval(() => {
-            void selectedDateDriveSync.pollSelectedDate();
+            void dailyNoteReplication.pollSelectedDate();
           }, settings().cleanPollingIntervalMs);
           onCleanup(() => window.clearInterval(interval));
           return;
         }
 
         const interval = window.setInterval(() => {
-          void selectedDateDriveSync.pollSelectedDate();
+          void dailyNoteReplication.pollSelectedDate();
         }, settings().dirtyPollingIntervalMs);
         onCleanup(() => window.clearInterval(interval));
       }
@@ -1196,7 +1198,7 @@ export default function Home() {
 
   const navigateToDate = async (date: IsoDate, headingSlug: string | null = null) => {
     closeDatePicker();
-    void selectedDateDriveSync.saveCurrentEditorSnapshot();
+    void dailyNoteReplication.saveCurrentEditorSnapshot();
     const nextHash = dailyNoteRouteHash(date, headingSlug);
     if (window.location.hash === nextHash) {
       setPendingSectionLinkNavigation(headingSlug === null ? null : { date, headingSlug });
@@ -1306,7 +1308,7 @@ export default function Home() {
       });
       if (!isCurrentDailyNoteUploadGeneration(generation)) return;
       for (const saveResult of result.saveResults) {
-        selectedDateDriveSync.applySaveResult(saveResult);
+        dailyNoteReplication.applySaveResult(saveResult);
       }
       if (result.type === "failed") throw result.error;
       setDailyNoteUploadMessage(`Uploaded ${result.count} daily note${result.count === 1 ? "" : "s"}.`);
@@ -1330,7 +1332,7 @@ export default function Home() {
     setResolvingSyncConflict(true);
     setLastSyncError(null);
     try {
-      await selectedDateDriveSync.resolvePendingConflict(conflict, resolution);
+      await dailyNoteReplication.resolvePendingConflict(conflict, resolution);
       if (resolution === "manual") setEditorMode("text");
     } finally {
       setResolvingSyncConflict(false);
@@ -1338,7 +1340,7 @@ export default function Home() {
   };
 
   const retryLastSyncError = () => {
-    void selectedDateDriveSync.retryLastSyncError({
+    void dailyNoteReplication.retryLastSyncError({
       saveSettings: () => updateSettings(settings()),
       syncDirtyDrafts: () => {
         void syncDirtyDraftsExceptSelected().catch((syncError: unknown) => {
@@ -2250,7 +2252,7 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
-    void selectedDateDriveSync.saveBlurSnapshot(captureDocumentSnapshot(date, value));
+    void dailyNoteReplication.saveBlurSnapshot(captureDocumentSnapshot(date, value));
   };
 
   const startGooglePhotosImagePick = async () => {
@@ -2386,7 +2388,7 @@ export default function Home() {
       setImageAttachmentAltText("");
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("idle");
-      await selectedDateDriveSync.saveAndSyncSnapshot(insertion.saveSnapshot);
+      await dailyNoteReplication.saveAndSyncSnapshot(insertion.saveSnapshot);
     } catch (error: unknown) {
       if (!canApplyImageAttachmentAsyncResult(date)) return;
       if (handleRemoteError(error)) {
@@ -2438,7 +2440,7 @@ export default function Home() {
       setImageAttachmentAltText("");
       setImportingImageResolutionName(null);
       setImageAttachmentStatus("idle");
-      await selectedDateDriveSync.saveAndSyncSnapshot(insertion.saveSnapshot);
+      await dailyNoteReplication.saveAndSyncSnapshot(insertion.saveSnapshot);
     } catch (error: unknown) {
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("choosing");
@@ -2645,7 +2647,7 @@ export default function Home() {
       setAuthReconnectRequired(false);
       setReconnectPromptPostponed(false);
       refreshAndScheduleToday();
-      await selectedDateDriveSync.reconnect();
+      await dailyNoteReplication.reconnect();
       await syncDirtyDraftsExceptSelected();
       const date = selectedDate();
       if (date !== null && canEditDailyNoteDate(date, dateBoundEditorState()) && syncStatus() === "auth-required") {
@@ -2670,7 +2672,7 @@ export default function Home() {
     cancelBackgroundSyncWork();
     cancelDailyNoteUploadWork();
     resetDailyNoteUploadState();
-    selectedDateDriveSync.cancelInFlightWork();
+    dailyNoteReplication.cancelInFlightWork();
     await drafts.clearAll();
     tagSuggestionCatalog.clear();
     setTagSuggestions([]);
@@ -3127,8 +3129,8 @@ export default function Home() {
                 class={`sync-status ${syncStatusClass(syncStatus())}`}
                 aria-label={`Sync status: ${syncStatusLabel(syncStatus())}. Force synchronization`}
                 data-tooltip={`Sync status: ${syncStatusLabel(syncStatus())}. Force synchronization`}
-                disabled={!selectedDateDriveSync.canSyncSelectedDateOnDemand()}
-                onClick={() => void selectedDateDriveSync.syncSelectedDateOnDemand()}
+                disabled={!dailyNoteReplication.canSyncSelectedDateOnDemand()}
+                onClick={() => void dailyNoteReplication.syncSelectedDateOnDemand()}
               />
               <Show when={syncDelayed()}>
                 <span
@@ -3721,7 +3723,7 @@ export default function Home() {
                         const date = selectedDate();
                         if (date === null) return;
                         setLoadError(null);
-                        void selectedDateDriveSync.loadSelectedDate(date);
+                        void dailyNoteReplication.loadSelectedDate(date);
                       }}
                     >
                       Retry

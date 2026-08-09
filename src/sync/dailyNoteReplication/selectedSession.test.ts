@@ -19,12 +19,12 @@ import {
   selectedDailyNoteManualSyncAction,
   refreshCleanSelectedDailyNoteSession,
   resolveSelectedDailyNoteConflict,
-  saveSelectedDailyNoteSnapshot,
+  replicateDailyNoteSnapshot,
   selectedDailyNoteRemoteLoadAction,
   selectedDailyNotePollingAction,
   saveVisibleDailyNoteSnapshot
-} from "./selectedDailyNoteSession";
-import type { DailyNoteConflictResolution, DailyNoteSyncConflict } from "./syncDailyNote";
+} from "./selectedSession";
+import type { DailyNoteConflictResolution, DailyNoteSyncConflict } from "./replicationCore";
 
 describe("selected Daily Note session async save seam", () => {
   it("persists a Local Draft without remote sync when auth reconnect is required", async () => {
@@ -36,7 +36,7 @@ describe("selected Daily Note session async save seam", () => {
       markdown: "visible"
     });
 
-    const result = await saveSelectedDailyNoteSnapshot({
+    const result = await replicateDailyNoteSnapshot({
       snapshot: { date: "2030-02-02", markdown: "visible" },
       authReconnectRequired: true,
       drafts,
@@ -71,7 +71,7 @@ describe("selected Daily Note session async save seam", () => {
       true
     ));
 
-    const result = await saveSelectedDailyNoteSnapshot({
+    const result = await replicateDailyNoteSnapshot({
       snapshot: { date: "2030-02-02", markdown: "before\nlocal\nsame\nafter\n" },
       authReconnectRequired: false,
       drafts,
@@ -120,7 +120,7 @@ describe("selected Daily Note session async save seam", () => {
       true
     ));
 
-    const result = await saveSelectedDailyNoteSnapshot({
+    const result = await replicateDailyNoteSnapshot({
       snapshot: { date: "2030-02-02", markdown: "before\nlocal\nsame\nafter\n" },
       authReconnectRequired: false,
       drafts,
@@ -167,7 +167,7 @@ describe("selected Daily Note session async save seam", () => {
       true
     ));
 
-    const result = await saveSelectedDailyNoteSnapshot({
+    const result = await replicateDailyNoteSnapshot({
       snapshot: { date: "2030-02-02", markdown: "breakfast\n\nlunch\ndinner\n" },
       authReconnectRequired: false,
       refreshRemoteBeforeSave: true,

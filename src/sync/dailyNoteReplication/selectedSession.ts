@@ -27,10 +27,10 @@ import {
   type DailyNoteSyncConflict,
   type DailyNoteSession,
   type DailyNoteSyncControl
-} from "./syncDailyNote";
-import type { SyncRetryAction } from "./syncErrorRetry";
+} from "./replicationCore";
+import type { SyncRetryAction } from "../syncErrorRetry";
 
-export type SaveSelectedDailyNoteSnapshotResult =
+export type ReplicateDailyNoteSnapshotResult =
   | {
       readonly type: "auth-required";
       readonly applyStatus: "auth-required" | null;
@@ -47,7 +47,7 @@ export type SaveSelectedDailyNoteSnapshotResult =
       readonly applyToVisibleDailyNote: boolean;
     };
 
-export interface SaveSelectedDailyNoteSnapshotInput {
+export interface ReplicateDailyNoteSnapshotInput {
   readonly snapshot: VisibleDailyNoteSnapshot;
   readonly authReconnectRequired: boolean;
   readonly drafts: LocalDraftStore;
@@ -395,18 +395,18 @@ export function selectedDailyNoteBlurSaveAction(
 
 export async function saveVisibleDailyNoteSnapshot(
   input: SaveVisibleDailyNoteSnapshotInput
-): Promise<SaveSelectedDailyNoteSnapshotResult | null> {
+): Promise<ReplicateDailyNoteSnapshotResult | null> {
   const snapshot = captureVisibleDailyNoteSnapshot(input.getState());
   if (snapshot === null) return null;
-  return await saveSelectedDailyNoteSnapshot({
+  return await replicateDailyNoteSnapshot({
     ...input,
     snapshot
   });
 }
 
-export async function saveSelectedDailyNoteSnapshot(
-  input: SaveSelectedDailyNoteSnapshotInput
-): Promise<SaveSelectedDailyNoteSnapshotResult> {
+export async function replicateDailyNoteSnapshot(
+  input: ReplicateDailyNoteSnapshotInput
+): Promise<ReplicateDailyNoteSnapshotResult> {
   if (input.authReconnectRequired) {
     try {
       await persistLocalDraft(input.snapshot.date, input.snapshot.markdown, input.drafts, syncControl(input));
@@ -458,7 +458,7 @@ export async function saveSelectedDailyNoteSnapshot(
 
 export async function resolveSelectedDailyNoteConflict(
   input: ResolveSelectedDailyNoteConflictInput
-): Promise<SaveSelectedDailyNoteSnapshotResult> {
+): Promise<ReplicateDailyNoteSnapshotResult> {
   try {
     const session = await resolveDailyNoteConflict(
       input.conflict,
@@ -515,7 +515,7 @@ export function captureSaveRetrySnapshot(
   return snapshot;
 }
 
-export function syncStatusFromSaveResult(result: SaveSelectedDailyNoteSnapshotResult): SyncStatus | null {
+export function syncStatusFromSaveResult(result: ReplicateDailyNoteSnapshotResult): SyncStatus | null {
   switch (result.type) {
     case "auth-required":
       return result.applyStatus;

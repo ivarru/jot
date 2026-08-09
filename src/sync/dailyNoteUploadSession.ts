@@ -10,13 +10,13 @@ import { hasDailyNoteContent } from "~/domain/dailyNoteMarkdown";
 import { captureVisibleDailyNoteSnapshot, type DateBoundEditorState } from "~/editor/dateBoundEditor";
 import type { LocalDraftStore, RemoteStorageProvider } from "~/storage/types";
 import {
-  saveSelectedDailyNoteSnapshot,
-  type SaveSelectedDailyNoteSnapshotResult
-} from "./selectedDailyNoteSession";
+  replicateDailyNoteSnapshot,
+  type ReplicateDailyNoteSnapshotResult
+} from "./dailyNoteReplication";
 import {
   CancelledDailyNoteSyncError,
   type DailyNoteSyncControl
-} from "./syncDailyNote";
+} from "./dailyNoteReplication";
 
 export interface BuildDailyNoteUploadPlanInput {
   readonly candidates: readonly DailyNoteUploadCandidate[];
@@ -40,12 +40,12 @@ export type SaveDailyNoteUploadPlanResult =
   | {
       readonly type: "uploaded";
       readonly count: number;
-      readonly saveResults: readonly SaveSelectedDailyNoteSnapshotResult[];
+      readonly saveResults: readonly ReplicateDailyNoteSnapshotResult[];
     }
   | {
       readonly type: "failed";
       readonly error: unknown;
-      readonly saveResults: readonly SaveSelectedDailyNoteSnapshotResult[];
+      readonly saveResults: readonly ReplicateDailyNoteSnapshotResult[];
     };
 
 export async function buildDailyNoteUploadPlan(
@@ -72,7 +72,7 @@ export async function buildDailyNoteUploadPlan(
 export async function saveDailyNoteUploadPlan(
   input: SaveDailyNoteUploadPlanInput
 ): Promise<SaveDailyNoteUploadPlanResult> {
-  const saveResults: SaveSelectedDailyNoteSnapshotResult[] = [];
+  const saveResults: ReplicateDailyNoteSnapshotResult[] = [];
 
   for (const item of input.pending.items) {
     const existingMarkdown = await existingDailyNoteMarkdown({
@@ -90,9 +90,9 @@ export async function saveDailyNoteUploadPlan(
           resolution: input.resolution
         });
 
-    let result: SaveSelectedDailyNoteSnapshotResult;
+    let result: ReplicateDailyNoteSnapshotResult;
     try {
-      result = await saveSelectedDailyNoteSnapshot({
+      result = await replicateDailyNoteSnapshot({
         snapshot: {
           date: item.date,
           markdown
