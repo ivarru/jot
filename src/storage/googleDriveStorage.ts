@@ -534,7 +534,12 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     }
 
     for (const file of files) {
-      if (file.id !== canonical.id) await this.trashDriveFile(file.id);
+      if (
+        file.id !== canonical.id &&
+        !(await this.trashDailyNoteFileIfUnchanged(file))
+      ) {
+        throw new Error("Google Drive changed a duplicate Daily Note while Jot was consolidating it.");
+      }
     }
 
     return {
@@ -713,14 +718,34 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
         };
   }
 
-  private async trashDriveFile(fileId: string): Promise<void> {
-    await this.requestJson<DriveFile>(`${DRIVE_API_BASE}/files/${encodeURIComponent(fileId)}?${new URLSearchParams({ fields: FILE_FIELDS })}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json; charset=UTF-8"
-      },
-      body: JSON.stringify({ trashed: true })
-    });
+  private async trashDailyNoteFileIfUnchanged(file: DriveFile): Promise<boolean> {
+    const metadataParams = new URLSearchParams({ fields: V2_CONDITIONAL_FILE_FIELDS });
+    const metadata = await this.requestJson<DriveV2ConditionalFile>(
+      `${DRIVE_V2_API_BASE}/files/${encodeURIComponent(file.id)}?${metadataParams}`,
+      { cache: "no-store" }
+    );
+    if (metadata.version !== driveRevisionId(file)) return false;
+    if (metadata.etag === undefined) {
+      throw new Error("Google Drive did not provide the ETag required to retire a duplicate Daily Note safely.");
+    }
+
+    try {
+      await this.requestJson<DriveV2ConditionalFile>(
+        `${DRIVE_V2_API_BASE}/files/${encodeURIComponent(file.id)}?${metadataParams}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json; charset=UTF-8",
+            "If-Match": metadata.etag
+          },
+          body: JSON.stringify({ labels: { trashed: true } })
+        }
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof GoogleDriveRequestError && error.status === 412) return false;
+      throw error;
+    }
   }
 
   private async requestJson<T>(url: string, init: RequestInit = {}): Promise<T> {

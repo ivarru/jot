@@ -1,6 +1,18 @@
 import { expect, test } from "@playwright/test";
-import { clickButton, openDevelopmentStorage, rawModeToggle, setTextareaValue } from "../helpers/editor";
-import { seedConflictState, waitForFakeRemoteNote } from "../helpers/idb";
+import {
+  clickButton,
+  expectRawMarkdown,
+  openDevelopmentStorage,
+  rawModeToggle,
+  setTextareaValue
+} from "../helpers/editor";
+import {
+  readFakeRemoteNote,
+  readLocalDraft,
+  seedConflictState,
+  seedDailyNoteState,
+  waitForFakeRemoteNote
+} from "../helpers/idb";
 
 const date = "2030-02-02";
 const baseline = "before\nold\nsame\nafter\n";
@@ -35,4 +47,92 @@ test("fake reconnect conflict can be resolved manually and synced", async ({ pag
   await clickButton(page, "Conflict");
   const note = await waitForFakeRemoteNote(page, date, resolved);
   expect(note.markdown).toBe(resolved);
+});
+
+test("a clean stale phone cache refreshes to the longer remote note before remaining synced", async ({ page }) => {
+  const shortPhoneCopy = "# Day\n\nBreakfast\n";
+  const longPcCopy = "# Day\n\nBreakfast\n\nWork completed on the PC\n\nEvening notes\n";
+  await openDevelopmentStorage(page);
+  await seedDailyNoteState(page, {
+    draft: {
+      date,
+      markdown: shortPhoneCopy,
+      baselineMarkdown: shortPhoneCopy,
+      baselineRevisionId: "revision-7",
+      dirty: false,
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    },
+    remote: {
+      date,
+      markdown: longPcCopy,
+      revisionId: "revision-8",
+      updatedAt: "2030-01-02T00:00:00.000Z"
+    }
+  });
+
+  await page.goto(`/#/date/${date}`);
+  await expectRawMarkdown(page, longPcCopy);
+  await expect(page.locator(".sync-status[aria-label*=\"Synced\"]")).toBeVisible();
+  await expect.poll(async () => {
+    const draft = await readLocalDraft(page, date);
+    const remote = await readFakeRemoteNote(page, date);
+    return {
+      draftMarkdown: draft?.markdown,
+      baselineMarkdown: draft?.baselineMarkdown,
+      remoteMarkdown: remote?.markdown,
+      revisionMatches: draft?.baselineRevisionId === remote?.revisionId,
+      dirty: draft?.dirty
+    };
+  }).toEqual({
+    draftMarkdown: longPcCopy,
+    baselineMarkdown: longPcCopy,
+    remoteMarkdown: longPcCopy,
+    revisionMatches: true,
+    dirty: false
+  });
+});
+
+test("a dirty stale phone edit cannot replace a newer PC revision", async ({ page }) => {
+  const staleBaseline = "# Day\n\nShared line\n";
+  const phoneEdit = "# Day\n\nChanged on the phone\n";
+  const pcEdit = "# Day\n\nChanged on the PC with substantially more detail\n";
+  await openDevelopmentStorage(page);
+  await seedDailyNoteState(page, {
+    draft: {
+      date,
+      markdown: phoneEdit,
+      baselineMarkdown: staleBaseline,
+      baselineRevisionId: "revision-7",
+      dirty: true,
+      updatedAt: "2030-01-02T08:00:00.000Z"
+    },
+    remote: {
+      date,
+      markdown: pcEdit,
+      revisionId: "revision-8",
+      updatedAt: "2030-01-02T16:00:00.000Z"
+    }
+  });
+
+  await page.goto(`/#/date/${date}`);
+  await expectRawMarkdown(page, phoneEdit);
+  await expect(page.getByText("Sync conflict")).toBeVisible();
+  await expect(readFakeRemoteNote(page, date)).resolves.toMatchObject({
+    markdown: pcEdit,
+    revisionId: "revision-8"
+  });
+
+  await clickButton(page, "Keep Google Drive");
+  await expectRawMarkdown(page, pcEdit);
+  await expect(page.locator(".sync-status[aria-label*=\"Synced\"]")).toBeVisible();
+  await expect.poll(async () => {
+    const draft = await readLocalDraft(page, date);
+    const remote = await readFakeRemoteNote(page, date);
+    return {
+      markdown: draft?.markdown,
+      baselineMarkdown: draft?.baselineMarkdown,
+      revisionMatches: draft?.baselineRevisionId === remote?.revisionId,
+      dirty: draft?.dirty
+    };
+  }).toEqual({ markdown: pcEdit, baselineMarkdown: pcEdit, revisionMatches: true, dirty: false });
 });

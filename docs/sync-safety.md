@@ -24,7 +24,10 @@ Daily Note Replication must satisfy these properties:
    the current revision. An error or ambiguous result cannot become `synced`.
 8. **Conflicts preserve both versions.** When local and remote content changed from a shared baseline and cannot merge
    automatically, neither version is silently selected. Both remain available through a Sync Conflict.
-9. **Source Preservation remains intact.** Replication does not reformat non-empty Jot Markdown or replace the Plain
+9. **Duplicate retirement is conditional.** When concurrent first writes create duplicate Daily Note files, Jot retires
+   a duplicate only if its Drive revision still matches the revision whose content was incorporated into the canonical
+   file. A changed duplicate remains active and prevents a clean acknowledgement until a later consolidation includes it.
+10. **Source Preservation remains intact.** Replication does not reformat non-empty Jot Markdown or replace the Plain
    Markdown File with a richer document representation.
 
 The strongest operational rule is: if Jot cannot prove that a remote revision was visible to the edit being
@@ -83,6 +86,21 @@ Concentrate the current behavior behind one public module interface without chan
 replication, selected-session adaptation, and lifecycle coordination as internal seams with focused tests. Local Draft
 and remote storage remain adapter seams.
 
+### 5. Add adversarial provider and browser checks
+
+The initial adversarial suite uses independent provider instances and a stateful Drive transport to check:
+
+- competing replacements of one revision, including the losing `412 Precondition Failed` path;
+- a successful replacement whose response is lost, followed by an idempotent retry;
+- concurrent first creation, temporary duplicate files, and eventual content-preserving consolidation;
+- an edit to a duplicate between merge and retirement;
+- atomic compare-and-swap behavior in the development Fake Remote Storage Provider;
+- clean stale-device refresh and dirty stale-device conflict behavior in a real browser workflow.
+
+Google Drive filenames are not treated as unique. Concurrent first creation may temporarily produce multiple files with
+the same Daily Note filename. The safety requirement is that all versions remain active until their content has been
+incorporated, and that stable duplicates eventually consolidate; immediate singleton creation is not assumed.
+
 ### Deferred for reconsideration
 
 3. Specify the proposed protocol in TLA+, parameterized by devices, and turn important counterexamples into executable
@@ -90,7 +108,8 @@ and remote storage remain adapter seams.
 4. Consider immutable Recovery Snapshots created before a remote clean acknowledgement. A Recovery Snapshot would be a
    separate write-once record; conditional replacement of the canonical Plain Markdown File would remain a distinct
    compare-and-swap operation.
-5. Add adversarial provider and browser checks for every modeled crash and ambiguous-response point.
+
+Further adversarial checks should be added for newly modeled crash and ambiguous-response points as they are identified.
 
 Yjs or another CRDT remains deferred unless simultaneous character-level collaboration becomes a product requirement
 that justifies reconsidering the Plain Markdown File source-of-truth decision.

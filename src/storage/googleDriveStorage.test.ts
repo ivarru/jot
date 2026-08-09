@@ -151,7 +151,8 @@ describe("GoogleDriveStorageProvider", () => {
       }),
       text("# Newer"),
       text("# Newer"),
-      json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"))
+      json(v2File("older-note", "7", "2030-01-01T00:00:00.000Z")),
+      json(v2File("older-note", "8", "2030-01-03T00:00:00.000Z"))
     ]);
     const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
 
@@ -166,9 +167,10 @@ describe("GoogleDriveStorageProvider", () => {
       "https://www.googleapis.com/drive/v3/files/newer-note?alt=media"
     ]);
     const trashRequest = fetch.requests.at(-1);
-    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v3/files/older-note?");
+    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v2/files/older-note?");
     expect(trashRequest?.init.method).toBe("PATCH");
-    expect(trashRequest?.init.body).toBe('{"trashed":true}');
+    expect(new Headers(trashRequest?.init.headers).get("If-Match")).toBe('"etag-7"');
+    expect(trashRequest?.init.body).toBe('{"labels":{"trashed":true}}');
   });
 
   it("lists existing Daily Note dates from paginated Drive metadata", async () => {
@@ -376,7 +378,8 @@ describe("GoogleDriveStorageProvider", () => {
       text("# Newer"),
       json(v2File("newer-note", "8", "2030-01-02T00:00:00.000Z")),
       json(v2File("newer-note", "9", "2030-01-03T00:00:00.000Z")),
-      json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"))
+      json(v2File("older-note", "7", "2030-01-01T00:00:00.000Z")),
+      json(v2File("older-note", "8", "2030-01-04T00:00:00.000Z"))
     ]);
     const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
 
@@ -402,8 +405,9 @@ describe("GoogleDriveStorageProvider", () => {
     expect(new Headers(mergeUpdateRequest?.init.headers).get("If-Match")).toBe('"etag-8"');
     expect(mergeUpdateRequest?.init.body).toBe(mergedDuplicateMarkdown);
     const trashRequest = fetch.requests.at(-1);
-    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v3/files/older-note?");
-    expect(trashRequest?.init.body).toBe('{"trashed":true}');
+    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v2/files/older-note?");
+    expect(new Headers(trashRequest?.init.headers).get("If-Match")).toBe('"etag-7"');
+    expect(trashRequest?.init.body).toBe('{"labels":{"trashed":true}}');
   });
 
   it("does not auto-merge prefix duplicate Daily Note content", async () => {
@@ -422,7 +426,8 @@ describe("GoogleDriveStorageProvider", () => {
       text("# Day\n"),
       json(v2File("newer-note", "8", "2030-01-02T00:00:00.000Z")),
       json(v2File("newer-note", "9", "2030-01-03T00:00:00.000Z")),
-      json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"))
+      json(v2File("older-note", "7", "2030-01-01T00:00:00.000Z")),
+      json(v2File("older-note", "8", "2030-01-04T00:00:00.000Z"))
     ]);
     const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
 
@@ -438,8 +443,9 @@ describe("GoogleDriveStorageProvider", () => {
     expect(mergeUpdateRequest?.init.method).toBe("PUT");
     expect(mergeUpdateRequest?.init.body).toBe(mergedDuplicateMarkdown);
     const trashRequest = fetch.requests.at(-1);
-    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v3/files/older-note?");
-    expect(trashRequest?.init.body).toBe('{"trashed":true}');
+    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v2/files/older-note?");
+    expect(new Headers(trashRequest?.init.headers).get("If-Match")).toBe('"etag-7"');
+    expect(trashRequest?.init.body).toBe('{"labels":{"trashed":true}}');
   });
 
   it("treats identical duplicate Daily Note content as saved instead of conflicted", async () => {
@@ -455,7 +461,8 @@ describe("GoogleDriveStorageProvider", () => {
       }),
       text("# Laptop"),
       text("# Laptop"),
-      json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"))
+      json(v2File("older-note", "7", "2030-01-01T00:00:00.000Z")),
+      json(v2File("older-note", "8", "2030-01-03T00:00:00.000Z"))
     ]);
     const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
 
@@ -476,8 +483,9 @@ describe("GoogleDriveStorageProvider", () => {
     });
     expect(fetch.requests.some((request) => request.url.includes("https://www.googleapis.com/upload/drive/v3/files/newer-note?"))).toBe(false);
     const trashRequest = fetch.requests.at(-1);
-    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v3/files/older-note?");
-    expect(trashRequest?.init.body).toBe('{"trashed":true}');
+    expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v2/files/older-note?");
+    expect(new Headers(trashRequest?.init.headers).get("If-Match")).toBe('"etag-7"');
+    expect(trashRequest?.init.body).toBe('{"labels":{"trashed":true}}');
   });
 
   it("serializes concurrent Daily Note creates for the same date", async () => {
@@ -596,7 +604,8 @@ describe("GoogleDriveStorageProvider", () => {
       }),
       text("# Base"),
       text("# Base"),
-      json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z")),
+      json(v2File("older-note", "7", "2030-01-01T00:00:00.000Z")),
+      json(v2File("older-note", "8", "2030-01-03T00:00:00.000Z")),
       json(v2File("newer-note", "8", "2030-01-02T00:00:00.000Z")),
       json(v2File("newer-note", "9", "2030-01-03T00:00:00.000Z"))
     ]);

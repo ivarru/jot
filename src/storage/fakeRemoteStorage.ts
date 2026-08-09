@@ -26,28 +26,29 @@ export class FakeRemoteStorageProvider implements RemoteStorageProvider {
   }
 
   async saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {
-    const existing = await this.loadDailyNote(input.date);
+    return await withStore<SaveDailyNoteResult>("fakeRemoteNotes", "readwrite", async (store) => {
+      const existing = (await waitForRequest<RemoteDailyNote | undefined>(store.get(input.date))) ?? null;
 
-    if (existing !== null && input.expectedRevisionId !== existing.revisionId) {
-      return {
-        type: "conflict",
-        remote: existing
+      if (existing !== null && input.expectedRevisionId !== existing.revisionId) {
+        return {
+          type: "conflict",
+          remote: existing
+        };
+      }
+
+      const note: RemoteDailyNote = {
+        date: input.date,
+        markdown: input.markdown,
+        revisionId: crypto.randomUUID(),
+        updatedAt: new Date().toISOString()
       };
-    }
 
-    const note: RemoteDailyNote = {
-      date: input.date,
-      markdown: input.markdown,
-      revisionId: crypto.randomUUID(),
-      updatedAt: new Date().toISOString()
-    };
-
-    await withStore<IDBValidKey>("fakeRemoteNotes", "readwrite", (store) => store.put(note));
-
-    return {
-      type: "saved",
-      note
-    };
+      await waitForRequest(store.put(note));
+      return {
+        type: "saved",
+        note
+      };
+    });
   }
 
   async loadSettings(): Promise<JotSettings | null> {
@@ -112,6 +113,13 @@ export class FakeRemoteStorageProvider implements RemoteStorageProvider {
     );
     return metadata.find((item) => imageAttachmentMediaItemId(item, field) === mediaItemId) ?? null;
   }
+}
+
+function waitForRequest<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }
 
 function imageAttachmentMediaItemId(metadata: ImageAttachmentMetadata, field: "source" | "copy"): string | undefined {
