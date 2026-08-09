@@ -4,7 +4,8 @@ import {
   focusRawEditorAtEnd,
   focusRawEditorRange,
   openDevelopmentStorage,
-  switchToWysiwygMode
+  switchToWysiwygMode,
+  wysiwygEditor
 } from "../helpers/editor";
 import { seedLocalDraft } from "../helpers/idb";
 
@@ -14,6 +15,7 @@ test("tags can be inserted, rendered, suggested, and removed from suggestions", 
   const date = await page.getByRole("textbox", { name: "Selected date", exact: true }).inputValue();
   await seedLocalDraft(page, date, initial);
   await page.reload();
+  await expect(wysiwygEditor(page)).toBeVisible();
   await expectRawMarkdown(page, initial);
   const modal = page.locator(".tag-modal");
 
