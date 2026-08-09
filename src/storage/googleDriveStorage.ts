@@ -14,7 +14,11 @@ export const GOOGLE_DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.fi
 
 const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
 const DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
+// Drive v3 omits file ETags. V2 exposes the strong ETag needed to make a Daily Note media update conditional.
+const DRIVE_V2_API_BASE = "https://www.googleapis.com/drive/v2";
+const DRIVE_V2_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v2";
 const FILE_FIELDS = "id,name,mimeType,modifiedTime,version,size";
+const V2_CONDITIONAL_FILE_FIELDS = "etag,id,modifiedDate,version";
 const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const MARKDOWN_MIME_TYPE = "text/markdown";
 const JSON_MIME_TYPE = "application/json";
@@ -38,6 +42,13 @@ interface DriveFile {
   readonly modifiedTime?: string;
   readonly version?: string;
   readonly size?: string;
+}
+
+interface DriveV2ConditionalFile {
+  readonly id: string;
+  readonly etag?: string;
+  readonly modifiedDate?: string;
+  readonly version?: string;
 }
 
 interface DriveListResponse {
@@ -149,22 +160,33 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
       };
     }
 
-    const saved =
-      existing === null
-        ? await this.createMultipartFile({
-            metadata: {
-              name,
-              mimeType: MARKDOWN_MIME_TYPE,
-              parents: [dailyNotesFolderId],
-              appProperties: {
-                jotType: "daily-note",
-                date: input.date
-              }
-            },
-            content: input.markdown,
-            contentType: MARKDOWN_MIME_TYPE
-          })
-        : await this.updateMediaFile(existing.file.id, input.markdown, MARKDOWN_MIME_TYPE);
+    if (existing === null) {
+      const saved = await this.createMultipartFile({
+        metadata: {
+          name,
+          mimeType: MARKDOWN_MIME_TYPE,
+          parents: [dailyNotesFolderId],
+          appProperties: {
+            jotType: "daily-note",
+            date: input.date
+          }
+        },
+        content: input.markdown,
+        contentType: MARKDOWN_MIME_TYPE
+      });
+
+      return {
+        type: "saved",
+        note: driveFileToDailyNote(input.date, saved, input.markdown)
+      };
+    }
+
+    const saved = await this.updateDailyNoteMediaFileIfUnchanged(
+      existing.file,
+      existing.equivalentRevisionIds,
+      input.markdown
+    );
+    if (saved === null) return await this.concurrentDailyNoteSaveResult(input);
 
     return {
       type: "saved",
@@ -502,7 +524,14 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     const canonicalContent = contents.find((content) => content.file.id === canonical.id)!;
     const mergedFile = canonicalContent.markdown === mergedMarkdown
       ? canonical
-      : await this.updateMediaFile(canonical.id, mergedMarkdown, MARKDOWN_MIME_TYPE);
+      : await this.updateDailyNoteMediaFileIfUnchanged(
+          canonical,
+          new Set([driveRevisionId(canonical)]),
+          mergedMarkdown
+        );
+    if (mergedFile === null) {
+      throw new Error("Google Drive changed a duplicate Daily Note while Jot was consolidating it.");
+    }
 
     for (const file of files) {
       if (file.id !== canonical.id) await this.trashDriveFile(file.id);
@@ -570,7 +599,8 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     let pageToken: string | undefined;
     do {
       const response = await this.requestJson<DriveListResponse>(
-        `${DRIVE_API_BASE}/files?${params}${pageToken === undefined ? "" : `&${new URLSearchParams({ pageToken })}`}`
+        `${DRIVE_API_BASE}/files?${params}${pageToken === undefined ? "" : `&${new URLSearchParams({ pageToken })}`}`,
+        { cache: "no-store" }
       );
       files.push(...(response.files ?? []));
       pageToken = response.nextPageToken;
@@ -580,7 +610,9 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
   }
 
   private async downloadText(fileId: string): Promise<string> {
-    const response = await this.request(`${DRIVE_API_BASE}/files/${encodeURIComponent(fileId)}?alt=media`);
+    const response = await this.request(`${DRIVE_API_BASE}/files/${encodeURIComponent(fileId)}?alt=media`, {
+      cache: "no-store"
+    });
     return await response.text();
   }
 
@@ -617,6 +649,68 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
       },
       body: content
     });
+  }
+
+  private async updateDailyNoteMediaFileIfUnchanged(
+    file: DriveFile,
+    expectedRevisionIds: ReadonlySet<string>,
+    content: string
+  ): Promise<DriveFile | null> {
+    const metadataParams = new URLSearchParams({ fields: V2_CONDITIONAL_FILE_FIELDS });
+    const metadata = await this.requestJson<DriveV2ConditionalFile>(
+      `${DRIVE_V2_API_BASE}/files/${encodeURIComponent(file.id)}?${metadataParams}`,
+      { cache: "no-store" }
+    );
+    if (!expectedRevisionIds.has(metadata.version ?? "")) return null;
+    if (metadata.etag === undefined) {
+      throw new Error("Google Drive did not provide the ETag required for a safe Daily Note update.");
+    }
+
+    const uploadParams = new URLSearchParams({
+      uploadType: "media",
+      fields: V2_CONDITIONAL_FILE_FIELDS
+    });
+    try {
+      const saved = await this.requestJson<DriveV2ConditionalFile>(
+        `${DRIVE_V2_UPLOAD_BASE}/files/${encodeURIComponent(file.id)}?${uploadParams}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": `${MARKDOWN_MIME_TYPE}; charset=UTF-8`,
+            "If-Match": metadata.etag
+          },
+          body: content
+        }
+      );
+      if (saved.modifiedDate === undefined || saved.version === undefined) {
+        throw new Error("Google Drive did not return the revision metadata required after a Daily Note update.");
+      }
+      return {
+        ...file,
+        id: saved.id,
+        modifiedTime: saved.modifiedDate,
+        version: saved.version
+      };
+    } catch (error) {
+      if (error instanceof GoogleDriveRequestError && error.status === 412) return null;
+      throw error;
+    }
+  }
+
+  private async concurrentDailyNoteSaveResult(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {
+    const remote = await this.loadDailyNoteUnlocked(input.date);
+    if (remote === null) {
+      throw new Error("Google Drive removed a Daily Note while Jot was preparing a safe update.");
+    }
+    return remote.markdown === input.markdown
+      ? {
+          type: "saved",
+          note: remote
+        }
+      : {
+          type: "conflict",
+          remote
+        };
   }
 
   private async trashDriveFile(fileId: string): Promise<void> {

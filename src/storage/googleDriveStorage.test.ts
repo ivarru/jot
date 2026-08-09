@@ -230,6 +230,108 @@ describe("GoogleDriveStorageProvider", () => {
     expect(fetch.requests).toHaveLength(5);
   });
 
+  it("does not overwrite a newer Drive revision when lookup metadata is stale", async () => {
+    const requests: CapturedRequest[] = [];
+    let remoteMarkdown = "# Base";
+    let remoteVersion = "7";
+    let remoteEtag = '"etag-7"';
+    const fetchMock = vi.fn(async (url: RequestInfo | URL, init: RequestInit = {}) => {
+      const request = { url: String(url), init };
+      requests.push(request);
+      const decoded = decodedUrl(request.url);
+
+      if (decoded.includes("name = 'jot'")) {
+        return json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] });
+      }
+      if (decoded.includes("name = 'AGENTS.md'")) {
+        return json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] });
+      }
+      if (decoded.includes("name = 'Daily Notes'")) {
+        return json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] });
+      }
+      if (decoded.includes("name = '2030-02-01.md'")) {
+        return json({ files: [file("note-file", "2030-02-01.md", "text/markdown", remoteVersion)] });
+      }
+      if (request.url === "https://www.googleapis.com/drive/v2/files/note-file?fields=etag%2Cid%2CmodifiedDate%2Cversion") {
+        const metadata = json({
+          id: "note-file",
+          etag: remoteEtag,
+          modifiedDate: "2030-01-01T00:00:00.000Z",
+          version: remoteVersion
+        });
+        remoteMarkdown = "# Newer and much longer\n\nFrom the PC";
+        remoteVersion = "8";
+        remoteEtag = '"etag-8"';
+        return metadata;
+      }
+      if (request.url.startsWith("https://www.googleapis.com/upload/drive/v2/files/note-file?")) {
+        if (new Headers(init.headers).get("If-Match") !== remoteEtag) {
+          return new Response("precondition failed", { status: 412 });
+        }
+        remoteMarkdown = String(init.body);
+        remoteVersion = "9";
+        remoteEtag = '"etag-9"';
+        return json({
+          id: "note-file",
+          etag: remoteEtag,
+          modifiedDate: "2030-01-01T00:00:00.000Z",
+          version: remoteVersion
+        });
+      }
+      if (request.url.startsWith("https://www.googleapis.com/upload/drive/v3/files/note-file?")) {
+        remoteMarkdown = "# Stale phone copy";
+        remoteVersion = "9";
+        return json(file("note-file", "2030-02-01.md", "text/markdown", remoteVersion));
+      }
+      if (request.url === "https://www.googleapis.com/drive/v3/files/note-file?alt=media") {
+        return text(remoteMarkdown);
+      }
+
+      throw new Error(`Unexpected request to ${request.url}`);
+    }) as unknown as typeof fetch;
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetchMock);
+
+    await expect(
+      provider.saveDailyNote({
+        date: "2030-02-01",
+        markdown: "# Stale phone copy",
+        expectedRevisionId: "7"
+      })
+    ).resolves.toEqual({
+      type: "conflict",
+      remote: {
+        date: "2030-02-01",
+        markdown: "# Newer and much longer\n\nFrom the PC",
+        revisionId: "8",
+        updatedAt: "2030-01-01T00:00:00.000Z"
+      }
+    });
+    expect(remoteMarkdown).toBe("# Newer and much longer\n\nFrom the PC");
+    const metadataRequest = requests.find((request) =>
+      request.url.startsWith("https://www.googleapis.com/drive/v2/files/note-file?")
+    );
+    const conditionalUpdateRequest = requests.find((request) =>
+      request.url.startsWith("https://www.googleapis.com/upload/drive/v2/files/note-file?")
+    );
+    expect(metadataRequest?.init.method).toBeUndefined();
+    expect(metadataRequest?.init.cache).toBe("no-store");
+    expect(new Headers(metadataRequest?.init.headers).get("Authorization")).toBe("Bearer test-token");
+    expect(conditionalUpdateRequest?.init.method).toBe("PUT");
+    expect(new Headers(conditionalUpdateRequest?.init.headers).get("Authorization")).toBe("Bearer test-token");
+    expect(new Headers(conditionalUpdateRequest?.init.headers).get("Content-Type")).toBe(
+      "text/markdown; charset=UTF-8"
+    );
+    expect(new Headers(conditionalUpdateRequest?.init.headers).get("If-Match")).toBe('"etag-7"');
+    expect(conditionalUpdateRequest?.init.body).toBe("# Stale phone copy");
+    expect(requests.some((request) =>
+      request.url.startsWith("https://www.googleapis.com/upload/drive/v3/files/note-file?")
+    )).toBe(false);
+    expect(requests.filter((request) => request.url.includes("/drive/v3/files?")).every((request) =>
+      request.init.cache === "no-store"
+    )).toBe(true);
+    expect(requests.find((request) => request.url.endsWith("?alt=media"))?.init.cache).toBe("no-store");
+  });
+
   it("returns a conflict when a local-only note finds an existing Drive file", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
@@ -272,7 +374,8 @@ describe("GoogleDriveStorageProvider", () => {
       }),
       text("# Older"),
       text("# Newer"),
-      json(file("newer-note", "2030-02-01.md", "text/markdown", "9", "2030-01-03T00:00:00.000Z")),
+      json(v2File("newer-note", "8", "2030-01-02T00:00:00.000Z")),
+      json(v2File("newer-note", "9", "2030-01-03T00:00:00.000Z")),
       json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"))
     ]);
     const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
@@ -293,9 +396,10 @@ describe("GoogleDriveStorageProvider", () => {
       }
     });
     const mergeUpdateRequest = fetch.requests.find((request) =>
-      request.url.includes("https://www.googleapis.com/upload/drive/v3/files/newer-note?")
+      request.url.includes("https://www.googleapis.com/upload/drive/v2/files/newer-note?")
     );
-    expect(mergeUpdateRequest?.init.method).toBe("PATCH");
+    expect(mergeUpdateRequest?.init.method).toBe("PUT");
+    expect(new Headers(mergeUpdateRequest?.init.headers).get("If-Match")).toBe('"etag-8"');
     expect(mergeUpdateRequest?.init.body).toBe(mergedDuplicateMarkdown);
     const trashRequest = fetch.requests.at(-1);
     expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v3/files/older-note?");
@@ -316,7 +420,8 @@ describe("GoogleDriveStorageProvider", () => {
       }),
       text("# Day\nlaptop\n"),
       text("# Day\n"),
-      json(file("newer-note", "2030-02-01.md", "text/markdown", "9", "2030-01-03T00:00:00.000Z")),
+      json(v2File("newer-note", "8", "2030-01-02T00:00:00.000Z")),
+      json(v2File("newer-note", "9", "2030-01-03T00:00:00.000Z")),
       json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z"))
     ]);
     const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
@@ -328,9 +433,9 @@ describe("GoogleDriveStorageProvider", () => {
       updatedAt: "2030-01-03T00:00:00.000Z"
     });
     const mergeUpdateRequest = fetch.requests.find((request) =>
-      request.url.includes("https://www.googleapis.com/upload/drive/v3/files/newer-note?")
+      request.url.includes("https://www.googleapis.com/upload/drive/v2/files/newer-note?")
     );
-    expect(mergeUpdateRequest?.init.method).toBe("PATCH");
+    expect(mergeUpdateRequest?.init.method).toBe("PUT");
     expect(mergeUpdateRequest?.init.body).toBe(mergedDuplicateMarkdown);
     const trashRequest = fetch.requests.at(-1);
     expect(trashRequest?.url).toContain("https://www.googleapis.com/drive/v3/files/older-note?");
@@ -458,7 +563,8 @@ describe("GoogleDriveStorageProvider", () => {
       json({ files: [file("agents-file", "AGENTS.md", "text/markdown", "1")] }),
       json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
       json({ files: [file("note-file", "2030-02-01.md", "text/markdown", "7")] }),
-      json(file("note-file", "2030-02-01.md", "text/markdown", "8"))
+      json(v2File("note-file", "7")),
+      json(v2File("note-file", "8"))
     ]);
     const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
 
@@ -470,9 +576,10 @@ describe("GoogleDriveStorageProvider", () => {
 
     expect(result.type).toBe("saved");
     const updateRequest = fetch.requests.at(-1);
-    expect(updateRequest?.url).toContain("https://www.googleapis.com/upload/drive/v3/files/note-file?");
+    expect(updateRequest?.url).toContain("https://www.googleapis.com/upload/drive/v2/files/note-file?");
     expect(updateRequest?.url).toContain("uploadType=media");
-    expect(updateRequest?.init.method).toBe("PATCH");
+    expect(updateRequest?.init.method).toBe("PUT");
+    expect(new Headers(updateRequest?.init.headers).get("If-Match")).toBe('"etag-7"');
     expect(updateRequest?.init.body).toBe("# Updated");
   });
 
@@ -490,7 +597,8 @@ describe("GoogleDriveStorageProvider", () => {
       text("# Base"),
       text("# Base"),
       json(file("older-note", "2030-02-01.md", "text/markdown", "7", "2030-01-01T00:00:00.000Z")),
-      json(file("newer-note", "2030-02-01.md", "text/markdown", "9", "2030-01-03T00:00:00.000Z"))
+      json(v2File("newer-note", "8", "2030-01-02T00:00:00.000Z")),
+      json(v2File("newer-note", "9", "2030-01-03T00:00:00.000Z"))
     ]);
     const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
 
@@ -509,7 +617,7 @@ describe("GoogleDriveStorageProvider", () => {
         updatedAt: "2030-01-03T00:00:00.000Z"
       }
     });
-    expect(fetch.requests.at(-1)?.url).toContain("https://www.googleapis.com/upload/drive/v3/files/newer-note?");
+    expect(fetch.requests.at(-1)?.url).toContain("https://www.googleapis.com/upload/drive/v2/files/newer-note?");
   });
 
   it("loads and saves settings as JSON in the Jot Folder", async () => {
@@ -817,6 +925,19 @@ function file(
     version,
     modifiedTime,
     size
+  };
+}
+
+function v2File(
+  id: string,
+  version: string,
+  modifiedDate = "2030-01-01T00:00:00.000Z"
+): object {
+  return {
+    id,
+    etag: `"etag-${version}"`,
+    modifiedDate,
+    version
   };
 }
 
