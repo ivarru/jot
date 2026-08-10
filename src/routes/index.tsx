@@ -1418,7 +1418,7 @@ export default function Home() {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const selection = currentEditorSelection();
     pendingFormattingToolbarSelection = selection;
-    if (selection !== null) setFocusEditorSelection(selection);
+    if (selection !== null && editorMode() !== "wysiwyg") setFocusEditorSelection(selection);
     event.preventDefault();
   };
 

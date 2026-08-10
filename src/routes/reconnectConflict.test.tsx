@@ -1453,7 +1453,7 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
-  it("prevents pointer focus transfer from formatting toolbar buttons", async () => {
+  it("prevents toolbar focus transfer without round-tripping the WYSIWYG selection", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
       markdown: "format me",
@@ -1486,7 +1486,7 @@ describe("Home reconnect and conflict handling", () => {
     }
 
     await settle();
-    expect(testState.focusSelectionApplyCount).toBeGreaterThan(0);
+    expect(testState.focusSelectionApplyCount).toBe(0);
 
     dispose();
   });

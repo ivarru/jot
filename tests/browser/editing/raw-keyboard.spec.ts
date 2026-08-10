@@ -97,6 +97,35 @@ test("WYSIWYG inline-code boundary typing follows the visible caret side", async
   await expectUnderlyingMarkdown(page, "Use `foo`X today");
 });
 
+test("WYSIWYG inline-code toolbar exit keeps following text outside code", async ({ page }) => {
+  const markdown = "`foo`";
+  const codeEnd = markdown.lastIndexOf("`");
+
+  await setRawMarkdown(page, markdown);
+  await focusRawEditorRange(page, codeEnd, codeEnd);
+  await switchToWysiwygMode(page);
+  await page.getByRole("button", { name: "Toggle inline code format" }).click();
+  await page.keyboard.insertText("bar");
+
+  await expectUnderlyingMarkdown(page, "`foo`bar");
+});
+
+test("WYSIWYG collapsed inline-code toggle persists until toggled off", async ({ page }) => {
+  const markdown = "Use today";
+  const cursor = "Use".length;
+
+  await setRawMarkdown(page, markdown);
+  await focusRawEditorRange(page, cursor, cursor);
+  await switchToWysiwygMode(page);
+  const codeButton = page.getByRole("button", { name: "Toggle inline code format" });
+  await codeButton.click();
+  await page.keyboard.type("abc", { delay: 50 });
+  await codeButton.click();
+  await page.keyboard.type("xy", { delay: 50 });
+
+  await expectUnderlyingMarkdown(page, "Use`abc`xy today");
+});
+
 test("WYSIWYG inline code formats the selected list text after an HTML break", async ({ page }) => {
   const markdown = "<br />\n\n* foo: bar\n* baz";
   const start = markdown.indexOf("bar");

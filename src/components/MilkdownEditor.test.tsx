@@ -3,7 +3,7 @@ import { render } from "solid-js/web";
 import { defaultValueCtx, Editor, editorViewCtx, rootCtx, serializerCtx } from "@milkdown/kit/core";
 import type { MarkType, Node as ProseMirrorNode } from "@milkdown/kit/prose/model";
 import { EditorState, Plugin, TextSelection } from "@milkdown/kit/prose/state";
-import { commonmark, inlineCodeSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
+import { commonmark, inlineCodeSchema, linkSchema, strongSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { automd, inlineSyncConfig } from "@milkdown/plugin-automd";
 import { toggleMark } from "@milkdown/kit/prose/commands";
@@ -14,6 +14,7 @@ import {
   createMilkdownMarkdownSyncState,
   createLinkBoundaryTypingPlugin,
   editorSelectionToMarkdownSourceSelection,
+  INLINE_CODE_AFFINITY_META,
   MilkdownEditor,
   type MilkdownEditorController,
   trackMilkdownExternalMarkdown,
@@ -1248,6 +1249,106 @@ describe("MilkdownEditor", () => {
       typeTextThroughView(view, "X");
 
       expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("Use `foo`X today\n");
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
+  it("preserves an explicit code exit through same-position DOM affinity reports", async () => {
+    const testEditor = await createMilkdownDomTestEditor("`foo`");
+
+    try {
+      const codeText = testEditor.root.querySelector("code")?.firstChild;
+      expect(codeText).toBeInstanceOf(Text);
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      const codeType = inlineCodeSchema.type(testEditor.editor.ctx);
+      await placeNativeCaret(view, codeText!, codeText!.textContent!.length);
+      view.dispatch(
+        view.state.tr
+          .removeStoredMark(codeType)
+          .setMeta(INLINE_CODE_AFFINITY_META, false)
+      );
+      for (let repeat = 0; repeat < 5; repeat += 1) {
+        await placeNativeCaret(view, codeText!, codeText!.textContent!.length);
+      }
+      typeTextThroughView(view, "bar");
+
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("`foo`bar\n");
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
+  it("does not treat an unrelated stored-mark change as explicit code affinity", async () => {
+    const testEditor = await createMilkdownDomTestEditor("Use `foo` today");
+
+    try {
+      const paragraph = testEditor.root.querySelector("p");
+      const plainTextAfterCode = paragraph?.lastChild;
+      expect(plainTextAfterCode).toBeInstanceOf(Text);
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      const codeType = inlineCodeSchema.type(testEditor.editor.ctx);
+      const strongType = strongSchema.type(testEditor.editor.ctx);
+      await placeNativeCaret(view, plainTextAfterCode!, 0);
+      view.dispatch(view.state.tr.setStoredMarks([codeType.create(), strongType.create()]));
+      typeTextThroughView(view, "X");
+
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("Use `foo`**X** today\n");
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
+  it("discards explicit code affinity while the DOM selection is outside the editor", async () => {
+    const testEditor = await createMilkdownDomTestEditor("`foo`");
+
+    try {
+      const codeText = testEditor.root.querySelector("code")?.firstChild;
+      expect(codeText).toBeInstanceOf(Text);
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      const codeType = inlineCodeSchema.type(testEditor.editor.ctx);
+      await placeNativeCaret(view, codeText!, codeText!.textContent!.length);
+      view.dispatch(
+        view.state.tr
+          .removeStoredMark(codeType)
+          .setMeta(INLINE_CODE_AFFINITY_META, false)
+      );
+
+      const outside = document.createTextNode("outside");
+      document.body.append(outside);
+      const selection = document.getSelection()!;
+      const range = document.createRange();
+      range.setStart(outside, 0);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+
+      await placeNativeCaret(view, codeText!, codeText!.textContent!.length);
+      typeTextThroughView(view, "X");
+
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("`fooX`\n");
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
+  it("keeps text after a closing backtick outside inline code", async () => {
+    const testEditor = await createMilkdownDomTestEditor("");
+
+    try {
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      typeTextThroughView(view, "`foo");
+      typeTextThroughView(view, "`");
+
+      const codeText = testEditor.root.querySelector("code")?.firstChild;
+      expect(codeText).toBeInstanceOf(Text);
+      for (let repeat = 0; repeat < 5; repeat += 1) {
+        await placeNativeCaret(view, codeText!, codeText!.textContent!.length);
+      }
+      typeTextThroughView(view, "bar");
+
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("`foo`bar\n");
     } finally {
       await testEditor.destroy();
     }

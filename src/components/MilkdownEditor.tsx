@@ -27,6 +27,14 @@ import {
   type InlineMarkFormat
 } from "~/editor/inlineFormatting";
 import {
+  advanceInlineCodeAffinityAfterTextInput,
+  emptyInlineCodeAffinityState,
+  recordInlineCodeDomAffinity,
+  recordInlineCodeExplicitAffinity,
+  resolveInlineCodeAffinity,
+  resolveInlineCodeExplicitAffinity
+} from "~/editor/inlineCodeAffinity";
+import {
   inactiveListItemFormatState,
   markdownListItemFormatState,
   toggleMarkdownTaskListItem,
@@ -41,8 +49,11 @@ import { diffChars } from "diff";
 import type { Ctx } from "@milkdown/kit/ctx";
 import type { Editor as MilkdownEditorInstance } from "@milkdown/kit/core";
 import type { MarkType, Node as ProseNode, NodeType } from "@milkdown/kit/prose/model";
+import { customInputRulesKey } from "@milkdown/kit/prose";
 import type { EditorState, Selection, Transaction } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
+
+export const INLINE_CODE_AFFINITY_META = "jotInlineCodeAffinity";
 
 interface MilkdownEditorProps {
   readonly documentKey: string;
@@ -726,7 +737,13 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             toggleInlineCodeAtSelection: () => {
               if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
               const view = editor.ctx.get(editorViewCtx);
-              const applied = toggleInlineMarkInView(view, TextSelection, inlineCodeSchema.type(editor.ctx), toggleMark);
+              const applied = toggleInlineMarkInView(
+                view,
+                TextSelection,
+                inlineCodeSchema.type(editor.ctx),
+                toggleMark,
+                INLINE_CODE_AFFINITY_META
+              );
               if (!applied) return false;
               notifyHistoryAvailability(view);
               notifyInlineFormatState(view);
@@ -1119,7 +1136,8 @@ function toggleInlineMarkInView(
   view: EditorView,
   textSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
   markType: MarkType,
-  toggleMarkCommand: typeof import("@milkdown/kit/prose/commands").toggleMark
+  toggleMarkCommand: typeof import("@milkdown/kit/prose/commands").toggleMark,
+  explicitAffinityMeta?: string
 ): boolean {
   flushPendingEditorDomChanges(view);
   const selection = view.state.selection;
@@ -1135,6 +1153,9 @@ function toggleInlineMarkInView(
   const transaction = active
     ? view.state.tr.removeStoredMark(markType)
     : view.state.tr.addStoredMark(markType.create());
+  if (explicitAffinityMeta !== undefined) {
+    transaction.setMeta(explicitAffinityMeta, !active);
+  }
   view.dispatch(transaction.setMeta("addToHistory", false));
   view.focus();
   return true;
@@ -1171,23 +1192,50 @@ export function createInlineCodeBoundaryAffinityPlugin(
   Plugin: typeof import("@milkdown/kit/prose/state").Plugin,
   codeType: MarkType
 ) {
-  let boundaryAffinity: { readonly position: number; readonly insideCode: boolean } | null = null;
+  let boundaryAffinity = emptyInlineCodeAffinityState;
 
   return new Plugin({
+    state: {
+      init: () => null,
+      apply: (transaction) => {
+        const taggedAffinity = transaction.getMeta(INLINE_CODE_AFFINITY_META);
+        const explicitInsideCode = typeof taggedAffinity === "boolean"
+          ? taggedAffinity
+          : inlineCodeInputRuleLeavesCaretOutside(transaction, codeType)
+            ? false
+            : null;
+        if (typeof explicitInsideCode === "boolean" && transaction.selection.empty) {
+          boundaryAffinity = recordInlineCodeExplicitAffinity(
+            boundaryAffinity,
+            transaction.selection.from,
+            explicitInsideCode
+          );
+        }
+        return null;
+      }
+    },
     props: {
       handleTextInput: (view, from, to, text, defaultTransaction) => {
-        if (boundaryAffinity === null || boundaryAffinity.position !== from) return false;
+        const caretIsInsideCode = resolveInlineCodeAffinity(boundaryAffinity, from);
+        if (caretIsInsideCode === null) return false;
+        const hasExplicitAffinity = resolveInlineCodeExplicitAffinity(boundaryAffinity, from) !== null;
         const transaction = inlineCodeBoundaryTextInputTransaction(
           view.state,
           codeType,
           from,
           to,
           text,
-          boundaryAffinity.insideCode,
+          caretIsInsideCode,
+          hasExplicitAffinity,
           defaultTransaction()
         );
         if (transaction === null) return false;
 
+        boundaryAffinity = advanceInlineCodeAffinityAfterTextInput(
+          boundaryAffinity,
+          from,
+          from + text.length
+        );
         view.dispatch(transaction);
         return true;
       }
@@ -1197,20 +1245,22 @@ export function createInlineCodeBoundaryAffinityPlugin(
       const trackBoundaryAffinity = () => {
         const domSelection = ownerDocument.getSelection();
         if (domSelection === null || !domSelection.isCollapsed || domSelection.anchorNode === null) {
-          boundaryAffinity = null;
+          boundaryAffinity = emptyInlineCodeAffinityState;
           return;
         }
         const anchorNode = domSelection.anchorNode;
         const anchorOffset = domSelection.anchorOffset;
         if (!containsSelectionNode(view.dom, anchorNode)) {
-          boundaryAffinity = null;
+          boundaryAffinity = emptyInlineCodeAffinityState;
           return;
         }
 
-        boundaryAffinity = {
-          position: view.posAtDOM(anchorNode, anchorOffset),
-          insideCode: closestInlineCodeElement(anchorNode, view.dom) !== null
-        };
+        const position = view.posAtDOM(anchorNode, anchorOffset);
+        boundaryAffinity = recordInlineCodeDomAffinity(
+          boundaryAffinity,
+          position,
+          closestInlineCodeElement(anchorNode, view.dom) !== null
+        );
       };
       ownerDocument.addEventListener("selectionchange", trackBoundaryAffinity);
 
@@ -1221,6 +1271,17 @@ export function createInlineCodeBoundaryAffinityPlugin(
   });
 }
 
+function inlineCodeInputRuleLeavesCaretOutside(
+  transaction: Transaction,
+  codeType: MarkType
+): boolean {
+  if (transaction.getMeta(customInputRulesKey) === undefined || !transaction.selection.empty) return false;
+  if (codeType.isInSet(transaction.storedMarks ?? []) !== undefined) return false;
+
+  const nodeBefore = transaction.doc.resolve(transaction.selection.from).nodeBefore;
+  return nodeBefore !== null && codeType.isInSet(nodeBefore.marks) !== undefined;
+}
+
 function inlineCodeBoundaryTextInputTransaction(
   state: EditorState,
   codeType: MarkType,
@@ -1228,6 +1289,7 @@ function inlineCodeBoundaryTextInputTransaction(
   to: number,
   text: string,
   caretIsInsideCode: boolean,
+  forceAffinity: boolean,
   transaction: Transaction
 ): Transaction | null {
   if (from !== to || text.length === 0) return null;
@@ -1237,13 +1299,20 @@ function inlineCodeBoundaryTextInputTransaction(
     && codeType.isInSet(position.nodeBefore.marks) !== undefined;
   const afterHasCode = position.nodeAfter !== null
     && codeType.isInSet(position.nodeAfter.marks) !== undefined;
-  if (beforeHasCode === afterHasCode) return null;
+  if (!forceAffinity && beforeHasCode === afterHasCode) return null;
 
   const insertedTo = from + text.length;
   if (caretIsInsideCode) {
     transaction.addMark(from, insertedTo, codeType.create());
   } else {
     transaction.removeMark(from, insertedTo, codeType);
+  }
+  if (forceAffinity) {
+    const marksWithoutCode = (state.storedMarks ?? state.selection.$from.marks())
+      .filter((mark) => mark.type !== codeType);
+    transaction.setStoredMarks(
+      caretIsInsideCode ? [...marksWithoutCode, codeType.create()] : marksWithoutCode
+    );
   }
   return transaction;
 }
