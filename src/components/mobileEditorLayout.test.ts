@@ -49,12 +49,31 @@ describe("mobile editor layout styles", () => {
     expect(blockFor('[data-tooltip][aria-expanded="true"]::after')).toContain("opacity: 0;");
   });
 
+  it("does not reserve a desktop-sized scrollbar gutter on narrow Android viewports", () => {
+    expect(mobileStyles()).toContain("scrollbar-width: thin;");
+  });
+
+  it("only shows hover tooltips on devices that actually support hovering", () => {
+    expect(blockFor('[data-tooltip]:focus-visible::after')).toContain("opacity: 1;");
+    expect(blockFor('[data-tooltip]:focus-visible::after')).not.toContain(":hover");
+    expect(styles).toContain("@media (hover: hover) and (pointer: fine)");
+    expect(hoverStyles()).toContain('[data-tooltip]:hover::after');
+  });
+
   function mobileStyles(): string {
     const start = styles.indexOf("@media (max-width: 720px)");
     const end = styles.indexOf("@media (max-width: 560px)");
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     return styles.slice(start, end);
+  }
+
+  function hoverStyles(): string {
+    const start = styles.indexOf("@media (hover: hover) and (pointer: fine)");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = styles.indexOf("\n}", start);
+    expect(end).toBeGreaterThan(start);
+    return styles.slice(start, end + 2);
   }
 
   function blockFor(selector: string): string {

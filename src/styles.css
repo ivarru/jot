@@ -522,7 +522,6 @@ select {
   white-space: normal;
 }
 
-[data-tooltip]:hover::after,
 [data-tooltip]:focus-visible::after {
   opacity: 1;
   transform: translate(-50%, 0);
@@ -543,11 +542,22 @@ select {
   transform: translate(0, 2px);
 }
 
-.toolbar-status-column [data-tooltip]:hover::after,
 .toolbar-status-column [data-tooltip]:focus-visible::after,
-.about-modal-header [data-tooltip]:hover::after,
 .about-modal-header [data-tooltip]:focus-visible::after {
   transform: translate(0, 0);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  [data-tooltip]:hover::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    transition-delay: 120ms;
+  }
+
+  .toolbar-status-column [data-tooltip]:hover::after,
+  .about-modal-header [data-tooltip]:hover::after {
+    transform: translate(0, 0);
+  }
 }
 
 .icon-button {
@@ -1545,6 +1555,14 @@ select {
     --editor-default-height: 50dvh;
     --editor-padding: 16px;
     --editor-vertical-padding: 32px;
+  }
+
+  html {
+    scrollbar-width: thin;
+  }
+
+  html::-webkit-scrollbar {
+    width: 4px;
   }
 
   .app {
