@@ -232,10 +232,12 @@ function buildMarkdownCursorMapping(markdown: string): MarkdownCursorMapping {
         showTable(node);
         break;
       case "text":
-      case "html":
       case "yaml":
       case "definition":
         showPositionedValue(node);
+        break;
+      case "html":
+        if (!isStandaloneHtmlBreak(node)) showPositionedValue(node);
         break;
       default:
         break;
@@ -272,6 +274,10 @@ function buildMarkdownCursorMapping(markdown: string): MarkdownCursorMapping {
     renderedToSource,
     renderedLength: rendered
   };
+}
+
+function isStandaloneHtmlBreak(node: PositionedValue): boolean {
+  return typeof node.value === "string" && /^<br\s*\/?\s*>$/i.test(node.value.trim());
 }
 
 function positionRange(node: Positioned): {

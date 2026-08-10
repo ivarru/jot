@@ -27,6 +27,17 @@ describe("markdown cursor mapping", () => {
     );
   });
 
+  it("does not count a standalone HTML break as rendered text before a list", () => {
+    const markdown = "<br />\n\n* foo: bar\n* baz";
+    const rendered = "\n\nfoo: bar\n\nbaz";
+
+    expect(markdownSourceOffsetToRenderedOffset(markdown, markdown.indexOf("bar"))).toBe(rendered.indexOf("bar"));
+    expect(renderedOffsetToMarkdownSourceOffset(markdown, rendered.indexOf("bar"))).toBe(markdown.indexOf("bar"));
+    expect(renderedOffsetToMarkdownSourceOffset(markdown, rendered.indexOf("bar") + "bar".length)).toBe(
+      markdown.indexOf("bar") + "bar".length
+    );
+  });
+
   it("maps rendered task list content back after hidden checkbox markers", () => {
     const markdown = "* parent\n  * [ ] child\n* after";
 

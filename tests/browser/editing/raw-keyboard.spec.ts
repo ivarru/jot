@@ -97,6 +97,18 @@ test("WYSIWYG inline-code boundary typing follows the visible caret side", async
   await expectUnderlyingMarkdown(page, "Use `foo`X today");
 });
 
+test("WYSIWYG inline code formats the selected list text after an HTML break", async ({ page }) => {
+  const markdown = "<br />\n\n* foo: bar\n* baz";
+  const start = markdown.indexOf("bar");
+
+  await setRawMarkdown(page, markdown);
+  await focusRawEditorRange(page, start, start + "bar".length);
+  await switchToWysiwygMode(page);
+  await page.getByRole("button", { name: "Toggle inline code format" }).click();
+
+  await expectUnderlyingMarkdown(page, "<br />\n\n* foo: `bar`\n* baz");
+});
+
 test("background saving preserves a compact list of links", async ({ page }) => {
   const markdown = [
     "* [pi-msg (github.com)](https://github.com/zachpmanson/pi-msg)",
