@@ -15,6 +15,14 @@ describe("Milkdown bullet styles", () => {
     expect(fourthLevelRule).toContain("background: transparent;");
   });
 
+  it("returns to a filled circle at the fifth nesting level", () => {
+    const fifthLevelRule = blockFor(".milkdown-root ul ul ul ul ul .jot-bullet-marker::before");
+
+    expect(fifthLevelRule).toContain("border: 0;");
+    expect(fifthLevelRule).toContain("border-radius: 999px;");
+    expect(fifthLevelRule).toContain("background: currentColor;");
+  });
+
   function blockFor(selector: string): string {
     const start = styles.indexOf(`${selector} {`);
     expect(start).toBeGreaterThanOrEqual(0);

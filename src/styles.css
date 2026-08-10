@@ -1482,6 +1482,14 @@ select {
   background: transparent;
 }
 
+.milkdown-root ul ul ul ul ul .jot-bullet-marker::before {
+  width: 0.48em;
+  height: 0.48em;
+  border: 0;
+  border-radius: 999px;
+  background: currentColor;
+}
+
 .milkdown-root .jot-task-checkbox {
   position: relative;
   display: inline-block;
