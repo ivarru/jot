@@ -26,6 +26,20 @@ test("narrow viewports do not reserve a page scrollbar gutter", async ({ page })
   ).toBe("none");
 });
 
+for (const width of [320, 360, 393, 412, 432]) {
+  test(`the mobile layout does not overflow a ${width}px viewport horizontally`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Use development storage" }).tap();
+    await expect(page.locator(".app-toolbar")).toBeVisible();
+
+    await expect.poll(() => page.evaluate(() => ({
+      viewportWidth: document.documentElement.clientWidth,
+      documentWidth: document.documentElement.scrollWidth
+    }))).toEqual({ viewportWidth: width, documentWidth: width });
+  });
+}
+
 test("the mobile viewport cannot shrink below its responsive default", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /(?:^|,\s*)minimum-scale=1(?:,|$)/);

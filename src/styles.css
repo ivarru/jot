@@ -560,6 +560,12 @@ select {
   }
 }
 
+@media (hover: none) and (pointer: coarse) {
+  [data-tooltip]::after {
+    content: none;
+  }
+}
+
 .icon-button {
   display: inline-grid;
   width: 30px;
