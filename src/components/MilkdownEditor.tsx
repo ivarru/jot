@@ -88,6 +88,10 @@ interface MilkdownEditorSession {
   readonly getSelection: () => MarkdownSelection | null;
   readonly getMarkdown: () => string;
   readonly getLiveMarkdown: () => string;
+  readonly getLiveMarkdownSelection: () => {
+    readonly markdown: string;
+    readonly selection: MarkdownSelection;
+  } | null;
   readonly focus: (placement: FocusPlacement, onFocusApplied?: () => void) => void;
   readonly focusCurrentSelection: () => void;
   readonly redo: () => boolean;
@@ -126,6 +130,10 @@ export interface MilkdownEditorController {
   readonly getListItemFormatState: () => ListItemFormatState;
   readonly getMarkdown: () => string;
   readonly getLiveMarkdown: () => string;
+  readonly getLiveMarkdownSelection: () => {
+    readonly markdown: string;
+    readonly selection: MarkdownSelection;
+  } | null;
   readonly getSelection: () => MarkdownSelection | null;
   readonly focusCurrentSelection: () => void;
   readonly redo: () => boolean;
@@ -616,45 +624,23 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               }
               const view = editor.ctx.get(editorViewCtx);
               const serializer = editor.ctx.get(serializerCtx);
-              const markdown = markdownState.currentMarkdown;
-              const emptyTextblockSelection = emptyTextblockMarkdownSelection(markdown, view);
-              if (emptyTextblockSelection !== null) return emptyTextblockSelection;
-
-              if (selectionIsInEmptyTextblock(view)) {
-                const serializedMarkdown = serializeMilkdownMarkdown(serializer, view.state.doc);
-                const serializedEmptyTextblockSelection = emptyTextblockMarkdownSelection(serializedMarkdown, view);
-                if (serializedEmptyTextblockSelection !== null) return serializedEmptyTextblockSelection;
-              }
-
-              const domEmptyTextblockIndex = emptyDomTextblockIndexAtSelection(view);
-              if (domEmptyTextblockIndex !== null) {
-                const domEmptySelection =
-                  emptyMarkdownLineOffset(markdown, domEmptyTextblockIndex)
-                    ?? emptyMarkdownLineOffset(serializeMilkdownMarkdown(serializer, view.state.doc), domEmptyTextblockIndex)
-                    ?? emptyDomTextblockSourceOffset(view.dom, domEmptyTextblockIndex);
-                if (domEmptySelection !== null) return { start: domEmptySelection, end: domEmptySelection };
-              }
-
-              const domSelection = editorDomSelectionToMarkdownSourceSelection(
-                markdown,
-                view,
-                serializer
-              );
-              if (domSelection !== null) return domSelection;
-
-              const editorSelection = editorSelectionToMarkdownSourceSelection(
-                markdown,
-                view.state.selection,
-                view,
-                serializer
-              );
-              return editorSelection;
+              return markdownSelectionForView(markdownState.currentMarkdown, view, serializer);
             },
             getMarkdown: () => markdownState.currentMarkdown,
             getLiveMarkdown: () => {
               if (disposed || activeSession !== session || editor === null) return markdownState.currentMarkdown;
               const view = editor.ctx.get(editorViewCtx);
               return serializeMilkdownMarkdown(editor.ctx.get(serializerCtx), view.state.doc);
+            },
+            getLiveMarkdownSelection: () => {
+              if (disposed || activeSession !== session || editor === null) return null;
+              const view = editor.ctx.get(editorViewCtx);
+              const serializer = editor.ctx.get(serializerCtx);
+              const markdown = serializeMilkdownMarkdown(serializer, view.state.doc);
+              return {
+                markdown,
+                selection: markdownSelectionForView(markdown, view, serializer)
+              };
             },
             focus: (placement, onFocusApplied) => {
               if (disposed || activeSession !== session || editor === null) return;
@@ -821,6 +807,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             getListItemFormatState: () => session?.getListItemFormatState() ?? inactiveListItemFormatState,
             getMarkdown: () => session?.getMarkdown() ?? markdownState.currentMarkdown,
             getLiveMarkdown: () => session?.getLiveMarkdown() ?? markdownState.currentMarkdown,
+            getLiveMarkdownSelection: () => session?.getLiveMarkdownSelection() ?? null,
             getSelection: () => session?.getSelection() ?? null,
             focusCurrentSelection: () => {
               session?.focusCurrentSelection();
@@ -1441,6 +1428,35 @@ export function editorSelectionToMarkdownSourceSelection(
     start: editorPositionToMarkdownSourceOffset(markdown, selection.from, bias ?? "start", view, serializer),
     end: editorPositionToMarkdownSourceOffset(markdown, selection.to, bias ?? "end", view, serializer)
   };
+}
+
+function markdownSelectionForView(
+  markdown: string,
+  view: EditorView,
+  serializer: MarkdownSerializer
+): MarkdownSelection {
+  const emptyTextblockSelection = emptyTextblockMarkdownSelection(markdown, view);
+  if (emptyTextblockSelection !== null) return emptyTextblockSelection;
+
+  if (selectionIsInEmptyTextblock(view)) {
+    const serializedEmptyTextblockSelection = emptyTextblockMarkdownSelection(
+      serializeMilkdownMarkdown(serializer, view.state.doc),
+      view
+    );
+    if (serializedEmptyTextblockSelection !== null) return serializedEmptyTextblockSelection;
+  }
+
+  const domEmptyTextblockIndex = emptyDomTextblockIndexAtSelection(view);
+  if (domEmptyTextblockIndex !== null) {
+    const domEmptySelection =
+      emptyMarkdownLineOffset(markdown, domEmptyTextblockIndex)
+        ?? emptyMarkdownLineOffset(serializeMilkdownMarkdown(serializer, view.state.doc), domEmptyTextblockIndex)
+        ?? emptyDomTextblockSourceOffset(view.dom, domEmptyTextblockIndex);
+    if (domEmptySelection !== null) return { start: domEmptySelection, end: domEmptySelection };
+  }
+
+  return editorDomSelectionToMarkdownSourceSelection(markdown, view, serializer)
+    ?? editorSelectionToMarkdownSourceSelection(markdown, view.state.selection, view, serializer);
 }
 
 function editorDomSelectionToMarkdownSourceSelection(

@@ -4,10 +4,12 @@ import {
   clickButton,
   expectRawMarkdown,
   focusRawEditorRange,
+  focusWysiwygTextOffset,
   openDevelopmentStorage,
   rawMarkdown,
   setRawMarkdown,
-  switchToRawMode
+  switchToRawMode,
+  switchToWysiwygMode
 } from "../helpers/editor";
 
 test("link modal supports clipboard autofill, editing, and share-target insertion", async ({ page }) => {
@@ -17,6 +19,7 @@ test("link modal supports clipboard autofill, editing, and share-target insertio
   await switchToRawMode(page);
 
   await assertClipboardAutoFill(page);
+  await assertWysiwygCollapsedCursorInsert(page);
   await assertManualLinkModalInsert(page);
   await assertClipboardButtonLinkEdit(page);
   await assertExistingLinkEdit(page);
@@ -32,6 +35,23 @@ async function assertManifestShareTarget(page: Page): Promise<void> {
   expect(manifest.share_target?.params?.title).toBe("title");
   expect(manifest.share_target?.params?.text).toBe("text");
   expect(manifest.share_target?.params?.url).toBe("url");
+}
+
+async function assertWysiwygCollapsedCursorInsert(page: Page): Promise<void> {
+  const markdown = "**First** paragraph with [an existing link](<https://example.com/existing>) and `inline code`.\n\nInsert the link right here in the final paragraph.";
+  const cursorOffsetInText = "Insert the link right ".length;
+  const expected = "**First** paragraph with [an existing link](https://example.com/existing) and `inline code`.\n\nInsert the link right [Jot](<https://example.com/jot>)here in the final paragraph.\n";
+  await setRawMarkdown(page, markdown);
+  await switchToWysiwygMode(page);
+  await writeClipboardText(page, "");
+  await focusWysiwygTextOffset(page, "Insert the link right here in the final paragraph.", cursorOffsetInText);
+
+  await clickButton(page, "Insert or edit link");
+  await expectLinkModalValues(page, { text: "", url: "" });
+  await page.locator(".link-modal input").nth(0).fill("Jot");
+  await setLinkModalUrl(page, "https://example.com/jot");
+  await clickLinkModalButton(page, "Insert");
+  await expectRawMarkdown(page, expected);
 }
 
 async function assertManualLinkModalInsert(page: Page): Promise<void> {

@@ -91,6 +91,10 @@ vi.mock("~/components/MilkdownEditor", async () => {
         readonly getListItemFormatState: () => { readonly task: boolean };
         readonly getMarkdown: () => string;
         readonly getLiveMarkdown: () => string;
+        readonly getLiveMarkdownSelection: () => {
+          readonly markdown: string;
+          readonly selection: { readonly start: number; readonly end: number };
+        } | null;
         readonly getSelection: () => { readonly start: number; readonly end: number } | null;
         readonly focusCurrentSelection: () => void;
         readonly redo: () => boolean;
@@ -214,6 +218,16 @@ vi.mock("~/components/MilkdownEditor", async () => {
         getListItemFormatState: () => ({ ...listItemFormatState }),
         getMarkdown: () => present,
         getLiveMarkdown: () => textarea?.value ?? present,
+        getLiveMarkdownSelection: () =>
+          textarea === undefined || !routeTestState.wysiwygSelectionAvailable
+            ? null
+            : {
+              markdown: textarea.value,
+              selection: {
+                start: textarea.selectionStart,
+                end: textarea.selectionEnd
+              }
+            },
         getSelection: () =>
           textarea === undefined || !routeTestState.wysiwygSelectionAvailable
             ? null

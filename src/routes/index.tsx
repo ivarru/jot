@@ -1834,11 +1834,15 @@ export default function Home() {
   };
 
   const openLinkModal = async () => {
-    const selection = takeFormattingToolbarSelection();
+    const capturedSelection = takeFormattingToolbarSelection();
     const date = selectedDate();
     if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
 
-    const sourceMarkdown = currentEditorMarkdown();
+    const liveWysiwygSource = editorMode() === "wysiwyg"
+      ? milkdownController?.getLiveMarkdownSelection() ?? null
+      : null;
+    const sourceMarkdown = liveWysiwygSource?.markdown ?? currentEditorMarkdown();
+    const selection = liveWysiwygSource?.selection ?? capturedSelection;
     const sourceSelection = selection ?? { start: sourceMarkdown.length, end: sourceMarkdown.length };
     const clipboardSuggestion = await readClipboardLinkSuggestion();
     if (
