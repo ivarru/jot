@@ -1,4 +1,4 @@
-import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { ImageAttachmentFlow, type LocalImageAttachmentSource, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
 import { commitImageAttachmentReferenceInsertion } from "~/attachments/imageAttachmentInsertionSession";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
@@ -20,6 +20,7 @@ import { MilkdownEditor, type EditorHistoryAvailability, type MilkdownEditorCont
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
 import { applyTextAreaStructuralTab } from "~/components/textAreaIndent";
+import { trackVisualViewportTop } from "~/components/visualViewportToolbar";
 import { findImageAttachmentReferences } from "~/domain/attachmentReferences";
 import {
   buildDailyNoteUploadCandidates,
@@ -223,6 +224,11 @@ export default function Home() {
   const browserLocalStorage = getLocalStorage();
   const tagSuggestionCatalog = new TagSuggestionCatalog(browserLocalStorage);
   const initialRoute = routeFromHash();
+  onMount(() => {
+    const visualViewport = window.visualViewport;
+    if (visualViewport === null || visualViewport === undefined) return;
+    onCleanup(trackVisualViewportTop(document.documentElement, visualViewport));
+  });
   const redirectAuthResult = runtime.kind === "google"
     ? runtime.tokenProvider.consumeRedirectAccessToken()
     : { type: "none" as const };

@@ -49,8 +49,9 @@ describe("mobile editor layout styles", () => {
     expect(blockFor('[data-tooltip][aria-expanded="true"]::after')).toContain("opacity: 0;");
   });
 
-  it("does not reserve a desktop-sized scrollbar gutter on narrow Android viewports", () => {
-    expect(mobileStyles()).toContain("scrollbar-width: thin;");
+  it("does not reserve a scrollbar gutter on narrow Android viewports", () => {
+    expect(mobileStyles()).toContain("scrollbar-width: none;");
+    expect(mobileStyles()).toContain("width: 0;");
   });
 
   it("only shows hover tooltips on devices that actually support hovering", () => {

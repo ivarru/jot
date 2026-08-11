@@ -19,9 +19,37 @@ test("tapping date navigation does not leave its tooltip visible", async ({ page
   ).toBe("0");
 });
 
-test("narrow viewports use a compact page scrollbar", async ({ page }) => {
+test("narrow viewports do not reserve a page scrollbar gutter", async ({ page }) => {
   await page.goto("/");
   await expect.poll(() =>
     page.evaluate(() => getComputedStyle(document.documentElement).scrollbarWidth)
-  ).toBe("thin");
+  ).toBe("none");
+});
+
+test("the sticky toolbar follows the visible viewport after pinch zoom", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "Pinch emulation uses the Chromium DevTools protocol.");
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Use development storage" }).tap();
+  await expect(page.locator(".app-toolbar")).toBeVisible();
+
+  const devtools = await page.context().newCDPSession(page);
+  await devtools.send("Input.synthesizePinchGesture", {
+    x: 216,
+    y: 320,
+    scaleFactor: 1.4,
+    relativeSpeed: 800,
+    gestureSourceType: "touch"
+  });
+
+  let position = { toolbarTop: 0, visualViewportTop: 0 };
+  await expect.poll(async () => {
+    position = await page.evaluate(() => ({
+      toolbarTop: document.querySelector(".app-toolbar")!.getBoundingClientRect().top,
+      visualViewportTop: window.visualViewport?.offsetTop ?? 0
+    }));
+    return position.visualViewportTop;
+  }).toBeGreaterThan(0);
+
+  expect(Math.abs(position.toolbarTop - position.visualViewportTop)).toBeLessThanOrEqual(1);
 });

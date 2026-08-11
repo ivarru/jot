@@ -135,7 +135,7 @@ select {
 .app-toolbar {
   position: sticky;
   z-index: 30;
-  top: 0;
+  top: var(--jot-visual-viewport-top, 0px);
   display: grid;
   grid-template-columns: minmax(148px, max-content) minmax(52px, 1fr) max-content;
   gap: 8px;
@@ -1568,11 +1568,11 @@ select {
   }
 
   html {
-    scrollbar-width: thin;
+    scrollbar-width: none;
   }
 
   html::-webkit-scrollbar {
-    width: 4px;
+    width: 0;
   }
 
   .app {
