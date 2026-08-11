@@ -26,6 +26,11 @@ test("narrow viewports do not reserve a page scrollbar gutter", async ({ page })
   ).toBe("none");
 });
 
+test("the mobile viewport cannot shrink below its responsive default", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /(?:^|,\s*)minimum-scale=1(?:,|$)/);
+});
+
 test("the sticky toolbar follows the visible viewport after pinch zoom", async ({ page }) => {
   await page.addInitScript(() => {
     const viewport = new EventTarget();
