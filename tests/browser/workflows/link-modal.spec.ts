@@ -21,6 +21,7 @@ test("link modal supports clipboard autofill, editing, and share-target insertio
 
   await assertWysiwygTrailingEmptyParagraphInsert(page);
   await assertWysiwygFinalListItemTextInsert(page);
+  await assertWysiwygEmptyListItemClipboardAutofill(page);
   await assertWysiwygTrailingEmptyListItemInsert(page);
   await assertClipboardAutoFill(page);
   await assertWysiwygCollapsedCursorInsert(page);
@@ -39,6 +40,23 @@ async function assertManifestShareTarget(page: Page): Promise<void> {
   expect(manifest.share_target?.params?.title).toBe("title");
   expect(manifest.share_target?.params?.text).toBe("text");
   expect(manifest.share_target?.params?.url).toBe("url");
+}
+
+async function assertWysiwygEmptyListItemClipboardAutofill(page: Page): Promise<void> {
+  await setRawMarkdown(page, "abcd\n\n* efgh");
+  await switchToWysiwygMode(page);
+  await focusWysiwygEditorAtEnd(page);
+  await page.keyboard.press("Enter");
+  await focusTrailingEmptyWysiwygTextblock(page);
+  await writeClipboardText(page, "Google https://www.google.com/");
+
+  await clickButton(page, "Insert or edit link");
+  await expectLinkModalValues(page, {
+    text: "Google",
+    url: "https://www.google.com/"
+  });
+  await clickLinkModalButton(page, "Insert");
+  await expectRawMarkdown(page, "abcd\n\n* efgh\n\n* [Google](https://www.google.com/)\n");
 }
 
 async function assertWysiwygTrailingEmptyParagraphInsert(page: Page): Promise<void> {

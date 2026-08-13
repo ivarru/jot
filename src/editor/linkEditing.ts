@@ -52,7 +52,8 @@ const SAFE_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 export function createLinkEditDraft(
   markdown: string,
   selection: MarkdownSelection,
-  clipboardLink: ClipboardLinkData | null = null
+  clipboardLink: ClipboardLinkData | null = null,
+  selectionIsCollapsed = false
 ): LinkEditDraft {
   const target = linkEditTargetAtSelection(markdown, selection);
   if (target.kind === "existing-link") {
@@ -74,7 +75,7 @@ export function createLinkEditDraft(
   }
 
   const clipboardUrl = clipboardLink?.url ?? "";
-  const selectedText = target.text;
+  const selectedText = selectionIsCollapsed ? "" : target.text;
   const text = selectedText.length > 0
     ? selectedText
     : clipboardLink?.text ?? (clipboardUrl.length > 0 ? suggestedLinkText(clipboardUrl) : "");

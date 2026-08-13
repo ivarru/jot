@@ -55,6 +55,25 @@ describe("link editing", () => {
     expect(draft.url).toBe("https://example.com/target");
   });
 
+  it("uses clipboard text when a collapsed editor caret spans serializer placeholder source", () => {
+    const markdown = "* item\n\n* <br />\n";
+    const placeholderStart = markdown.indexOf("<br />");
+    const draft = createLinkEditDraft(
+      markdown,
+      { start: placeholderStart, end: placeholderStart + "<br />".length },
+      { url: "https://example.com/target", text: "Clipboard title" },
+      true
+    );
+
+    expect(draft.target).toMatchObject({
+      kind: "selection",
+      start: placeholderStart,
+      end: placeholderStart + "<br />".length
+    });
+    expect(draft.text).toBe("Clipboard title");
+    expect(draft.url).toBe("https://example.com/target");
+  });
+
   it("extracts a copied HTML anchor", () => {
     expect(parseClipboardLinkData({
       html: '<a href="https://example.com/page">Example page</a>',

@@ -91,6 +91,7 @@ interface MilkdownEditorSession {
   readonly getLiveMarkdownSelection: () => {
     readonly markdown: string;
     readonly selection: MarkdownSelection;
+    readonly selectionIsCollapsed: boolean;
   } | null;
   readonly focus: (placement: FocusPlacement, onFocusApplied?: () => void) => void;
   readonly focusCurrentSelection: () => void;
@@ -133,6 +134,7 @@ export interface MilkdownEditorController {
   readonly getLiveMarkdownSelection: () => {
     readonly markdown: string;
     readonly selection: MarkdownSelection;
+    readonly selectionIsCollapsed: boolean;
   } | null;
   readonly getSelection: () => MarkdownSelection | null;
   readonly focusCurrentSelection: () => void;
@@ -640,12 +642,16 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               if (disposed || activeSession !== session || editor === null) return null;
               const view = editor.ctx.get(editorViewCtx);
               const serializer = editor.ctx.get(serializerCtx);
-              return serializedMarkdownSelectionSnapshot(
-                view,
-                serializer,
-                TextSelection,
-                true
-              );
+              const editorSelection = editorDomSelectionToTextSelection(view, TextSelection) ?? view.state.selection;
+              return {
+                ...serializedMarkdownSelectionSnapshot(
+                  view,
+                  serializer,
+                  TextSelection,
+                  true
+                ),
+                selectionIsCollapsed: editorSelection.empty
+              };
             },
             focus: (placement, onFocusApplied) => {
               if (disposed || activeSession !== session || editor === null) return;

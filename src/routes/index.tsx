@@ -1859,7 +1859,12 @@ export default function Home() {
       baseMarkdownSource: "editor",
       baseMarkdown: sourceMarkdown,
       draftMarkdown: sourceMarkdown,
-      draft: createLinkEditDraft(sourceMarkdown, sourceSelection, clipboardLinkDataFromSuggestion(clipboardSuggestion))
+      draft: createLinkEditDraft(
+        sourceMarkdown,
+        sourceSelection,
+        clipboardLinkDataFromSuggestion(clipboardSuggestion),
+        liveWysiwygSource?.selectionIsCollapsed === true
+      )
     }, clipboardSuggestion, "known");
   };
 
