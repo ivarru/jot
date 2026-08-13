@@ -16,6 +16,7 @@ import {
   editorSelectionToMarkdownSourceSelection,
   INLINE_CODE_AFFINITY_META,
   MilkdownEditor,
+  serializedMarkdownSelectionSnapshot,
   type MilkdownEditorController,
   trackMilkdownExternalMarkdown,
   trackMilkdownSerializedMarkdown
@@ -1646,6 +1647,45 @@ describe("MilkdownEditor", () => {
       expect(getSelection()).toEqual({ start: markdown.length, end: markdown.length });
     } finally {
       dispose();
+    }
+  });
+
+  it("maps an empty list-item caret by serializing selection markers instead of recognizing placeholders", async () => {
+    const editor = await createMilkdownTestEditor("");
+
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const paragraph = view.state.schema.nodes.paragraph!;
+      const listItem = view.state.schema.nodes.list_item!;
+      const bulletList = view.state.schema.nodes.bullet_list!;
+      const doc = view.state.schema.nodes.doc!.create(null, [
+        bulletList.create(null, [
+          listItem.create(null, [paragraph.create(null, view.state.schema.text("efgh"))]),
+          listItem.create(null, [paragraph.create()])
+        ])
+      ]);
+      let emptyParagraphPosition: number | null = null;
+      doc.descendants((node, position) => {
+        if (node.type === paragraph && node.textContent === "") emptyParagraphPosition = position + 1;
+        return true;
+      });
+      expect(emptyParagraphPosition).not.toBeNull();
+      view.updateState(EditorState.create({
+        schema: view.state.schema,
+        doc,
+        plugins: view.state.plugins,
+        selection: TextSelection.create(doc, emptyParagraphPosition!)
+      }));
+
+      expect(serializedMarkdownSelectionSnapshot(view, editor.ctx.get(serializerCtx), TextSelection)).toEqual({
+        markdown: "* efgh\n* <br />\n",
+        selection: {
+          start: "* efgh\n* ".length,
+          end: "* efgh\n* <br />".length
+        }
+      });
+    } finally {
+      await editor.destroy();
     }
   });
 

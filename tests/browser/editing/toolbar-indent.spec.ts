@@ -45,6 +45,22 @@ test("toolbar dedent keeps the WYSIWYG caret on a freshly entered empty paragrap
   await expectRawMarkdown(page, /^abc\n\n# x/);
 });
 
+test("block quote keeps the WYSIWYG caret on a freshly entered empty paragraph", async ({ page }) => {
+  await typeFreshEmptyParagraph(page, "abc");
+
+  await clickToolbarButtonAndType(page, "Toggle block quote format", "x");
+
+  await expectRawMarkdown(page, /^abc\n\n> x/);
+});
+
+test("task checkbox keeps the WYSIWYG caret on a freshly entered empty paragraph", async ({ page }) => {
+  await typeFreshEmptyParagraph(page, "abc");
+
+  await clickToolbarButtonAndType(page, "Toggle task checkbox", "x");
+
+  await expectRawMarkdown(page, /^abc\n\n\* \[ \] x/);
+});
+
 test("toolbar dedent keeps the WYSIWYG caret on an empty heading", async ({ page }) => {
   await setRawMarkdown(page, "before\n#");
   await switchToWysiwygMode(page);

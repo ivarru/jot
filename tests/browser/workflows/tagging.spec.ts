@@ -3,11 +3,42 @@ import {
   expectRawMarkdown,
   focusRawEditorAtEnd,
   focusRawEditorRange,
+  focusWysiwygEditorAtEnd,
   openDevelopmentStorage,
+  setRawMarkdown,
   switchToWysiwygMode,
   wysiwygEditor
 } from "../helpers/editor";
 import { seedLocalDraft } from "../helpers/idb";
+
+test("inserts a tag in the trailing empty WYSIWYG paragraph", async ({ page }) => {
+  await openDevelopmentStorage(page);
+  await setRawMarkdown(page, "abcd\n\nefgh");
+  await switchToWysiwygMode(page);
+  await focusWysiwygEditorAtEnd(page);
+  await page.keyboard.press("Enter");
+  const focused = await wysiwygEditor(page).evaluate((editor) => {
+    const paragraph = editor.lastElementChild;
+    if (!(paragraph instanceof HTMLParagraphElement) || paragraph.textContent !== "") return false;
+    (editor as HTMLElement).focus();
+    const selection = getSelection();
+    const range = document.createRange();
+    range.setStart(paragraph, 0);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+    return selection?.anchorNode === paragraph && selection.anchorOffset === 0;
+  });
+  expect(focused, "Could not focus the trailing empty WYSIWYG paragraph.").toBe(true);
+
+  await page.getByRole("button", { name: "Add tag", exact: true }).click();
+  const modal = page.locator(".tag-modal");
+  await modal.getByRole("combobox", { name: "Tag" }).fill("tail");
+  await modal.getByRole("button", { name: "Add", exact: true }).click();
+
+  await expectRawMarkdown(page, "abcd\n\nefgh\n\n[#tail](jot:tag/tail)");
+});
 
 test("tags can be inserted, rendered, suggested, and removed from suggestions", async ({ page }) => {
   await openDevelopmentStorage(page);

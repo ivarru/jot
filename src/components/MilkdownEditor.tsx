@@ -624,23 +624,28 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               }
               const view = editor.ctx.get(editorViewCtx);
               const serializer = editor.ctx.get(serializerCtx);
-              return markdownSelectionForView(markdownState.currentMarkdown, view, serializer);
+              const markdown = editableLiveMarkdown(view, serializeMilkdownMarkdown(serializer, view.state.doc));
+              return markdownSelectionForView(markdown, view, serializer);
             },
             getMarkdown: () => markdownState.currentMarkdown,
             getLiveMarkdown: () => {
               if (disposed || activeSession !== session || editor === null) return markdownState.currentMarkdown;
               const view = editor.ctx.get(editorViewCtx);
-              return serializeMilkdownMarkdown(editor.ctx.get(serializerCtx), view.state.doc);
+              return editableLiveMarkdown(
+                view,
+                serializeMilkdownMarkdown(editor.ctx.get(serializerCtx), view.state.doc)
+              );
             },
             getLiveMarkdownSelection: () => {
               if (disposed || activeSession !== session || editor === null) return null;
               const view = editor.ctx.get(editorViewCtx);
               const serializer = editor.ctx.get(serializerCtx);
-              const markdown = serializeMilkdownMarkdown(serializer, view.state.doc);
-              return {
-                markdown,
-                selection: markdownSelectionForView(markdown, view, serializer)
-              };
+              return serializedMarkdownSelectionSnapshot(
+                view,
+                serializer,
+                TextSelection,
+                true
+              );
             },
             focus: (placement, onFocusApplied) => {
               if (disposed || activeSession !== session || editor === null) return;
@@ -687,20 +692,16 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
               const view = editor.ctx.get(editorViewCtx);
               const serializer = editor.ctx.get(serializerCtx);
-              const sourceSelection = selection ?? editorSelectionToMarkdownSourceSelection(
-                markdownState.currentMarkdown,
-                view.state.selection,
-                view,
-                serializer
-              );
+              const liveMarkdown = editableLiveMarkdown(view, serializeMilkdownMarkdown(serializer, view.state.doc));
+              const sourceSelection = selection ?? markdownSelectionForView(liveMarkdown, view, serializer);
               const blockQuoteSelection = selectionWithPointerFallback(
-                markdownState.currentMarkdown,
+                liveMarkdown,
                 sourceSelection,
                 lastPointerMarkdownSelection
               );
               lastPointerMarkdownSelection = null;
-              const result = toggleMarkdownBlockQuote(markdownState.currentMarkdown, blockQuoteSelection);
-              if (result.markdown === markdownState.currentMarkdown) return false;
+              const result = toggleMarkdownBlockQuote(liveMarkdown, blockQuoteSelection);
+              if (result.markdown === liveMarkdown) return false;
               const markedSelection = markdownWithSelectionMarkers(result.markdown, result.selection);
 
               editor.action((ctx) => {
@@ -749,20 +750,16 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
               const view = editor.ctx.get(editorViewCtx);
               const serializer = editor.ctx.get(serializerCtx);
-              const sourceSelection = selection ?? editorSelectionToMarkdownSourceSelection(
-                markdownState.currentMarkdown,
-                view.state.selection,
-                view,
-                serializer
-              );
+              const liveMarkdown = editableLiveMarkdown(view, serializeMilkdownMarkdown(serializer, view.state.doc));
+              const sourceSelection = selection ?? markdownSelectionForView(liveMarkdown, view, serializer);
               const listItemSelection = selectionWithPointerFallback(
-                markdownState.currentMarkdown,
+                liveMarkdown,
                 sourceSelection,
                 lastPointerMarkdownSelection
               );
               lastPointerMarkdownSelection = null;
-              const result = toggleMarkdownTaskListItem(markdownState.currentMarkdown, listItemSelection);
-              if (result === null || result.markdown === markdownState.currentMarkdown) return false;
+              const result = toggleMarkdownTaskListItem(liveMarkdown, listItemSelection);
+              if (result === null || result.markdown === liveMarkdown) return false;
               const markedSelection = markdownWithSelectionMarkers(result.markdown, result.selection);
 
               editor.action((ctx) => {
@@ -1436,10 +1433,7 @@ function markdownSelectionForView(
   view: EditorView,
   serializer: MarkdownSerializer
 ): MarkdownSelection {
-  if (
-    selectionIsInTrailingTopLevelEmptyTextblock(view) ||
-    selectionIsInTrailingTopLevelEmptyDomTextblock(view)
-  ) {
+  if (selectionIsInFinalTopLevelEmptyTextblock(view)) {
     return { start: markdown.length, end: markdown.length };
   }
 
@@ -1467,24 +1461,27 @@ function markdownSelectionForView(
     ?? editorSelectionToMarkdownSourceSelection(markdown, view.state.selection, view, serializer);
 }
 
-function selectionIsInTrailingTopLevelEmptyTextblock(view: EditorView): boolean {
-  const selection = view.state.selection;
-  if (!selectionIsInEmptyTextblock(view) || selection.$from.depth !== 1) return false;
+function selectionIsInFinalTopLevelEmptyTextblock(view: EditorView): boolean {
+  const stateSelection = view.state.selection;
+  if (
+    selectionIsInEmptyTextblock(view) &&
+    stateSelection.$from.depth === 1 &&
+    stateSelection.$from.index(0) === view.state.doc.childCount - 1
+  ) {
+    return true;
+  }
 
-  return selection.$from.index(0) === view.state.doc.childCount - 1;
-}
+  const domSelection = view.dom.ownerDocument.getSelection();
+  if (domSelection === null || domSelection.rangeCount === 0) return false;
 
-function selectionIsInTrailingTopLevelEmptyDomTextblock(view: EditorView): boolean {
-  const selection = view.dom.ownerDocument.getSelection();
-  if (selection === null || selection.rangeCount === 0) return false;
-
-  const range = selection.getRangeAt(0);
+  const range = domSelection.getRangeAt(0);
   if (!range.collapsed || !containsSelectionNode(view.dom, range.commonAncestorContainer)) return false;
 
   const target = closestRenderedTextblock(range.startContainer, view.dom);
-  if (target === null || target.parentElement !== view.dom || !isEmptyRenderedTextblock(target)) return false;
-
-  return renderedTextblocks(view.dom).at(-1) === target;
+  return target !== null
+    && target.parentElement === view.dom
+    && isEmptyRenderedTextblock(target)
+    && renderedTextblocks(view.dom).at(-1) === target;
 }
 
 function editorDomSelectionToMarkdownSourceSelection(
@@ -1659,6 +1656,119 @@ function serializedEditorPositionToMarkdownSourceOffset(
   } catch {
     return null;
   }
+}
+
+export function serializedMarkdownSelectionSnapshot(
+  view: EditorView,
+  serializer: MarkdownSerializer,
+  textSelection: typeof import("@milkdown/kit/prose/state").TextSelection,
+  normalizeTerminalNewline = false
+): { readonly markdown: string; readonly selection: MarkdownSelection } {
+  const serializedMarkdown = serializeMilkdownMarkdown(serializer, view.state.doc);
+  const markdown = normalizeTerminalNewline
+    ? editableLiveMarkdown(view, serializedMarkdown)
+    : serializedMarkdown;
+  const selection = editorDomSelectionToTextSelection(view, textSelection) ?? view.state.selection;
+  const startMarker = createCursorMarker(markdown);
+  const endMarker = selection.empty ? null : createCursorMarker(`${markdown}${startMarker}`);
+
+  try {
+    let transaction = view.state.tr;
+    if (endMarker !== null) transaction = transaction.insertText(endMarker, selection.to, selection.to);
+    transaction = transaction.insertText(startMarker, selection.from, selection.from);
+    const serializedMarkedMarkdown = serializeMilkdownMarkdown(serializer, transaction.doc);
+    const markedMarkdown = normalizeTerminalNewline
+      ? editableSerializedMarkdown(transaction.doc, serializedMarkedMarkdown)
+      : serializedMarkedMarkdown;
+    const startMarkerOffset = markedMarkdown.indexOf(startMarker);
+    if (startMarkerOffset === -1) {
+      return { markdown, selection: markdownSelectionForView(markdown, view, serializer) };
+    }
+
+    if (endMarker === null) {
+      const unmarkedMarkdown = removeStringRange(markedMarkdown, startMarkerOffset, startMarker.length);
+      return {
+        markdown,
+        selection: {
+          start: mapStringBoundaryOffset(unmarkedMarkdown, markdown, startMarkerOffset, "left"),
+          end: mapStringBoundaryOffset(unmarkedMarkdown, markdown, startMarkerOffset, "right")
+        }
+      };
+    }
+
+    const endMarkerOffset = markedMarkdown.indexOf(endMarker, startMarkerOffset + startMarker.length);
+    if (endMarkerOffset === -1) {
+      return { markdown, selection: markdownSelectionForView(markdown, view, serializer) };
+    }
+
+    const withoutEndMarker = removeStringRange(markedMarkdown, endMarkerOffset, endMarker.length);
+    const unmarkedMarkdown = removeStringRange(withoutEndMarker, startMarkerOffset, startMarker.length);
+    return {
+      markdown,
+      selection: {
+        start: mapStringBoundaryOffset(unmarkedMarkdown, markdown, startMarkerOffset, "left"),
+        end: mapStringBoundaryOffset(
+          unmarkedMarkdown,
+          markdown,
+          endMarkerOffset - startMarker.length,
+          "right"
+        )
+      }
+    };
+  } catch {
+    return { markdown, selection: markdownSelectionForView(markdown, view, serializer) };
+  }
+}
+
+function editableLiveMarkdown(view: EditorView, serializedMarkdown: string): string {
+  return editableSerializedMarkdown(view.state.doc, serializedMarkdown);
+}
+
+function editableSerializedMarkdown(doc: ProseNode, serializedMarkdown: string): string {
+  if (documentEndsWithTopLevelEmptyTextblock(doc)) return serializedMarkdown;
+  return serializedMarkdown.endsWith("\n") ? serializedMarkdown.slice(0, -1) : serializedMarkdown;
+}
+
+function documentEndsWithTopLevelEmptyTextblock(doc: ProseNode): boolean {
+  const lastChild = doc.lastChild;
+  return lastChild?.isTextblock === true && lastChild.textContent === "";
+}
+
+function removeStringRange(value: string, start: number, length: number): string {
+  return `${value.slice(0, start)}${value.slice(start + length)}`;
+}
+
+function mapStringBoundaryOffset(
+  from: string,
+  to: string,
+  offset: number,
+  affinity: "left" | "right"
+): number {
+  const clampedOffset = Math.max(0, Math.min(from.length, offset));
+  if (from === to) return clampedOffset;
+
+  let fromPosition = 0;
+  let toPosition = 0;
+  for (const change of diffChars(from, to)) {
+    const valueLength = change.value.length;
+    if (change.added === true) {
+      toPosition += valueLength;
+      continue;
+    }
+    if (change.removed === true) {
+      if (clampedOffset < fromPosition + valueLength) return toPosition;
+      if (clampedOffset === fromPosition + valueLength && affinity === "left") return toPosition;
+      fromPosition += valueLength;
+      continue;
+    }
+
+    if (clampedOffset < fromPosition + valueLength) return toPosition + (clampedOffset - fromPosition);
+    if (clampedOffset === fromPosition + valueLength && affinity === "left") return toPosition + valueLength;
+    fromPosition += valueLength;
+    toPosition += valueLength;
+  }
+
+  return toPosition;
 }
 
 function createCursorMarker(markdown: string): string {

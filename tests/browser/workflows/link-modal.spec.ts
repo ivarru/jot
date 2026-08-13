@@ -20,6 +20,8 @@ test("link modal supports clipboard autofill, editing, and share-target insertio
   await switchToRawMode(page);
 
   await assertWysiwygTrailingEmptyParagraphInsert(page);
+  await assertWysiwygFinalListItemTextInsert(page);
+  await assertWysiwygTrailingEmptyListItemInsert(page);
   await assertClipboardAutoFill(page);
   await assertWysiwygCollapsedCursorInsert(page);
   await assertManualLinkModalInsert(page);
@@ -44,8 +46,56 @@ async function assertWysiwygTrailingEmptyParagraphInsert(page: Page): Promise<vo
   await switchToWysiwygMode(page);
   await focusWysiwygEditorAtEnd(page);
   await page.keyboard.press("Enter");
+  await focusTrailingEmptyWysiwygTextblock(page);
+  await writeClipboardText(page, "[https://www.google.com/](https://www.google.com/)");
+
+  await insertGoogleClipboardLink(page);
+  await expectRawMarkdown(page, "abcd\n\nefgh\n\n[www.google.com](<https://www.google.com/>)");
+}
+
+async function assertWysiwygFinalListItemTextInsert(page: Page): Promise<void> {
+  await setRawMarkdown(page, "abcd\n\n* efgh");
+  await switchToWysiwygMode(page);
+  await focusWysiwygTextOffset(page, "efgh", "efgh".length);
+  await writeClipboardText(page, "[https://www.google.com/](https://www.google.com/)");
+
+  await insertGoogleClipboardLink(page);
+  await expectRawMarkdown(page, "abcd\n\n* efgh[www.google.com](<https://www.google.com/>)");
+}
+
+async function assertWysiwygTrailingEmptyListItemInsert(page: Page): Promise<void> {
+  const variants = [
+    {
+      markdown: "abcd\n\n* efgh",
+      expected: "abcd\n\n* efgh\n\n* [www.google.com](https://www.google.com/)\n"
+    },
+    {
+      markdown: "abcd\n\n1. efgh",
+      expected: "abcd\n\n1. efgh\n2. [www.google.com](<https://www.google.com/>)"
+    },
+    {
+      markdown: "abcd\n\n* [ ] efgh",
+      expected: "abcd\n\n* [ ] efgh\n\n* [ ] [www.google.com](https://www.google.com/)\n"
+    }
+  ];
+
+  for (const variant of variants) {
+    await setRawMarkdown(page, variant.markdown);
+    await switchToWysiwygMode(page);
+    await focusWysiwygEditorAtEnd(page);
+    await page.keyboard.press("Enter");
+    await focusTrailingEmptyWysiwygTextblock(page);
+    await writeClipboardText(page, "[https://www.google.com/](https://www.google.com/)");
+
+    await insertGoogleClipboardLink(page);
+    await expectRawMarkdown(page, variant.expected);
+  }
+}
+
+async function focusTrailingEmptyWysiwygTextblock(page: Page): Promise<void> {
   const focused = await page.locator(".milkdown-root [contenteditable='true']").evaluate((editor) => {
-    const paragraph = editor.lastElementChild;
+    const paragraphs = editor.querySelectorAll("p");
+    const paragraph = paragraphs.item(paragraphs.length - 1);
     if (!(paragraph instanceof HTMLParagraphElement) || paragraph.textContent !== "") return false;
     (editor as HTMLElement).focus();
     const selection = getSelection();
@@ -58,19 +108,19 @@ async function assertWysiwygTrailingEmptyParagraphInsert(page: Page): Promise<vo
     return selection?.anchorNode === paragraph && selection.anchorOffset === 0;
   });
   expect(focused, "Could not focus the trailing empty WYSIWYG paragraph.").toBe(true);
-  await writeClipboardText(page, "[https://www.google.com/](https://www.google.com/)");
+}
 
+async function insertGoogleClipboardLink(page: Page): Promise<void> {
   await clickButton(page, "Insert or edit link");
   await expect(page.locator(".link-modal input").nth(1)).toHaveValue("https://www.google.com/");
   await page.locator(".link-modal input").nth(0).fill("www.google.com");
   await clickLinkModalButton(page, "Insert");
-  await expectRawMarkdown(page, "abcd\n\nefgh\n\n[www.google.com](<https://www.google.com/>)");
 }
 
 async function assertWysiwygCollapsedCursorInsert(page: Page): Promise<void> {
   const markdown = "**First** paragraph with [an existing link](<https://example.com/existing>) and `inline code`.\n\nInsert the link right here in the final paragraph.";
   const cursorOffsetInText = "Insert the link right ".length;
-  const expected = "**First** paragraph with [an existing link](https://example.com/existing) and `inline code`.\n\nInsert the link right [Jot](<https://example.com/jot>)here in the final paragraph.\n";
+  const expected = "**First** paragraph with [an existing link](https://example.com/existing) and `inline code`.\n\nInsert the link right [Jot](<https://example.com/jot>)here in the final paragraph.";
   await setRawMarkdown(page, markdown);
   await switchToWysiwygMode(page);
   await writeClipboardText(page, "");
