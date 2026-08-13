@@ -30,6 +30,7 @@ export async function switchToWysiwygMode(page: Page): Promise<void> {
   await expect(toggle).toBeVisible();
   if (await toggle.getAttribute("aria-pressed") === "true") await toggle.click();
   await expect(wysiwygEditor(page)).toBeVisible();
+  await wysiwygEditor(page).evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
 }
 
 export async function setRawMarkdown(page: Page, markdown: string): Promise<void> {
