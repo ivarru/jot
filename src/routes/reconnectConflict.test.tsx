@@ -570,49 +570,6 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
-  it("does not restore date A editor focus after its window-return sync finishes on date B", async () => {
-    testState.remoteNote = {
-      date: "2030-02-02",
-      markdown: "A before app switch",
-      revisionId: "remote-revision",
-      updatedAt: "2030-01-01T00:00:00.000Z"
-    };
-    testState.drafts.set("2030-02-03", draft("2030-02-03", "B note"));
-    testState.delayedRemoteSave = delayedRemoteSave("2030-02-02");
-    const host = document.createElement("div");
-    document.body.append(host);
-
-    const dispose = render(() => <Home />, host);
-    await waitFor(() => {
-      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe(
-        "A before app switch"
-      );
-    });
-
-    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
-    testState.wysiwygSelectionAvailable = false;
-    testState.setWysiwygInternalMarkdown?.("A edited before app switch");
-    editor.focus();
-    window.dispatchEvent(new Event("blur"));
-    editor.blur();
-    window.dispatchEvent(new Event("focus"));
-
-    await testState.delayedRemoteSave.started.promise;
-    expect(testState.focusCurrentSelectionCount).toBe(1);
-
-    host.querySelector<HTMLButtonElement>("button[aria-label='Next day']")!.click();
-    await waitFor(() => {
-      expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")!.value).toBe("2030-02-03");
-    });
-    const focusCountOnDateB = testState.focusCurrentSelectionCount;
-
-    testState.delayedRemoteSave.finish.resolve();
-    await settle();
-
-    expect(testState.focusCurrentSelectionCount).toBe(focusCountOnDateB);
-    dispose();
-  });
-
   it("does not submit a stale link modal after date navigation", async () => {
     testState.drafts.set("2030-02-02", draft("2030-02-02", "Read <https://example.com/docs/sync-model> today"));
     testState.drafts.set("2030-02-03", draft("2030-02-03", "Next day note"));

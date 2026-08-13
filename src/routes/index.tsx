@@ -216,11 +216,6 @@ interface TagModalSession {
   readonly selection: MarkdownSelection;
 }
 
-interface PendingEditorFocusReturn {
-  readonly date: IsoDate;
-  readonly mode: EditorMode;
-}
-
 type LinkModalClipboardStatus = "unknown" | "reading" | "known";
 
 export default function Home() {
@@ -360,9 +355,6 @@ export default function Home() {
   let dailyNoteUploadGeneration = 0;
   let sectionLinkTargetLoadGeneration = 0;
   let lastBackgroundSaveSnapshotKey: string | null = null;
-  let lastFocusedEditor: PendingEditorFocusReturn | null = null;
-  let pendingEditorFocusReturn: PendingEditorFocusReturn | null = null;
-  let windowReturnSyncPromise: Promise<void> | null = null;
 
   const dateBoundEditorState = (): DateBoundEditorState => ({
     selectedDate: selectedDate(),
@@ -672,13 +664,14 @@ export default function Home() {
     lastBackgroundSaveSnapshotKey = null;
   };
 
-  const syncSelectedDateOnDemandWithLatestEditor = (): Promise<void> => {
+  const syncSelectedDateOnDemandWithLatestEditor = () => {
     const flushed = flushCurrentVisibleEditorSnapshot();
     if (flushed?.changed) {
-      return dailyNoteReplication.saveAndSyncSnapshot(flushed.snapshot);
+      void dailyNoteReplication.saveAndSyncSnapshot(flushed.snapshot);
+      return;
     }
 
-    return dailyNoteReplication.syncSelectedDateOnDemand();
+    void dailyNoteReplication.syncSelectedDateOnDemand();
   };
 
   createEffect(() => {
@@ -1018,84 +1011,24 @@ export default function Home() {
   );
 
   const eventOriginatesInEditor = (event: Event): boolean => {
-    return elementIsInEditor(event.target);
-  };
-
-  const elementIsInEditor = (target: EventTarget | null): boolean => {
+    const target = event.target;
     if (!(target instanceof Node)) return false;
     if (plainTextEditorElement?.contains(target)) return true;
     return target instanceof Element && target.closest(".milkdown-root") !== null;
   };
 
-  const rememberEditorFocusForWindowReturn = () => {
-    const date = selectedDate();
-    if (date === null) return;
-    const mode = editorMode();
-    const activeEditor = elementIsInEditor(document.activeElement)
-      ? { date, mode }
-      : lastFocusedEditor;
-    if (activeEditor?.date !== date || activeEditor.mode !== mode) return;
-    pendingEditorFocusReturn = activeEditor;
-  };
-
-  const restoreEditorFocusAfterWindowReturn = (focusReturn: PendingEditorFocusReturn): void => {
-    if (
-      pendingEditorFocusReturn !== focusReturn ||
-      document.visibilityState === "hidden" ||
-      focusReturn.date !== selectedDate() ||
-      focusReturn.mode !== editorMode() ||
-      !canEditDailyNoteDate(focusReturn.date, dateBoundEditorState()) ||
-      editorReadOnly() ||
-      manualConflictMarkersPresent() ||
-      document.querySelector("[role='dialog']") !== null
-    ) return;
-
-    const activeElement = document.activeElement;
-    if (
-      activeElement !== null &&
-      activeElement !== document.body &&
-      activeElement !== document.documentElement &&
-      !elementIsInEditor(activeElement)
-    ) return;
-
-    if (focusReturn.mode === "wysiwyg") milkdownController?.focusCurrentSelection();
-    else plainTextEditorElement?.focus();
-  };
-
-  const resumeFromWindowBackground = () => {
-    const focusReturn = pendingEditorFocusReturn;
-    if (focusReturn !== null) restoreEditorFocusAfterWindowReturn(focusReturn);
-    if (windowReturnSyncPromise !== null) return;
-
-    const syncPromise = syncSelectedDateOnDemandWithLatestEditor();
-    windowReturnSyncPromise = syncPromise;
-    const finishWindowReturnSync = () => {
-      if (windowReturnSyncPromise !== syncPromise) return;
-      windowReturnSyncPromise = null;
-      const latestFocusReturn = pendingEditorFocusReturn;
-      if (latestFocusReturn === null) return;
-      if (!elementIsInEditor(document.activeElement)) {
-        restoreEditorFocusAfterWindowReturn(latestFocusReturn);
-      }
-      pendingEditorFocusReturn = null;
-    };
-    void syncPromise.then(finishWindowReturnSync, finishWindowReturnSync);
-  };
-
   createEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        rememberEditorFocusForWindowReturn();
         clearCameraStream();
         saveLatestVisibleEditorSnapshotForBackground();
         return;
       }
 
       resetBackgroundSaveDeduplication();
-      resumeFromWindowBackground();
+      syncSelectedDateOnDemandWithLatestEditor();
     };
     const onPageHide = () => {
-      rememberEditorFocusForWindowReturn();
       clearCameraStream();
       saveLatestVisibleEditorSnapshotForBackground();
     };
@@ -1108,30 +1041,16 @@ export default function Home() {
   });
 
   createEffect(() => {
-    const onBlur = () => rememberEditorFocusForWindowReturn();
     const onFocus = () => {
       if (document.visibilityState === "hidden") return;
       resetBackgroundSaveDeduplication();
-      resumeFromWindowBackground();
+      syncSelectedDateOnDemandWithLatestEditor();
     };
-    const onFocusIn = (event: FocusEvent) => {
-      if (elementIsInEditor(event.target)) {
-        const date = selectedDate();
-        if (date !== null) lastFocusedEditor = { date, mode: editorMode() };
-      } else {
-        lastFocusedEditor = null;
-        pendingEditorFocusReturn = null;
-      }
-    };
-    window.addEventListener("blur", onBlur);
     window.addEventListener("focus", onFocus);
     window.addEventListener("pageshow", onFocus);
-    document.addEventListener("focusin", onFocusIn);
     onCleanup(() => {
-      window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("pageshow", onFocus);
-      document.removeEventListener("focusin", onFocusIn);
     });
   });
 

@@ -157,62 +157,23 @@ test("background saving preserves a compact list of links", async ({ page }) => 
   await expectNormalizedRawMarkdown(page, markdown);
 });
 
-test("typing while window-return synchronization finishes keeps the live WYSIWYG caret", async ({ page }) => {
+test("controlled WYSIWYG updates keep delayed typing in order", async ({ page }) => {
   await setRawMarkdown(page, "before after");
   await switchToWysiwygMode(page);
   await focusWysiwygTextOffset(page, "before", "before".length);
+  await page.keyboard.type("ABC", { delay: 250 });
+  await expectUnderlyingMarkdown(page, "beforeABC after");
 
-  const renderedCaretOffsetBeforeSwitch = await page.evaluate(() => {
-    const editor = document.querySelector<HTMLElement>(".milkdown-root .ProseMirror");
-    if (editor === null || document.activeElement !== editor) {
-      throw new Error("WYSIWYG editor was not focused before the app switch.");
-    }
-    const selection = getSelection();
-    if (selection === null || selection.rangeCount === 0 || selection.anchorNode === null) {
-      throw new Error("WYSIWYG editor did not have a DOM selection before the app switch.");
-    }
-    const beforeCaret = document.createRange();
-    beforeCaret.selectNodeContents(editor);
-    beforeCaret.setEnd(selection.anchorNode, selection.anchorOffset);
-    const renderedCaretOffset = beforeCaret.toString().length;
-
-    editor.blur();
-    window.dispatchEvent(new Event("blur"));
-    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
-    document.dispatchEvent(new Event("visibilitychange"));
-    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
-    document.dispatchEvent(new Event("visibilitychange"));
-    window.dispatchEvent(new Event("focus"));
-    return renderedCaretOffset;
-  });
-  expect(renderedCaretOffsetBeforeSwitch).toBe("before".length);
-
-  expect(await page.locator(".milkdown-root .ProseMirror").evaluate((editor) => document.activeElement === editor)).toBe(true);
-
-  await cdpInsertText(page, "A");
-  await expectUnderlyingMarkdown(page, "beforeA after");
-
-  await expect(page.locator(".sync-status")).toHaveAttribute("aria-label", /Sync status: Synced/);
-  await expect.poll(async () =>
-    await page.locator(".milkdown-root .ProseMirror").evaluate((editor) => document.activeElement === editor)
-  ).toBe(true);
-
-  await cdpInsertText(page, "B");
-  await expectUnderlyingMarkdown(page, "beforeAB after");
-});
-
-test("ordinary autosave synchronization keeps the live WYSIWYG caret", async ({ page }) => {
-  await setRawMarkdown(page, "before after");
-  await switchToWysiwygMode(page);
-  await focusWysiwygTextOffset(page, "before", "before".length);
-
-  await cdpInsertText(page, "A");
-  await expectUnderlyingMarkdown(page, "beforeA after");
   await page.waitForTimeout(3_500);
   await expect(page.locator(".sync-status")).toHaveAttribute("aria-label", /Sync status: Synced/);
+  await page.keyboard.type("DEF", { delay: 250 });
+  await expectUnderlyingMarkdown(page, "beforeABCDEF after");
 
-  await cdpInsertText(page, "B");
-  await expectUnderlyingMarkdown(page, "beforeAB after");
+  await setRawMarkdown(page, "ending");
+  await switchToWysiwygMode(page);
+  await focusWysiwygEditorAtEnd(page);
+  await page.keyboard.type("XYZ", { delay: 250 });
+  await expectUnderlyingMarkdown(page, "endingXYZ");
 });
 
 test("loose-list bullets align with their first line of text", async ({ page }) => {
