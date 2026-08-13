@@ -157,13 +157,10 @@ test("background saving preserves a compact list of links", async ({ page }) => 
   await expectNormalizedRawMarkdown(page, markdown);
 });
 
-test("returning after background synchronization restores WYSIWYG focus", async ({ page }) => {
-  await setRawMarkdown(page, "before");
+test("typing while window-return synchronization finishes keeps the live WYSIWYG caret", async ({ page }) => {
+  await setRawMarkdown(page, "before after");
   await switchToWysiwygMode(page);
-  await focusWysiwygEditorAtEnd(page);
-  await cdpInsertText(page, "after");
-  await expectUnderlyingMarkdown(page, "beforeafter");
-  await focusWysiwygEditorAtEnd(page);
+  await focusWysiwygTextOffset(page, "before", "before".length);
 
   const renderedCaretOffsetBeforeSwitch = await page.evaluate(() => {
     const editor = document.querySelector<HTMLElement>(".milkdown-root .ProseMirror");
@@ -179,8 +176,8 @@ test("returning after background synchronization restores WYSIWYG focus", async 
     beforeCaret.setEnd(selection.anchorNode, selection.anchorOffset);
     const renderedCaretOffset = beforeCaret.toString().length;
 
-    window.dispatchEvent(new Event("blur"));
     editor.blur();
+    window.dispatchEvent(new Event("blur"));
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
     document.dispatchEvent(new Event("visibilitychange"));
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
@@ -188,15 +185,20 @@ test("returning after background synchronization restores WYSIWYG focus", async 
     window.dispatchEvent(new Event("focus"));
     return renderedCaretOffset;
   });
-  expect(renderedCaretOffsetBeforeSwitch).toBe("beforeafter".length);
+  expect(renderedCaretOffsetBeforeSwitch).toBe("before".length);
+
+  expect(await page.locator(".milkdown-root .ProseMirror").evaluate((editor) => document.activeElement === editor)).toBe(true);
+
+  await cdpInsertText(page, "A");
+  await expectUnderlyingMarkdown(page, "beforeA after");
 
   await expect(page.locator(".sync-status")).toHaveAttribute("aria-label", /Sync status: Synced/);
   await expect.poll(async () =>
     await page.locator(".milkdown-root .ProseMirror").evaluate((editor) => document.activeElement === editor)
   ).toBe(true);
 
-  await cdpInsertText(page, "more");
-  await expectUnderlyingMarkdown(page, "beforeaftermore");
+  await cdpInsertText(page, "B");
+  await expectUnderlyingMarkdown(page, "beforeAB after");
 });
 
 test("loose-list bullets align with their first line of text", async ({ page }) => {

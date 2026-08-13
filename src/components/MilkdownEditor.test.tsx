@@ -151,6 +151,53 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("preserves the focused live caret across an external markdown refresh", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    let setMarkdown!: (markdown: string) => void;
+
+    const dispose = render(
+      () => {
+        const [markdown, innerSetMarkdown] = createSignal("before after");
+        setMarkdown = innerSetMarkdown;
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value={markdown()}
+            onChange={() => undefined}
+            onBlur={() => undefined}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      const editor = await waitForEditable(host);
+      const text = [...editor.childNodes].flatMap((node) => [...node.childNodes])
+        .find((node) => node.textContent?.includes("before"));
+      expect(text).toBeDefined();
+      editor.focus();
+      const range = document.createRange();
+      range.setStart(text!, "before".length);
+      range.collapse(true);
+      document.getSelection()!.removeAllRanges();
+      document.getSelection()!.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+
+      setMarkdown("before after remote");
+      await animationFrame();
+      await animationFrame();
+
+      expect(document.activeElement).toBe(editor);
+      const selection = document.getSelection()!;
+      expect(selection.anchorNode?.textContent).toContain("before");
+      expect(selection.anchorOffset).toBe("before".length);
+    } finally {
+      dispose();
+    }
+  });
+
   it("does not let delayed callbacks from an old document affect the active blur snapshot", async () => {
     const host = document.createElement("div");
     document.body.append(host);

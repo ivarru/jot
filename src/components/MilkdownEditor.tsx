@@ -526,6 +526,12 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             applyExternalMarkdown: (markdown, undoable) => {
               if (disposed || activeSession !== session || editor === null) return;
 
+              const beforeView = editor.ctx.get(editorViewCtx);
+              const beforeSerializer = editor.ctx.get(serializerCtx);
+              const restoreFocusedSelection = beforeView.hasFocus();
+              const selectionSnapshot = restoreFocusedSelection
+                ? serializedMarkdownSelectionSnapshot(beforeView, beforeSerializer, TextSelection, true)
+                : null;
               let replacedMarkdown = markdown;
               let updatedView: EditorView | null = null;
               editor.action((ctx) => {
@@ -537,6 +543,24 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               });
               trackMilkdownExternalMarkdown(markdownState, markdown, replacedMarkdown);
               const view = updatedView ?? editor.ctx.get(editorViewCtx);
+              if (selectionSnapshot !== null) {
+                const selection = {
+                  start: mapStringBoundaryOffset(
+                    selectionSnapshot.markdown,
+                    replacedMarkdown,
+                    selectionSnapshot.selection.start,
+                    "right"
+                  ),
+                  end: mapStringBoundaryOffset(
+                    selectionSnapshot.markdown,
+                    replacedMarkdown,
+                    selectionSnapshot.selection.end,
+                    "right"
+                  )
+                };
+                placeSelectionAtMarkdownSourceSelection(view, TextSelection, replacedMarkdown, selection);
+                view.focus();
+              }
               scheduleMilkdownCodeBlockViewportLayout(root, view as EditorViewWithDomObserver);
               notifyHistoryAvailability(view);
             },

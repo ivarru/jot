@@ -219,7 +219,6 @@ interface TagModalSession {
 interface PendingEditorFocusReturn {
   readonly date: IsoDate;
   readonly mode: EditorMode;
-  readonly selection: MarkdownSelection | null;
 }
 
 type LinkModalClipboardStatus = "unknown" | "reading" | "known";
@@ -361,6 +360,7 @@ export default function Home() {
   let dailyNoteUploadGeneration = 0;
   let sectionLinkTargetLoadGeneration = 0;
   let lastBackgroundSaveSnapshotKey: string | null = null;
+  let lastFocusedEditor: PendingEditorFocusReturn | null = null;
   let pendingEditorFocusReturn: PendingEditorFocusReturn | null = null;
   let windowReturnSyncPromise: Promise<void> | null = null;
 
@@ -1029,15 +1029,13 @@ export default function Home() {
 
   const rememberEditorFocusForWindowReturn = () => {
     const date = selectedDate();
-    if (date === null || !elementIsInEditor(document.activeElement)) return;
+    if (date === null) return;
     const mode = editorMode();
-    pendingEditorFocusReturn = {
-      date,
-      mode,
-      selection: mode === "wysiwyg"
-        ? milkdownController?.getLiveMarkdownSelection()?.selection ?? currentEditorSelection(mode)
-        : currentEditorSelection(mode)
-    };
+    const activeEditor = elementIsInEditor(document.activeElement)
+      ? { date, mode }
+      : lastFocusedEditor;
+    if (activeEditor?.date !== date || activeEditor.mode !== mode) return;
+    pendingEditorFocusReturn = activeEditor;
   };
 
   const restoreEditorFocusAfterWindowReturn = (focusReturn: PendingEditorFocusReturn): void => {
@@ -1060,10 +1058,6 @@ export default function Home() {
       !elementIsInEditor(activeElement)
     ) return;
 
-    setFocusEditorAtEnd(false);
-    setFocusEditorSelection(focusReturn.selection);
-    if (focusReturn.selection !== null) return;
-
     if (focusReturn.mode === "wysiwyg") milkdownController?.focusCurrentSelection();
     else plainTextEditorElement?.focus();
   };
@@ -1080,7 +1074,9 @@ export default function Home() {
       windowReturnSyncPromise = null;
       const latestFocusReturn = pendingEditorFocusReturn;
       if (latestFocusReturn === null) return;
-      restoreEditorFocusAfterWindowReturn(latestFocusReturn);
+      if (!elementIsInEditor(document.activeElement)) {
+        restoreEditorFocusAfterWindowReturn(latestFocusReturn);
+      }
       pendingEditorFocusReturn = null;
     };
     void syncPromise.then(finishWindowReturnSync, finishWindowReturnSync);
@@ -1119,7 +1115,11 @@ export default function Home() {
       resumeFromWindowBackground();
     };
     const onFocusIn = (event: FocusEvent) => {
-      if (pendingEditorFocusReturn !== null && !elementIsInEditor(event.target)) {
+      if (elementIsInEditor(event.target)) {
+        const date = selectedDate();
+        if (date !== null) lastFocusedEditor = { date, mode: editorMode() };
+      } else {
+        lastFocusedEditor = null;
         pendingEditorFocusReturn = null;
       }
     };
