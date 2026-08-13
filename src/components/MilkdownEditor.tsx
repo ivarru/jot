@@ -1435,6 +1435,13 @@ function markdownSelectionForView(
   view: EditorView,
   serializer: MarkdownSerializer
 ): MarkdownSelection {
+  if (
+    selectionIsInTrailingTopLevelEmptyTextblock(view) ||
+    selectionIsInTrailingTopLevelEmptyDomTextblock(view)
+  ) {
+    return { start: markdown.length, end: markdown.length };
+  }
+
   const emptyTextblockSelection = emptyTextblockMarkdownSelection(markdown, view);
   if (emptyTextblockSelection !== null) return emptyTextblockSelection;
 
@@ -1457,6 +1464,26 @@ function markdownSelectionForView(
 
   return editorDomSelectionToMarkdownSourceSelection(markdown, view, serializer)
     ?? editorSelectionToMarkdownSourceSelection(markdown, view.state.selection, view, serializer);
+}
+
+function selectionIsInTrailingTopLevelEmptyTextblock(view: EditorView): boolean {
+  const selection = view.state.selection;
+  if (!selectionIsInEmptyTextblock(view) || selection.$from.depth !== 1) return false;
+
+  return selection.$from.index(0) === view.state.doc.childCount - 1;
+}
+
+function selectionIsInTrailingTopLevelEmptyDomTextblock(view: EditorView): boolean {
+  const selection = view.dom.ownerDocument.getSelection();
+  if (selection === null || selection.rangeCount === 0) return false;
+
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !containsSelectionNode(view.dom, range.commonAncestorContainer)) return false;
+
+  const target = closestRenderedTextblock(range.startContainer, view.dom);
+  if (target === null || target.parentElement !== view.dom || !isEmptyRenderedTextblock(target)) return false;
+
+  return renderedTextblocks(view.dom).at(-1) === target;
 }
 
 function editorDomSelectionToMarkdownSourceSelection(

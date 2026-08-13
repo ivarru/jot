@@ -4,6 +4,7 @@ import {
   clickButton,
   expectRawMarkdown,
   focusRawEditorRange,
+  focusWysiwygEditorAtEnd,
   focusWysiwygTextOffset,
   openDevelopmentStorage,
   rawMarkdown,
@@ -18,6 +19,7 @@ test("link modal supports clipboard autofill, editing, and share-target insertio
   await openDevelopmentStorage(page);
   await switchToRawMode(page);
 
+  await assertWysiwygTrailingEmptyParagraphInsert(page);
   await assertClipboardAutoFill(page);
   await assertWysiwygCollapsedCursorInsert(page);
   await assertManualLinkModalInsert(page);
@@ -35,6 +37,34 @@ async function assertManifestShareTarget(page: Page): Promise<void> {
   expect(manifest.share_target?.params?.title).toBe("title");
   expect(manifest.share_target?.params?.text).toBe("text");
   expect(manifest.share_target?.params?.url).toBe("url");
+}
+
+async function assertWysiwygTrailingEmptyParagraphInsert(page: Page): Promise<void> {
+  await setRawMarkdown(page, "abcd\n\nefgh");
+  await switchToWysiwygMode(page);
+  await focusWysiwygEditorAtEnd(page);
+  await page.keyboard.press("Enter");
+  const focused = await page.locator(".milkdown-root [contenteditable='true']").evaluate((editor) => {
+    const paragraph = editor.lastElementChild;
+    if (!(paragraph instanceof HTMLParagraphElement) || paragraph.textContent !== "") return false;
+    (editor as HTMLElement).focus();
+    const selection = getSelection();
+    const range = document.createRange();
+    range.setStart(paragraph, 0);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+    return selection?.anchorNode === paragraph && selection.anchorOffset === 0;
+  });
+  expect(focused, "Could not focus the trailing empty WYSIWYG paragraph.").toBe(true);
+  await writeClipboardText(page, "[https://www.google.com/](https://www.google.com/)");
+
+  await clickButton(page, "Insert or edit link");
+  await expect(page.locator(".link-modal input").nth(1)).toHaveValue("https://www.google.com/");
+  await page.locator(".link-modal input").nth(0).fill("www.google.com");
+  await clickLinkModalButton(page, "Insert");
+  await expectRawMarkdown(page, "abcd\n\nefgh\n\n[www.google.com](<https://www.google.com/>)");
 }
 
 async function assertWysiwygCollapsedCursorInsert(page: Page): Promise<void> {
