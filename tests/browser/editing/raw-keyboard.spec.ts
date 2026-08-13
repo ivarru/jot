@@ -157,6 +157,48 @@ test("background saving preserves a compact list of links", async ({ page }) => 
   await expectNormalizedRawMarkdown(page, markdown);
 });
 
+test("returning after background synchronization restores WYSIWYG focus", async ({ page }) => {
+  await setRawMarkdown(page, "before");
+  await switchToWysiwygMode(page);
+  await focusWysiwygEditorAtEnd(page);
+  await cdpInsertText(page, "after");
+  await expectUnderlyingMarkdown(page, "beforeafter");
+  await focusWysiwygEditorAtEnd(page);
+
+  const renderedCaretOffsetBeforeSwitch = await page.evaluate(() => {
+    const editor = document.querySelector<HTMLElement>(".milkdown-root .ProseMirror");
+    if (editor === null || document.activeElement !== editor) {
+      throw new Error("WYSIWYG editor was not focused before the app switch.");
+    }
+    const selection = getSelection();
+    if (selection === null || selection.rangeCount === 0 || selection.anchorNode === null) {
+      throw new Error("WYSIWYG editor did not have a DOM selection before the app switch.");
+    }
+    const beforeCaret = document.createRange();
+    beforeCaret.selectNodeContents(editor);
+    beforeCaret.setEnd(selection.anchorNode, selection.anchorOffset);
+    const renderedCaretOffset = beforeCaret.toString().length;
+
+    window.dispatchEvent(new Event("blur"));
+    editor.blur();
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+    return renderedCaretOffset;
+  });
+  expect(renderedCaretOffsetBeforeSwitch).toBe("beforeafter".length);
+
+  await expect(page.locator(".sync-status")).toHaveAttribute("aria-label", /Sync status: Synced/);
+  await expect.poll(async () =>
+    await page.locator(".milkdown-root .ProseMirror").evaluate((editor) => document.activeElement === editor)
+  ).toBe(true);
+
+  await cdpInsertText(page, "more");
+  await expectUnderlyingMarkdown(page, "beforeaftermore");
+});
+
 test("loose-list bullets align with their first line of text", async ({ page }) => {
   await setRawMarkdown(page, "* first\n\n* second");
   await switchToWysiwygMode(page);

@@ -48,6 +48,7 @@ const routeTestState = vi.hoisted(() => ({
   taskListItemToggleCount: 0,
   taskListItemToggleSelections: [] as Array<{ readonly start: number; readonly end: number } | undefined>,
   focusSelectionApplyCount: 0,
+  focusCurrentSelectionCount: 0,
   setWysiwygInternalMarkdown: null as ((markdown: string) => void) | null,
   savedSettings: [] as unknown[]
 }));
@@ -237,7 +238,10 @@ vi.mock("~/components/MilkdownEditor", async () => {
               start: textarea.selectionStart,
               end: textarea.selectionEnd
             },
-        focusCurrentSelection: () => undefined,
+        focusCurrentSelection: () => {
+          routeTestState.focusCurrentSelectionCount += 1;
+          textarea?.focus();
+        },
         redo,
         toggleBlockQuoteAtSelection: (selection) => {
           routeTestState.blockQuoteToggleCount += 1;
@@ -310,6 +314,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
 
       return (
         <textarea
+          class="milkdown-root"
           aria-label="Mock WYSIWYG editor"
           ref={(element) => {
             textarea = element;
@@ -495,6 +500,7 @@ export function resetRouteTestState(): void {
   routeTestState.taskListItemToggleCount = 0;
   routeTestState.taskListItemToggleSelections = [];
   routeTestState.focusSelectionApplyCount = 0;
+  routeTestState.focusCurrentSelectionCount = 0;
   routeTestState.setWysiwygInternalMarkdown = null;
   routeTestState.savedSettings = [];
   window.location.hash = "#/date/2030-02-02";
