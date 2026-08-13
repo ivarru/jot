@@ -527,10 +527,9 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               if (disposed || activeSession !== session || editor === null) return;
 
               const beforeView = editor.ctx.get(editorViewCtx);
-              const beforeSerializer = editor.ctx.get(serializerCtx);
               const restoreFocusedSelection = beforeView.hasFocus();
               const selectionSnapshot = restoreFocusedSelection
-                ? serializedMarkdownSelectionSnapshot(beforeView, beforeSerializer, TextSelection, true)
+                ? editorDomSelectionToTextSelection(beforeView, TextSelection) ?? beforeView.state.selection
                 : null;
               let replacedMarkdown = markdown;
               let updatedView: EditorView | null = null;
@@ -544,21 +543,12 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               trackMilkdownExternalMarkdown(markdownState, markdown, replacedMarkdown);
               const view = updatedView ?? editor.ctx.get(editorViewCtx);
               if (selectionSnapshot !== null) {
-                const selection = {
-                  start: mapStringBoundaryOffset(
-                    selectionSnapshot.markdown,
-                    replacedMarkdown,
-                    selectionSnapshot.selection.start,
-                    "right"
-                  ),
-                  end: mapStringBoundaryOffset(
-                    selectionSnapshot.markdown,
-                    replacedMarkdown,
-                    selectionSnapshot.selection.end,
-                    "right"
-                  )
-                };
-                placeSelectionAtMarkdownSourceSelection(view, TextSelection, replacedMarkdown, selection);
+                const maxPosition = view.state.doc.content.size;
+                const from = Math.max(0, Math.min(maxPosition, selectionSnapshot.from));
+                const to = Math.max(0, Math.min(maxPosition, selectionSnapshot.to));
+                view.dispatch(view.state.tr.setSelection(
+                  TextSelection.between(view.state.doc.resolve(from), view.state.doc.resolve(to))
+                ));
                 view.focus();
               }
               scheduleMilkdownCodeBlockViewportLayout(root, view as EditorViewWithDomObserver);

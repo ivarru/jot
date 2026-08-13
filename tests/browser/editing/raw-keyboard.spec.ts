@@ -201,6 +201,20 @@ test("typing while window-return synchronization finishes keeps the live WYSIWYG
   await expectUnderlyingMarkdown(page, "beforeAB after");
 });
 
+test("ordinary autosave synchronization keeps the live WYSIWYG caret", async ({ page }) => {
+  await setRawMarkdown(page, "before after");
+  await switchToWysiwygMode(page);
+  await focusWysiwygTextOffset(page, "before", "before".length);
+
+  await cdpInsertText(page, "A");
+  await expectUnderlyingMarkdown(page, "beforeA after");
+  await page.waitForTimeout(3_500);
+  await expect(page.locator(".sync-status")).toHaveAttribute("aria-label", /Sync status: Synced/);
+
+  await cdpInsertText(page, "B");
+  await expectUnderlyingMarkdown(page, "beforeAB after");
+});
+
 test("loose-list bullets align with their first line of text", async ({ page }) => {
   await setRawMarkdown(page, "* first\n\n* second");
   await switchToWysiwygMode(page);
