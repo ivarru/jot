@@ -907,7 +907,8 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
   );
 
   createRenderEffect(() => {
-    activeSession?.setReadOnly(props.readOnly === true);
+    const readOnly = props.readOnly === true;
+    activeSession?.setReadOnly(readOnly);
   });
 
   createEffect(() => {

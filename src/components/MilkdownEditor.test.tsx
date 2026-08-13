@@ -200,7 +200,7 @@ describe("MilkdownEditor", () => {
     }
   });
 
-  it("updates the editor editable state when read-only changes", async () => {
+  it("updates the ProseMirror editable state when read-only changes after async creation", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     let setReadOnly!: (readOnly: boolean) => void;
@@ -224,10 +224,10 @@ describe("MilkdownEditor", () => {
     );
 
     try {
-      await waitForMilkdownReadOnly(host, "true");
+      await waitForContentEditable(host, "false");
 
       setReadOnly(false);
-      await waitForMilkdownReadOnly(host, "false");
+      await waitForContentEditable(host, "true");
 
     } finally {
       dispose();
