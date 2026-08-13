@@ -21,6 +21,10 @@ The app is built with SolidStart's static output path and is intended to run on 
 - Portable reference tags using `[#tag](jot:tag/tag)`, with WYSIWYG chips and browser-local suggestions.
 - Development-only fake storage, fake image flows, and real-browser regression tests.
 
+## Known Issues
+
+- On some browsers, particularly Brave on macOS, the Milkdown editor may lose focus after returning to Jot or shortly after it is manually refocused. Click the editor again before continuing to type. Automatic focus and caret restoration is intentionally disabled because previous attempts could relocate, reverse, or lose typed text. See the [Milkdown focus and caret investigation](docs/editor-focus-investigation.md) for the current findings and diagnostic next steps.
+
 ## Local Development
 
 Install dependencies:
