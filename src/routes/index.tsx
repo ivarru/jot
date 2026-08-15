@@ -355,6 +355,14 @@ export default function Home() {
   let dailyNoteUploadGeneration = 0;
   let sectionLinkTargetLoadGeneration = 0;
   let lastBackgroundSaveSnapshotKey: string | null = null;
+  type FocusedEditorIdentity = {
+    readonly date: IsoDate;
+    readonly mode: EditorMode;
+    readonly resetKey: number;
+  };
+  let lastFocusedEditor: FocusedEditorIdentity | null = null;
+  let pendingForegroundFocus: FocusedEditorIdentity | null = null;
+  let foregroundCycleHandled = document.visibilityState === "visible";
 
   const dateBoundEditorState = (): DateBoundEditorState => ({
     selectedDate: selectedDate(),
@@ -1017,40 +1025,107 @@ export default function Home() {
     return target instanceof Element && target.closest(".milkdown-root") !== null;
   };
 
-  createEffect(() => {
+  onMount(() => {
+    const focusedEditorForTarget = (target: EventTarget | null): FocusedEditorIdentity | null => {
+      if (!(target instanceof Node)) return null;
+      const date = selectedDate();
+      if (date === null || loadedDate() !== date || !selectedDateCanWrite()) return null;
+
+      const mode = plainTextEditorElement?.contains(target)
+        ? "text"
+        : target instanceof Element && target.closest(".milkdown-root") !== null
+          ? "wysiwyg"
+          : null;
+      if (mode === null || mode !== editorMode()) return null;
+      return { date, mode, resetKey: editorResetKey() };
+    };
+    const beginBackgroundCycle = () => {
+      foregroundCycleHandled = false;
+      if (pendingForegroundFocus === null) {
+        pendingForegroundFocus = lastFocusedEditor;
+      }
+    };
+    const focusPendingEditor = () => {
+      const pending = pendingForegroundFocus;
+      pendingForegroundFocus = null;
+      if (
+        pending === null
+        || pending.date !== selectedDate()
+        || pending.date !== loadedDate()
+        || pending.mode !== editorMode()
+        || pending.resetKey !== editorResetKey()
+        || !selectedDateCanWrite()
+        || document.querySelector("[role='dialog']") !== null
+      ) return;
+
+      if (pending.mode === "wysiwyg") {
+        milkdownController?.focusCurrentSelection();
+      } else {
+        plainTextEditorElement?.focus();
+      }
+    };
+    const handleForeground = () => {
+      if (document.visibilityState === "hidden" || foregroundCycleHandled) return;
+      foregroundCycleHandled = true;
+      focusPendingEditor();
+      resetBackgroundSaveDeduplication();
+      syncSelectedDateOnDemandWithLatestEditor();
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      const focusedEditor = focusedEditorForTarget(event.target);
+      if (focusedEditor !== null) lastFocusedEditor = focusedEditor;
+    };
+    const cancelPendingFocusAfterForegroundActivity = () => {
+      if (
+        foregroundCycleHandled
+        || pendingForegroundFocus === null
+        || document.visibilityState === "hidden"
+        || !document.hasFocus()
+      ) return;
+      pendingForegroundFocus = null;
+    };
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
+        beginBackgroundCycle();
         clearCameraStream();
         saveLatestVisibleEditorSnapshotForBackground();
         return;
       }
 
-      resetBackgroundSaveDeduplication();
-      syncSelectedDateOnDemandWithLatestEditor();
+      handleForeground();
     };
+    const onWindowBlur = () => beginBackgroundCycle();
     const onPageHide = () => {
+      beginBackgroundCycle();
       clearCameraStream();
       saveLatestVisibleEditorSnapshotForBackground();
     };
+    const onForeground = () => {
+      handleForeground();
+    };
+    document.addEventListener("focusin", onFocusIn, true);
+    document.addEventListener("pointerdown", cancelPendingFocusAfterForegroundActivity, true);
+    document.addEventListener("keydown", cancelPendingFocusAfterForegroundActivity, true);
+    document.addEventListener("selectionchange", cancelPendingFocusAfterForegroundActivity, true);
+    document.addEventListener("beforeinput", cancelPendingFocusAfterForegroundActivity, true);
+    document.addEventListener("input", cancelPendingFocusAfterForegroundActivity, true);
     document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("blur", onWindowBlur);
+    window.addEventListener("focus", onForeground);
+    window.addEventListener("pageshow", onForeground);
     window.addEventListener("pagehide", onPageHide);
     onCleanup(() => {
+      document.removeEventListener("focusin", onFocusIn, true);
+      document.removeEventListener("pointerdown", cancelPendingFocusAfterForegroundActivity, true);
+      document.removeEventListener("keydown", cancelPendingFocusAfterForegroundActivity, true);
+      document.removeEventListener("selectionchange", cancelPendingFocusAfterForegroundActivity, true);
+      document.removeEventListener("beforeinput", cancelPendingFocusAfterForegroundActivity, true);
+      document.removeEventListener("input", cancelPendingFocusAfterForegroundActivity, true);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("blur", onWindowBlur);
+      window.removeEventListener("focus", onForeground);
+      window.removeEventListener("pageshow", onForeground);
       window.removeEventListener("pagehide", onPageHide);
-    });
-  });
-
-  createEffect(() => {
-    const onFocus = () => {
-      if (document.visibilityState === "hidden") return;
-      resetBackgroundSaveDeduplication();
-      syncSelectedDateOnDemandWithLatestEditor();
-    };
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("pageshow", onFocus);
-    onCleanup(() => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("pageshow", onFocus);
     });
   });
 

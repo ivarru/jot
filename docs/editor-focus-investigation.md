@@ -2,14 +2,15 @@
 
 ## Current status
 
-As of version `0.21.31` (`fd3438b`), the experimental focus-restoration machinery has been rolled back. Jot is back to the safer behavior that preceded `2330aa7`:
+Version `0.21.32` fixes both return-focus failures without capturing or replaying a caret:
 
-- Returning to Jot may leave Milkdown unfocused, requiring a click before typing.
-- No application code tries to restore an old caret after synchronization.
-- No application code rewrites Milkdown's selection when external Markdown is applied.
-- Delayed typing in the middle and at the end of a note is covered across an autosave boundary.
+- Jot continuously remembers which editor was last focused, including before Brave clears `activeElement`.
+- The first foreground event for the same date, editor mode, and editor generation synchronously focuses the existing live selection.
+- Duplicate Brave `focus`, `pageshow`, and `visibilitychange` events are coalesced into one foreground action.
+- No synchronization callback focuses the editor or writes a selection.
+- Controlled Markdown that represents the live Milkdown document is acknowledged without running `replaceAll`.
 
-One issue remains: after returning to Jot, clicking the editor and typing immediately can work at first, then lose focus a few seconds later. This resembles a synchronization or external-document-update boundary, but that cause has not yet been proven.
+Pointer, keyboard, selection, or input activity cancels a pending foreground focus. Date, mode, editor-generation, modal, and read-only checks prevent a stale foreground event from focusing a different editor session.
 
 ## Distinct problems observed
 
@@ -30,7 +31,7 @@ Manually changing `contenteditable` did not produce a real fix because ProseMirr
 
 After switching to another application and returning, `document.activeElement` can be `BODY` rather than the ProseMirror editor. A click restores focus. Brave on macOS may clear `activeElement` before Jot receives `window.blur`, so inspecting only `activeElement` in the blur handler is not a reliable way to remember what had focus.
 
-The remaining variant is delayed focus loss: focus is restored manually by clicking and typing starts successfully, but focus disappears a few seconds later. The delay makes synchronization, polling, or an externally applied Markdown value plausible suspects, but no causal trace has been captured.
+The delayed variant was caused by a redundant controlled document replacement. On backgrounding, Jot flushed Milkdown's editable snapshot, which intentionally omits a serializer-only terminal newline. Feeding that value back through the controlled `value` prop could make Milkdown run `replaceAll` even though the value came from the live editor. The replacement blurred the editor and reset ProseMirror's selection. Browser throttling determined whether it happened while Jot was hidden or after the user returned and started typing.
 
 ### Caret is moved or repeatedly reset
 
@@ -41,6 +42,26 @@ The attempted fixes introduced more serious failures:
 - In the worst case, every character was inserted before the previous character because the caret was reset before each controlled editor update.
 
 These are selection-management failures, not merely focus failures. Focusing an editor and restoring a caret must be considered separate operations.
+
+## Confirmed root cause and final fix
+
+The Brave/Drive trace captured the complete failing sequence:
+
+1. The user edited the note and switched applications before synchronization completed.
+2. Brave cleared editor focus while the hidden-page save flushed the live editor snapshot.
+3. The controlled value differed only because Milkdown's editable representation omits its serializer-only terminal newline.
+4. With a trailing editable space, parsing that snapshot also normalized the space, so a parser-round-trip equality check alone was insufficient.
+5. Milkdown ran `replaceAll`, moved its live selection to the start, and left `body` focused.
+6. On return, focusing the current selection faithfully focused the now-wrong position at the start.
+
+`applyExternalMarkdown` now skips replacement in either of two cases:
+
+- The incoming Markdown exactly equals the live editable snapshot.
+- Parsing and serializing the incoming Markdown exactly equals the live serialized ProseMirror document.
+
+This is deliberately an avoidance fix. It does not translate Markdown offsets, dispatch a ProseMirror selection, or replay a saved position. Genuinely different incoming documents still follow the existing replacement and sync/merge paths.
+
+Foreground focus is similarly narrow. Jot records only the editor identity (`IsoDate`, mode, and reset generation), then calls the existing focus-current-selection operation once on return. The return-triggered Drive refresh remains prompt but cannot focus the editor when its promise resolves.
 
 ## Attempted fixes and outcomes
 
@@ -79,6 +100,15 @@ It retained `92d7ea9`, which only waits for Milkdown's queued animation-frame fo
 - Checking only final Markdown can hide intermediate focus loss and lost keystrokes. Tests should also record `activeElement`, DOM selection, ProseMirror selection, and editability at each input.
 - The unrelated test `WYSIWYG typing can edit between rendered full links` was a test race: Milkdown's queued mode-switch focus restoration overwrote a synthetic test caret. Waiting one animation frame in the helper stabilized it without changing production behavior.
 
+The final regression coverage includes:
+
+- Equivalent and trailing-space background snapshots do not replace the live WYSIWYG document.
+- A background-synced return focuses once despite duplicate foreground events and keeps focus through a delayed refresh completion.
+- Typing before, during, and after the asynchronous boundary preserves active element, editability, DOM selection, Markdown selection, character order, local draft, remote note, and reload state.
+- A delayed return refresh for date A cannot change or focus date B after navigation.
+
+The temporary production trace was removed after validation. The final build recorded 23 visible returns in a normal Brave tab and 9 in Brave app mode, with zero `replaceAll` calls, intact focus/selection, and no reported focus or cursor failure. The manual timing was exploratory rather than an exact 30-cycle scripted run for every transition.
+
 The rollback was verified with:
 
 - `controlled WYSIWYG updates keep delayed typing in order`, repeated five times.
@@ -87,7 +117,7 @@ The rollback was verified with:
 
 The recovery test did not fail against the broken version in headless Chromium, so it is a guard for basic typing order rather than a faithful reproduction of the Brave issue.
 
-## Constraints for a future fix
+## Constraints retained by the fix
 
 1. Never write focus or selection from an asynchronous synchronization completion callback after the editor is available for input.
 2. Never replay a selection captured before user input unless a generation or interaction token proves that no newer focus, selection, or input event occurred.
@@ -98,16 +128,8 @@ The recovery test did not fail against the broken version in headless Chromium, 
 7. Any focus operation must be cancelled by subsequent pointer, focus, selection, keyboard, or input activity and by date or mode changes.
 8. Keystroke preservation is more important than automatic refocusing. Requiring one click is preferable to losing, relocating, or reversing note content.
 
-## Recommended next investigation
+## Investigation environment
 
-Before another behavioral change, capture a real Brave/macOS trace in a temporary diagnostic script. Record timestamped events for:
+The causal trace was recorded with an isolated Brave profile, a dedicated Google account, real Drive synchronization, one fixed synthetic note date, and content hashes/lengths rather than note contents. The issue was reproduced first in a normal Brave tab. The final fix was checked in both a normal tab and a Brave app-mode window.
 
-- `window`: `blur`, `focus`, `pageshow`.
-- `document`: `visibilitychange`, `focusin`, `focusout`, `selectionchange`, `beforeinput`, and `input`.
-- `document.activeElement`, ProseMirror `contenteditable`, and `aria-readonly`.
-- DOM selection node/offset and ProseMirror selection positions.
-- Selected date, editor mode, and editor reset/document keys.
-- Synchronization start/finish, incoming Markdown application, and every `replaceAll` call.
-- Whether any focus or selection command runs after the user's first returning keystroke.
-
-The first question to answer is narrow: **what exact operation occurs when the manually refocused editor loses focus a few seconds after returning?** Only after identifying that operation should a new regression and fix be designed.
+Authentication was completed by the user. Credentials, tokens, cookies, and unrelated Drive content were not inspected or logged. Diagnostic code and the isolated browser profile were not retained.

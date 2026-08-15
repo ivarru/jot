@@ -9,6 +9,7 @@ import {
   type Deferred,
   type DelayedClearAll,
   type DelayedDraftLoad,
+  type DelayedRemoteLoad,
   type DelayedRemoteSave
 } from "./routeTestHarness.test-helper";
 import Home from "./index";
@@ -534,6 +535,97 @@ describe("Home reconnect and conflict handling", () => {
     expect(testState.drafts.get("2030-02-02")?.markdown).toBe("after step 3 with local edits");
 
     setDocumentVisibility("visible");
+    dispose();
+  });
+
+  it("focuses the last-focused editor once when duplicate foreground events start a delayed refresh", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "before app switch",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+    editor.focus();
+
+    window.dispatchEvent(new Event("blur"));
+    editor.blur();
+    setDocumentVisibility("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => {
+      expect(host.querySelector(".sync-status")?.getAttribute("aria-label")).toContain("Synced");
+    });
+    testState.delayedRemoteLoad = delayedRemoteLoad("2030-02-02", testState.remoteNote);
+    setDocumentVisibility("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("pageshow"));
+
+    await testState.delayedRemoteLoad.started.promise;
+    expect(testState.focusCurrentSelectionCount).toBe(1);
+    expect(document.activeElement).toBe(editor);
+
+    editor.value = "before app switchA";
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, data: "A", inputType: "insertText" }));
+    testState.delayedRemoteLoad.finish.resolve();
+    await settle();
+
+    expect(testState.focusCurrentSelectionCount).toBe(1);
+    expect(document.activeElement).toBe(editor);
+    expect(editor.value).toBe("before app switchA");
+
+    dispose();
+  });
+
+  it("ignores a return refresh for date A after navigation to date B", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "date A",
+      revisionId: "remote-revision-a",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "date B"));
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+    const editorA = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+    editorA.focus();
+
+    window.dispatchEvent(new Event("blur"));
+    editorA.blur();
+    setDocumentVisibility("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => {
+      expect(host.querySelector(".sync-status")?.getAttribute("aria-label")).toContain("Synced");
+    });
+    testState.delayedRemoteLoad = delayedRemoteLoad("2030-02-02", {
+      date: "2030-02-02",
+      markdown: "stale date A",
+      revisionId: "stale-revision-a",
+      updatedAt: "2030-01-02T00:00:00.000Z"
+    });
+    setDocumentVisibility("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await testState.delayedRemoteLoad.started.promise;
+
+    window.location.hash = "#/date/2030-02-03";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await waitFor(() => {
+      expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")?.value).toBe("2030-02-03");
+    });
+    testState.delayedRemoteLoad.finish.resolve();
+    await settle();
+
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("date B");
+    expect(testState.focusCurrentSelectionCount).toBe(1);
+
     dispose();
   });
 
@@ -2859,6 +2951,19 @@ function delayedClearAll(): DelayedClearAll {
 function delayedRemoteSave(date: IsoDate): DelayedRemoteSave {
   return {
     date,
+    started: deferred<void>(),
+    finish: deferred<void>(),
+    consumed: false
+  };
+}
+
+function delayedRemoteLoad(
+  date: IsoDate,
+  result: DelayedRemoteLoad["result"]
+): DelayedRemoteLoad {
+  return {
+    date,
+    result,
     started: deferred<void>(),
     finish: deferred<void>(),
     consumed: false

@@ -20,7 +20,7 @@ import {
   switchToRawMode,
   switchToWysiwygMode
 } from "../helpers/editor";
-import { seedLocalDraft } from "../helpers/idb";
+import { readFakeRemoteNote, readLocalDraft, seedLocalDraft } from "../helpers/idb";
 
 test.beforeEach(async ({ page }) => {
   await openDevelopmentStorage(page);
@@ -155,6 +155,111 @@ test("background saving preserves a compact list of links", async ({ page }) => 
   });
 
   await expectNormalizedRawMarkdown(page, markdown);
+});
+
+test("equivalent background snapshots do not replace the live WYSIWYG document", async ({ page }) => {
+  await setRawMarkdown(page, "before");
+  await switchToWysiwygMode(page);
+  await focusWysiwygEditorAtEnd(page);
+  await page.keyboard.insertText("A");
+  const editor = page.locator(".milkdown-root [contenteditable=\"true\"]");
+  await expect(editor).toHaveText("beforeA");
+  await expect(editor).toBeFocused();
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveAttribute("contenteditable", "true");
+  expect(await editor.evaluate((element) => {
+    const selection = getSelection();
+    return {
+      anchorInsideEditor: selection?.anchorNode !== null && element.contains(selection?.anchorNode ?? null),
+      collapsed: selection?.isCollapsed,
+      text: element.textContent
+    };
+  })).toEqual({
+    anchorInsideEditor: true,
+    collapsed: true,
+    text: "beforeA"
+  });
+});
+
+test("a trailing-space background snapshot does not reset the live WYSIWYG selection", async ({ page }) => {
+  await setRawMarkdown(page, "before");
+  await switchToWysiwygMode(page);
+  await focusWysiwygEditorAtEnd(page);
+  await page.keyboard.insertText("A ");
+  await expectUnderlyingMarkdown(page, "beforeA ");
+  const editor = page.locator(".milkdown-root [contenteditable=\"true\"]");
+  await expect(editor).toBeFocused();
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  await expect(editor).toBeFocused();
+  await page.keyboard.insertText("B");
+  await expectUnderlyingMarkdown(page, "beforeA B");
+});
+
+test("returning to a background-synced note restores focus without interrupting typing", async ({ page }) => {
+  const initial = "before after";
+  await setRawMarkdown(page, initial);
+  await switchToWysiwygMode(page);
+  await focusWysiwygTextOffset(page, "before", "before".length);
+  await page.keyboard.insertText("A");
+  await expectUnderlyingMarkdown(page, "beforeA after");
+
+  const editor = page.locator(".milkdown-root [contenteditable=\"true\"]");
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("blur"));
+    const editor = document.querySelector<HTMLElement>(".milkdown-root [contenteditable=\"true\"]");
+    editor?.blur();
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(editor).not.toBeFocused();
+  await expect(page.locator(".sync-status")).toHaveAttribute("aria-label", /Sync status: Synced/);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("pageshow"));
+  });
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveAttribute("contenteditable", "true");
+
+  for (const [character, delay] of [["B", 250], ["C", 750], ["D", 1_250], ["E", 2_000]] as const) {
+    await page.keyboard.insertText(character);
+    await page.waitForTimeout(delay);
+    await expect(editor).toBeFocused();
+  }
+
+  expect(await editor.evaluate((element) => {
+    const selection = getSelection();
+    return {
+      anchorInsideEditor: selection?.anchorNode !== null && element.contains(selection?.anchorNode ?? null),
+      collapsed: selection?.isCollapsed
+    };
+  })).toEqual({ anchorInsideEditor: true, collapsed: true });
+
+  const expected = "beforeABCDE after";
+  await expectUnderlyingMarkdown(page, expected);
+  await switchToRawMode(page);
+  await expectNormalizedRawMarkdown(page, expected);
+  await expectRawSelection(page, "beforeABCDE".length);
+
+  const date = await page.locator("input[aria-label='Selected date']").inputValue();
+  await expect.poll(async () => normalizeMarkdown((await readFakeRemoteNote(page, date))?.markdown ?? null)).toBe(expected);
+  await expect.poll(async () => normalizeMarkdown((await readLocalDraft(page, date))?.markdown ?? null)).toBe(expected);
+
+  await page.reload();
+  await expectNormalizedRawMarkdown(page, expected);
 });
 
 test("controlled WYSIWYG updates keep delayed typing in order", async ({ page }) => {

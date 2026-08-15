@@ -245,7 +245,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         root.replaceChildren();
 
         const [
-          { Editor, rootCtx, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, serializerCtx },
+          { Editor, rootCtx, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, serializerCtx },
           {
             blockquoteSchema,
             bulletListSchema,
@@ -459,7 +459,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           };
         });
 
-        editor = await Editor.make()
+        const pendingEditor = Editor.make()
           .config((ctx) => {
             ctx.set(rootCtx, root);
             ctx.set(defaultValueCtx, props.value);
@@ -510,7 +510,9 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(listItemBlockComponent)
           .use(preserveListTightness)
           .use(history)
-          .use(listener)
+          .use(listener);
+        editor = pendingEditor;
+        editor = await pendingEditor
           .create()
           .catch((reason: unknown) => {
             setError(reason instanceof Error ? reason.message : "Milkdown failed to load.");
@@ -526,14 +528,26 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             applyExternalMarkdown: (markdown, undoable) => {
               if (disposed || activeSession !== session || editor === null) return;
 
+              const beforeView = editor.ctx.get(editorViewCtx);
+              const serializer = editor.ctx.get(serializerCtx);
+              const parsedMarkdown = editor.ctx.get(parserCtx)(markdown);
+              const liveSerializedMarkdown = serializeMilkdownMarkdown(serializer, beforeView.state.doc);
+              const liveEditableMarkdown = editableLiveMarkdown(beforeView, liveSerializedMarkdown);
+              const incomingSerializedMarkdown = parsedMarkdown === null
+                ? null
+                : serializeMilkdownMarkdown(serializer, parsedMarkdown);
+              if (markdown === liveEditableMarkdown || incomingSerializedMarkdown === liveSerializedMarkdown) {
+                trackMilkdownExternalMarkdown(markdownState, markdown, liveSerializedMarkdown);
+                return;
+              }
+
               let replacedMarkdown = markdown;
               let updatedView: EditorView | null = null;
               editor.action((ctx) => {
                 replaceAll(markdown, !undoable)(ctx);
                 const view = ctx.get(editorViewCtx);
                 updatedView = view;
-                const serializer = ctx.get(serializerCtx);
-                replacedMarkdown = serializeMilkdownMarkdown(serializer, view.state.doc);
+                replacedMarkdown = serializeMilkdownMarkdown(ctx.get(serializerCtx), view.state.doc);
               });
               trackMilkdownExternalMarkdown(markdownState, markdown, replacedMarkdown);
               const view = updatedView ?? editor.ctx.get(editorViewCtx);

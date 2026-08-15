@@ -26,17 +26,28 @@ export interface DelayedRemoteSave {
   consumed: boolean;
 }
 
+interface RouteTestRemoteNote {
+  readonly date: string;
+  readonly markdown: string;
+  readonly revisionId: string;
+  readonly updatedAt: string;
+}
+
+export interface DelayedRemoteLoad {
+  readonly date: IsoDate;
+  readonly result: RouteTestRemoteNote | null;
+  readonly started: Deferred<void>;
+  readonly finish: Deferred<void>;
+  consumed: boolean;
+}
+
 const routeTestState = vi.hoisted(() => ({
   drafts: new Map<string, LocalDraft>(),
   delayedDraftLoad: null as DelayedDraftLoad | null,
   delayedClearAll: null as DelayedClearAll | null,
   delayedRemoteSave: null as DelayedRemoteSave | null,
-  remoteNote: null as null | {
-    readonly date: string;
-    readonly markdown: string;
-    readonly revisionId: string;
-    readonly updatedAt: string;
-  },
+  delayedRemoteLoad: null as DelayedRemoteLoad | null,
+  remoteNote: null as RouteTestRemoteNote | null,
   remoteLoadInputs: [] as IsoDate[],
   loadAuthError: false,
   saveConflict: false,
@@ -48,6 +59,7 @@ const routeTestState = vi.hoisted(() => ({
   taskListItemToggleCount: 0,
   taskListItemToggleSelections: [] as Array<{ readonly start: number; readonly end: number } | undefined>,
   focusSelectionApplyCount: 0,
+  focusCurrentSelectionCount: 0,
   setWysiwygInternalMarkdown: null as ((markdown: string) => void) | null,
   savedSettings: [] as unknown[]
 }));
@@ -237,7 +249,10 @@ vi.mock("~/components/MilkdownEditor", async () => {
               start: textarea.selectionStart,
               end: textarea.selectionEnd
             },
-        focusCurrentSelection: () => undefined,
+        focusCurrentSelection: () => {
+          routeTestState.focusCurrentSelectionCount += 1;
+          textarea?.focus();
+        },
         redo,
         toggleBlockQuoteAtSelection: (selection) => {
           routeTestState.blockQuoteToggleCount += 1;
@@ -309,27 +324,29 @@ vi.mock("~/components/MilkdownEditor", async () => {
       });
 
       return (
-        <textarea
-          aria-label="Mock WYSIWYG editor"
-          ref={(element) => {
-            textarea = element;
-          }}
-          readOnly={props.readOnly === true}
-          spellcheck={props.spellcheck !== false ? "true" : "false"}
-          value={props.value}
-          onInput={(event) => recordUserEdit(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
-              if (undo()) event.preventDefault();
-            } else if (
-              (event.key.toLowerCase() === "y" && event.ctrlKey) ||
-              (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && event.shiftKey)
-            ) {
-              if (redo()) event.preventDefault();
-            }
-          }}
-          onBlur={(event) => props.onBlur(props.documentKey, event.currentTarget.value)}
-        />
+        <div class="milkdown-root">
+          <textarea
+            aria-label="Mock WYSIWYG editor"
+            ref={(element) => {
+              textarea = element;
+            }}
+            readOnly={props.readOnly === true}
+            spellcheck={props.spellcheck !== false ? "true" : "false"}
+            value={props.value}
+            onInput={(event) => recordUserEdit(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && !event.shiftKey) {
+                if (undo()) event.preventDefault();
+              } else if (
+                (event.key.toLowerCase() === "y" && event.ctrlKey) ||
+                (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && event.shiftKey)
+              ) {
+                if (redo()) event.preventDefault();
+              }
+            }}
+            onBlur={(event) => props.onBlur(props.documentKey, event.currentTarget.value)}
+          />
+        </div>
       );
     }
   };
@@ -398,6 +415,13 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
   class FakeRemoteStorageProvider {
     async loadDailyNote(date: IsoDate) {
       routeTestState.remoteLoadInputs.push(date);
+      const delayedLoad = routeTestState.delayedRemoteLoad;
+      if (delayedLoad !== null && !delayedLoad.consumed && delayedLoad.date === date) {
+        delayedLoad.consumed = true;
+        delayedLoad.started.resolve();
+        await delayedLoad.finish.promise;
+        return delayedLoad.result;
+      }
       if (routeTestState.loadAuthError) throw new GoogleAccessTokenUnavailableError();
       return routeTestState.remoteNote?.date === date ? routeTestState.remoteNote : null;
     }
@@ -483,6 +507,7 @@ export function resetRouteTestState(): void {
   routeTestState.delayedDraftLoad = null;
   routeTestState.delayedClearAll = null;
   routeTestState.delayedRemoteSave = null;
+  routeTestState.delayedRemoteLoad = null;
   routeTestState.remoteNote = null;
   routeTestState.remoteLoadInputs = [];
   routeTestState.loadAuthError = false;
@@ -495,6 +520,7 @@ export function resetRouteTestState(): void {
   routeTestState.taskListItemToggleCount = 0;
   routeTestState.taskListItemToggleSelections = [];
   routeTestState.focusSelectionApplyCount = 0;
+  routeTestState.focusCurrentSelectionCount = 0;
   routeTestState.setWysiwygInternalMarkdown = null;
   routeTestState.savedSettings = [];
   window.location.hash = "#/date/2030-02-02";

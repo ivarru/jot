@@ -98,8 +98,26 @@ export async function focusWysiwygEditor(page: Page): Promise<void> {
 }
 
 export async function focusWysiwygEditorAtEnd(page: Page): Promise<void> {
-  await focusWysiwygEditor(page);
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+  const editor = wysiwygEditor(page);
+  await expect(editor).toBeVisible();
+  const focused = await editor.evaluate((element) => {
+    (element as HTMLElement).focus();
+    const selection = getSelection();
+    if (selection === null) return false;
+
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+
+    return document.activeElement === element &&
+      selection.isCollapsed &&
+      selection.anchorNode !== null &&
+      (selection.anchorNode === element || element.contains(selection.anchorNode));
+  });
+  expect(focused, "Could not focus the end of the WYSIWYG editor.").toBe(true);
 }
 
 export async function focusWysiwygTextOffset(page: Page, text: string, offset: number): Promise<void> {
