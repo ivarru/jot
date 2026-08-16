@@ -29,6 +29,12 @@ describe("settings", () => {
     expect(normalizeJotSettings({ spellcheck: "false" }).spellcheck).toBe(true);
   });
 
+  it("defaults sync diagnostics off when the stored value is missing or invalid", () => {
+    expect(normalizeJotSettings({}).syncDiagnosticsEnabled).toBe(false);
+    expect(normalizeJotSettings({ syncDiagnosticsEnabled: "true" }).syncDiagnosticsEnabled).toBe(false);
+    expect(normalizeJotSettings({ syncDiagnosticsEnabled: true }).syncDiagnosticsEnabled).toBe(true);
+  });
+
   it("converts between milliseconds and user-facing seconds", () => {
     expect(millisecondsToSeconds(15000)).toBe(15);
     expect(secondsToMilliseconds(2.5)).toBe(2500);

@@ -1,4 +1,5 @@
 import type { IsoDate } from "~/domain/dates";
+import type { JotSettings } from "~/domain/settings";
 import type { LocalDraft, SaveDailyNoteInput } from "~/storage/types";
 
 export type Deferred<T = void> = {
@@ -41,12 +42,19 @@ export interface DelayedRemoteLoad {
   consumed: boolean;
 }
 
+export interface DelayedSettingsLoad {
+  readonly result: JotSettings;
+  readonly started: Deferred<void>;
+  readonly finish: Deferred<void>;
+}
+
 const routeTestState = vi.hoisted(() => ({
   drafts: new Map<string, LocalDraft>(),
   delayedDraftLoad: null as DelayedDraftLoad | null,
   delayedClearAll: null as DelayedClearAll | null,
   delayedRemoteSave: null as DelayedRemoteSave | null,
   delayedRemoteLoad: null as DelayedRemoteLoad | null,
+  delayedSettingsLoad: null as DelayedSettingsLoad | null,
   remoteNote: null as RouteTestRemoteNote | null,
   remoteLoadInputs: [] as IsoDate[],
   loadAuthError: false,
@@ -498,7 +506,13 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
 
   return {
     FakeRemoteStorageProvider,
-    loadSettingsOrDefault: async () => DEFAULT_JOT_SETTINGS
+    loadSettingsOrDefault: async () => {
+      const delayedSettingsLoad = routeTestState.delayedSettingsLoad;
+      if (delayedSettingsLoad === null) return DEFAULT_JOT_SETTINGS;
+      delayedSettingsLoad.started.resolve();
+      await delayedSettingsLoad.finish.promise;
+      return delayedSettingsLoad.result;
+    }
   };
 });
 
@@ -508,6 +522,7 @@ export function resetRouteTestState(): void {
   routeTestState.delayedClearAll = null;
   routeTestState.delayedRemoteSave = null;
   routeTestState.delayedRemoteLoad = null;
+  routeTestState.delayedSettingsLoad = null;
   routeTestState.remoteNote = null;
   routeTestState.remoteLoadInputs = [];
   routeTestState.loadAuthError = false;

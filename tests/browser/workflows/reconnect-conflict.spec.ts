@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { grantClipboardPermissions } from "../helpers/clipboard";
 import {
   clickButton,
   expectRawMarkdown,
@@ -47,6 +48,35 @@ test("fake reconnect conflict can be resolved manually and synced", async ({ pag
   await clickButton(page, "Conflict");
   const note = await waitForFakeRemoteNote(page, date, resolved);
   expect(note.markdown).toBe(resolved);
+});
+
+test("an enabled diagnostic buffer can be copied and freezes when a conflict opens", async ({ page }) => {
+  await openDevelopmentStorage(page);
+  await grantClipboardPermissions(page);
+  await page.getByRole("button", { name: "Open menu" }).click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  const diagnostics = page.getByLabel("Collect sync diagnostics for conflict reports");
+  await diagnostics.check();
+
+  await seedConflictState(page, { date, baseline, local, remote });
+  await page.goto(`/#/date/${date}`);
+  await expect(page.locator(".sync-status[aria-label*='Saved locally']")).toBeVisible();
+  await clickButton(page, "Saved locally");
+  await expect(page.getByText("Sync conflict")).toBeVisible();
+
+  const editor = page.getByRole("region", { name: "Daily note editor" }).getByRole("textbox");
+  await expect(editor).toHaveAttribute("contenteditable", "false");
+  const copy = page.getByRole("button", { name: "Copy sync diagnostics", exact: true });
+  await expect(copy).toBeEnabled();
+  await copy.click();
+  const copied = await page.evaluate(async () => await navigator.clipboard.readText());
+  expect(copied).toContain("Jot sync diagnostics v1");
+  expect(copied).toContain("sync-conflict");
+  expect(copied).not.toContain(local);
+  expect(copied).not.toContain(remote);
+
+  await copy.click();
+  await expect.poll(async () => await page.evaluate(async () => await navigator.clipboard.readText())).toBe(copied);
 });
 
 test("a clean stale phone cache refreshes to the longer remote note before remaining synced", async ({ page }) => {

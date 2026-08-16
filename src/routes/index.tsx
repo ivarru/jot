@@ -153,6 +153,11 @@ import {
   shouldTrackUnsyncedSince
 } from "~/sync/syncScheduling";
 import {
+  formatSyncDiagnostics,
+  SyncDiagnosticsBuffer,
+  type SyncDiagnosticSource
+} from "~/sync/syncDiagnostics";
+import {
   GOOGLE_PHOTOS_APPENDONLY_SCOPE,
   GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE,
   GOOGLE_PHOTOS_PICKER_SCOPE,
@@ -267,12 +272,36 @@ export default function Home() {
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [syncStatus, setSyncStatus] = createSignal<SyncStatus>("local-only");
   const [lastSyncError, setLastSyncError] = createSignal<SyncErrorState | null>(null);
+  const syncDiagnostics = new SyncDiagnosticsBuffer();
   const [pendingSyncConflict, setPendingSyncConflict] = createSignal<DailyNoteSyncConflict | null>(null);
+  const setPendingSyncConflictWithDiagnostics = (conflict: DailyNoteSyncConflict | null) => {
+    const previous = pendingSyncConflict();
+    if (previous === null && conflict !== null) {
+      setSyncDiagnosticsCopyMessage(null);
+      syncDiagnostics.record({
+        event: "sync-conflict",
+        date: conflict.date,
+        markdown: conflict.localMarkdown,
+        expectedRevisionId: conflict.baselineRevisionId,
+        revisionId: conflict.remoteRevisionId
+      });
+      syncDiagnostics.record({
+        event: "sync-conflict-remote",
+        date: conflict.date,
+        markdown: conflict.remoteMarkdown,
+        revisionId: conflict.remoteRevisionId
+      });
+    }
+    syncDiagnostics.setPaused(conflict !== null);
+    setPendingSyncConflict(conflict);
+  };
   const [resolvingSyncConflict, setResolvingSyncConflict] = createSignal(false);
   const [syncRetryAttempt, setSyncRetryAttempt] = createSignal(0);
   const [unsyncedSinceMs, setUnsyncedSinceMs] = createSignal<number | null>(null);
   const [syncWarningTick, setSyncWarningTick] = createSignal(0);
   const [settings, setSettings] = createSignal<JotSettings>(DEFAULT_JOT_SETTINGS);
+  const [settingsLoaded, setSettingsLoaded] = createSignal(false);
+  const [syncDiagnosticsCopyMessage, setSyncDiagnosticsCopyMessage] = createSignal<string | null>(null);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [topMenuOpen, setTopMenuOpen] = createSignal(false);
   const [aboutOpen, setAboutOpen] = createSignal(false);
@@ -603,7 +632,7 @@ export default function Home() {
     applyTransition: applyDateBoundEditorTransition,
     setLoadError,
     setLastSyncError,
-    setPendingSyncConflict,
+    setPendingSyncConflict: setPendingSyncConflictWithDiagnostics,
     setSyncStatus,
     setExistingNoteDate,
     handleRemoteError,
@@ -614,6 +643,28 @@ export default function Home() {
     editorMode() === "text" && plainTextEditorElement !== null
       ? plainTextEditorElement.value
       : milkdownController?.getLiveMarkdown() ?? markdown();
+
+  const recordSyncRequest = (
+    source: SyncDiagnosticSource,
+    snapshot: VisibleDailyNoteSnapshot | null = null
+  ) => {
+    const date = snapshot?.date ?? selectedDate();
+    syncDiagnostics.record({
+      event: "sync-requested",
+      source,
+      ...(date === null ? {} : { date }),
+      ...(snapshot === null ? {} : { markdown: snapshot.markdown })
+    });
+  };
+
+  createEffect(on(
+    () => settings().syncDiagnosticsEnabled,
+    (enabled) => syncDiagnostics.setEnabled(enabled)
+  ));
+
+  createEffect(on(syncStatus, (status) => {
+    syncDiagnostics.record({ event: "sync-status", status });
+  }));
 
   createEffect(on(loadedDate, (date) => {
     if (date === null) return;
@@ -648,9 +699,13 @@ export default function Home() {
 
   const backgroundSaveSnapshotKey = (snapshot: VisibleDailyNoteSnapshot): string => `${snapshot.date}\n${snapshot.markdown}`;
 
-  const saveLatestVisibleEditorSnapshot = (options: { readonly dedupeBackground?: boolean } = {}) => {
+  const saveLatestVisibleEditorSnapshot = (
+    source: SyncDiagnosticSource,
+    options: { readonly dedupeBackground?: boolean } = {}
+  ) => {
     const flushed = flushCurrentVisibleEditorSnapshot();
     if (flushed === null) {
+      recordSyncRequest(source);
       void dailyNoteReplication.saveCurrentEditorSnapshot();
       return;
     }
@@ -661,11 +716,12 @@ export default function Home() {
       lastBackgroundSaveSnapshotKey = snapshotKey;
     }
 
+    recordSyncRequest(source, flushed.snapshot);
     void dailyNoteReplication.saveAndSyncSnapshot(flushed.snapshot);
   };
 
   const saveLatestVisibleEditorSnapshotForBackground = () => {
-    saveLatestVisibleEditorSnapshot({ dedupeBackground: true });
+    saveLatestVisibleEditorSnapshot("background", { dedupeBackground: true });
   };
 
   const resetBackgroundSaveDeduplication = () => {
@@ -675,10 +731,12 @@ export default function Home() {
   const syncSelectedDateOnDemandWithLatestEditor = () => {
     const flushed = flushCurrentVisibleEditorSnapshot();
     if (flushed?.changed) {
+      recordSyncRequest("foreground", flushed.snapshot);
       void dailyNoteReplication.saveAndSyncSnapshot(flushed.snapshot);
       return;
     }
 
+    recordSyncRequest("foreground", flushed?.snapshot ?? null);
     void dailyNoteReplication.syncSelectedDateOnDemand();
   };
 
@@ -699,23 +757,40 @@ export default function Home() {
       .finally(() => setPreparingAuth(false));
   });
 
-  createEffect(() => {
-    if (!authenticated()) return;
+  let settingsLoadGeneration = 0;
 
-    void loadSettingsOrDefault(runtime.remote).then(setSettings).catch((error: unknown) => {
-      if (handleRemoteError(error, { message: errorMessage(error), retry: "save-settings" })) return;
-      const message = errorMessage(error);
-      setLoadError(message);
-      setLastSyncError({ message, retry: "save-settings" });
-      setSyncStatus("error");
-    });
+  createEffect(on(authenticated, (isAuthenticated) => {
+    const generation = ++settingsLoadGeneration;
+    setSettingsLoaded(false);
+    if (!isAuthenticated) return;
 
-    void syncDirtyDraftsExceptSelected().catch((error: unknown) => {
-      if (handleRemoteError(error, { message: errorMessage(error), retry: "sync-dirty-drafts" })) return;
-      setLastSyncError({ message: errorMessage(error), retry: "sync-dirty-drafts" });
-      setSyncStatus("error");
+    void loadSettingsOrDefault(runtime.remote).then((loadedSettings) => {
+      if (generation !== settingsLoadGeneration) return;
+      setSettings(loadedSettings);
+      setSettingsLoaded(true);
+    }).catch((error: unknown) => {
+      if (generation !== settingsLoadGeneration) return;
+      if (!handleRemoteError(error, { message: errorMessage(error), retry: "save-settings" })) {
+        const message = errorMessage(error);
+        setLoadError(message);
+        setLastSyncError({ message, retry: "save-settings" });
+        setSyncStatus("error");
+      }
+      setSettingsLoaded(true);
     });
-  });
+  }));
+
+  createEffect(on(
+    () => [authenticated(), settingsLoaded()] as const,
+    ([isAuthenticated, loaded]) => {
+      if (!isAuthenticated || !loaded) return;
+      void syncDirtyDraftsExceptSelected().catch((error: unknown) => {
+        if (handleRemoteError(error, { message: errorMessage(error), retry: "sync-dirty-drafts" })) return;
+        setLastSyncError({ message: errorMessage(error), retry: "sync-dirty-drafts" });
+        setSyncStatus("error");
+      });
+    }
+  ));
 
   createEffect(
     on(
@@ -859,13 +934,14 @@ export default function Home() {
 
   createEffect(
     on(
-      () => [markdown(), settings().autosaveDebounceMs] as const,
+      () => [markdown(), settings().autosaveDebounceMs, settingsLoaded()] as const,
       ([value]) => {
         const snapshot = captureVisibleDailyNoteSnapshot({ ...dateBoundEditorState(), markdown: value });
-        if (!authenticated() || snapshot === null) return;
+        if (!authenticated() || !settingsLoaded() || snapshot === null) return;
         if (authReconnectRequired()) return;
 
         const timeout = window.setTimeout(() => {
+          recordSyncRequest("autosave", snapshot);
           void dailyNoteReplication.saveAndSyncSnapshot(snapshot);
         }, settings().autosaveDebounceMs);
 
@@ -948,15 +1024,18 @@ export default function Home() {
           selectedDate(),
           loadedDate(),
           syncStatus(),
+          settingsLoaded(),
           settings().cleanPollingIntervalMs,
           settings().dirtyPollingIntervalMs
         ] as const,
       () => {
+        if (!settingsLoaded()) return;
         const mode = dailyNoteReplication.pollingMode();
         if (mode === null) return;
 
         if (mode === "clean-refresh") {
           const interval = window.setInterval(() => {
+            recordSyncRequest("poll");
             void dailyNoteReplication.pollSelectedDate();
           }, settings().cleanPollingIntervalMs);
           onCleanup(() => window.clearInterval(interval));
@@ -964,6 +1043,7 @@ export default function Home() {
         }
 
         const interval = window.setInterval(() => {
+          recordSyncRequest("poll");
           void dailyNoteReplication.pollSelectedDate();
         }, settings().dirtyPollingIntervalMs);
         onCleanup(() => window.clearInterval(interval));
@@ -982,7 +1062,7 @@ export default function Home() {
 
   createEffect(() => {
     const conflict = pendingSyncConflict();
-    if (conflict !== null && conflict.date !== selectedDate()) setPendingSyncConflict(null);
+    if (conflict !== null && conflict.date !== selectedDate()) setPendingSyncConflictWithDiagnostics(null);
   });
 
   createEffect(() => {
@@ -1420,7 +1500,17 @@ export default function Home() {
     }
   };
 
+  const copySyncDiagnostics = async () => {
+    try {
+      await navigator.clipboard.writeText(formatSyncDiagnostics(syncDiagnostics.snapshot()));
+      setSyncDiagnosticsCopyMessage("Sync diagnostics copied.");
+    } catch {
+      setSyncDiagnosticsCopyMessage("Could not copy sync diagnostics.");
+    }
+  };
+
   const retryLastSyncError = () => {
+    recordSyncRequest("retry");
     void dailyNoteReplication.retryLastSyncError({
       saveSettings: () => updateSettings(settings()),
       syncDirtyDrafts: () => {
@@ -2259,6 +2349,7 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
+    syncDiagnostics.record({ event: "editor-change", date, markdown: value });
     if (editorMode() === "wysiwyg") {
       clearRawHistory();
     }
@@ -2269,6 +2360,7 @@ export default function Home() {
       return;
     }
 
+    recordSyncRequest("background", result.backgroundSave);
     void saveAndSyncDailyNoteSnapshot(result.backgroundSave.date, result.backgroundSave.markdown, drafts, runtime.remote).catch((error: unknown) => {
       if (handleRemoteError(error, { message: errorMessage(error), retry: "save-current-note", date: result.backgroundSave.date })) return;
     });
@@ -2278,6 +2370,7 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
+    syncDiagnostics.record({ event: "editor-change", date, markdown: value });
 
     applyRawEditorChange(date, value, {
       focusSelection: null,
@@ -2342,6 +2435,7 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
+    recordSyncRequest("blur", captureDocumentSnapshot(date, value));
     void dailyNoteReplication.saveBlurSnapshot(captureDocumentSnapshot(date, value));
   };
 
@@ -2729,6 +2823,7 @@ export default function Home() {
     if (runtime.kind !== "google" || reconnectingAuth()) return;
 
     setReconnectingAuth(true);
+    recordSyncRequest("reconnect");
     setAuthError(null);
     setLastSyncError(null);
     try {
@@ -3220,7 +3315,10 @@ export default function Home() {
                 aria-label={`Sync status: ${syncStatusLabel(syncStatus())}. Force synchronization`}
                 data-tooltip={`Sync status: ${syncStatusLabel(syncStatus())}. Force synchronization`}
                 disabled={!dailyNoteReplication.canSyncSelectedDateOnDemand()}
-                onClick={() => void dailyNoteReplication.syncSelectedDateOnDemand()}
+                onClick={() => {
+                  recordSyncRequest("manual");
+                  void dailyNoteReplication.syncSelectedDateOnDemand();
+                }}
               />
               <Show when={syncDelayed()}>
                 <span
@@ -3354,6 +3452,13 @@ export default function Home() {
                   <div class="sync-conflict-resolution-actions">
                     <button
                       type="button"
+                      disabled={!settings().syncDiagnosticsEnabled || !syncDiagnostics.hasEvents()}
+                      onClick={() => void copySyncDiagnostics()}
+                    >
+                      Copy sync diagnostics
+                    </button>
+                    <button
+                      type="button"
                       disabled={resolvingSyncConflict()}
                       onClick={() => void resolvePendingSyncConflict("this-device")}
                     >
@@ -3392,6 +3497,12 @@ export default function Home() {
                       Resolve manually
                     </button>
                   </div>
+                  <Show when={!settings().syncDiagnosticsEnabled}>
+                    <p>Sync diagnostics were disabled when this conflict occurred.</p>
+                  </Show>
+                  <Show when={syncDiagnosticsCopyMessage()}>
+                    {(message) => <p aria-live="polite">{message()}</p>}
+                  </Show>
                 </div>
               </div>
             )}

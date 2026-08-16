@@ -60,6 +60,19 @@ loss, device storage being cleared before an unsynced Local Draft reaches anothe
 client with the user's credentials. Recovery from an implementation defect is a separate proposed defense described
 below.
 
+## Conflict Diagnostics
+
+Sync diagnostics are opt-in and disabled by default. When enabled in Settings, Jot keeps a rolling in-memory record of
+the preceding minute of editor and sync lifecycle events. The record includes event times, ISO dates, save sources,
+sync states, Markdown lengths with diagnostic hashes, and hashes of expected and observed revisions. It never records
+note contents, OAuth data, Drive URLs or file IDs, or raw revision IDs.
+
+When Jot opens a Sync Conflict, it records the conflict boundary and then pauses diagnostics collection along with
+editing. That pause freezes the preceding one-minute snapshot, so it remains available if the dialog stays open longer.
+Jot loads this opt-in before starting initial background synchronization. The conflict dialog can copy the retained
+report to the clipboard. Diagnostics are never uploaded or persisted and are cleared when collection is disabled or the
+page reloads.
+
 ## Device Counts
 
 The protocol is independent of the user's device count. Executable or formal models should use the smallest count that

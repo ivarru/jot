@@ -5,7 +5,7 @@ interface SettingsPanelProps {
   readonly onChange: (settings: JotSettings) => void;
 }
 
-type TimerSettingKey = Exclude<keyof JotSettings, "spellcheck">;
+type TimerSettingKey = Exclude<keyof JotSettings, "spellcheck" | "syncDiagnosticsEnabled">;
 
 export function SettingsPanel(props: SettingsPanelProps) {
   const updateSeconds = (key: TimerSettingKey, value: string) => {
@@ -47,6 +47,20 @@ export function SettingsPanel(props: SettingsPanelProps) {
           onInput={(event) => updateSeconds("dirtyPollingIntervalMs", event.currentTarget.value)}
         />
       </label>
+      <label>
+        <input
+          type="checkbox"
+          checked={props.settings.syncDiagnosticsEnabled}
+          onChange={(event) => props.onChange({
+            ...props.settings,
+            syncDiagnosticsEnabled: event.currentTarget.checked
+          })}
+        />
+        <span>Collect sync diagnostics for conflict reports</span>
+      </label>
+      <p>
+        Kept in memory for one minute only. Note contents and raw Google Drive identifiers are not recorded.
+      </p>
       <label>
         <span>Retry initial (seconds)</span>
         <input

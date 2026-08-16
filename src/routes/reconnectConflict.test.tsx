@@ -1,5 +1,6 @@
 import { render } from "solid-js/web";
 import { dayOfWeek, todayIsoDate, type IsoDate } from "~/domain/dates";
+import { DEFAULT_JOT_SETTINGS } from "~/domain/settings";
 import { shortcutLabelsForPlatform } from "~/editor/editorModeShortcut";
 import type { LocalDraft } from "~/storage/types";
 import {
@@ -118,6 +119,112 @@ describe("Home reconnect and conflict handling", () => {
     expect(host.querySelector<HTMLTextAreaElement>(".plain-text-editor")?.value).toContain("<<<<<<< Local Draft");
 
     dispose();
+  });
+
+  it("copies redacted diagnostics and pauses their collection with a sync conflict", async () => {
+    testState.saveConflict = true;
+    testState.drafts.set("2030-02-02", {
+      date: "2030-02-02",
+      markdown: "before\nlocal secret\nafter\n",
+      baselineMarkdown: "before\nold\nafter\n",
+      baselineRevisionId: "baseline-revision",
+      dirty: true,
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    });
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: (value: string) => Promise.resolve(copied = value) }
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await settle();
+      clickButton(host, "Open menu");
+      clickButton(host, "Settings");
+      const diagnosticsEnabled = host.querySelector<HTMLInputElement>(
+        ".settings-panel input[type='checkbox']"
+      );
+      expect(diagnosticsEnabled).not.toBeNull();
+      diagnosticsEnabled!.checked = true;
+      diagnosticsEnabled!.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+      expect(testState.savedSettings.at(-1)).toMatchObject({ syncDiagnosticsEnabled: true });
+
+      clickButton(host, "Saved locally");
+      await settle();
+      expect(dialog(host, "Sync conflict")).not.toBeNull();
+
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
+      expect(editor?.readOnly).toBe(true);
+      expect(button(host, "Copy sync diagnostics")?.disabled).toBe(false);
+      clickButton(host, "Copy sync diagnostics");
+      await settle();
+      expect(copied).toContain("Jot sync diagnostics v1");
+      expect(copied).toContain("sync-conflict");
+      expect(copied).not.toContain("local secret");
+      expect(copied).not.toContain("baseline-revision");
+      const beforeRejectedEdit = copied;
+
+      editor!.value = "after conflict";
+      editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      clickButton(host, "Copy sync diagnostics");
+      await settle();
+      expect(copied).toBe(beforeRejectedEdit);
+      expect(testState.drafts.get("2030-02-02")?.markdown).toBe("before\nlocal secret\nafter\n");
+    } finally {
+      dispose();
+      if (originalClipboard === undefined) {
+        Reflect.deleteProperty(navigator, "clipboard");
+      } else {
+        Object.defineProperty(navigator, "clipboard", originalClipboard);
+      }
+    }
+  });
+
+  it("waits for the diagnostics preference before initially syncing dirty drafts", async () => {
+    const settingsLoad = deferred<void>();
+    const settingsStarted = deferred<void>();
+    const remoteSaveStarted = deferred<void>();
+    const remoteSaveFinish = deferred<void>();
+    testState.delayedSettingsLoad = {
+      result: { ...DEFAULT_JOT_SETTINGS, syncDiagnosticsEnabled: true },
+      started: settingsStarted,
+      finish: settingsLoad
+    };
+    testState.drafts.set("2030-02-03", {
+      date: "2030-02-03",
+      markdown: "local draft",
+      baselineMarkdown: "before",
+      baselineRevisionId: "baseline-revision",
+      dirty: true,
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    });
+    testState.delayedRemoteSave = {
+      date: "2030-02-03",
+      started: remoteSaveStarted,
+      finish: remoteSaveFinish,
+      consumed: false
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await settingsStarted.promise;
+      await settle();
+      expect(testState.delayedRemoteSave.consumed).toBe(false);
+
+      settingsLoad.resolve();
+      await remoteSaveStarted.promise;
+      expect(testState.delayedRemoteSave.consumed).toBe(true);
+    } finally {
+      remoteSaveFinish.resolve();
+      dispose();
+    }
   });
 
   it("opens the link modal at the editor cursor from the heading button", async () => {
