@@ -157,6 +157,34 @@ test("background saving preserves a compact list of links", async ({ page }) => 
   await expectNormalizedRawMarkdown(page, markdown);
 });
 
+test("Compactify lists removes gaps between nested and task list items", async ({ page }) => {
+  await setRawMarkdown(page, [
+    "* one",
+    "",
+    "* two",
+    "",
+    "  * nested one",
+    "",
+    "  * nested two",
+    "",
+    "* [ ] three",
+    "",
+    "* [x] four"
+  ].join("\n"));
+
+  await page.getByRole("button", { name: "Open menu" }).click();
+  await page.getByRole("menuitem", { name: "Compactify lists" }).click();
+
+  await expectNormalizedRawMarkdown(page, [
+    "* one",
+    "* two",
+    "  * nested one",
+    "  * nested two",
+    "* [ ] three",
+    "* [x] four"
+  ].join("\n"));
+});
+
 test("equivalent background snapshots do not replace the live WYSIWYG document", async ({ page }) => {
   await setRawMarkdown(page, "before");
   await switchToWysiwygMode(page);

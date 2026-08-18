@@ -31,6 +31,7 @@ describe("application menu", () => {
     expect(Array.from(host.querySelectorAll(".top-menu-popover [role='menuitem']")).map((element) => element.textContent)).toEqual([
       "About Jot",
       "Upload daily notes",
+      "Compactify lists",
       "Settings",
       "Turn spellcheck off",
       "Sign out"
@@ -130,6 +131,31 @@ describe("application menu", () => {
       "true"
     );
     expect(testState.savedSettings.at(-1)).toMatchObject({ spellcheck: true });
+
+    dispose();
+  });
+
+  it("compacts list item gaps in the current Daily Note", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "* one\n\n* two\n\n  * nested one\n\n  * nested two\n",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+
+    const dispose = render(() => <Home />, host);
+    await settle();
+
+    openMenu(host);
+    clickButton(host, "Compactify lists");
+    await settle();
+
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe(
+      "* one\n* two\n  * nested one\n  * nested two\n"
+    );
+    expect(host.querySelector(".top-menu-popover")).toBeNull();
 
     dispose();
   });

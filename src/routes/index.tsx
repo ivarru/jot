@@ -101,6 +101,7 @@ import {
   toggleMarkdownBlockQuote,
   type BlockFormatState
 } from "~/editor/blockFormatting";
+import { compactMarkdownLists } from "~/editor/compactLists";
 import { toggleCodeFormat } from "~/editor/codeToggle";
 import {
   inactiveInlineFormatState,
@@ -1538,6 +1539,20 @@ export default function Home() {
     updateSettings({
       ...settings(),
       spellcheck: !settings().spellcheck
+    });
+  };
+
+  const compactCurrentDailyNoteLists = () => {
+    setTopMenuOpen(false);
+    const date = selectedDate();
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
+
+    const sourceMarkdown = currentEditorMarkdown();
+    const compactedMarkdown = compactMarkdownLists(sourceMarkdown);
+    if (compactedMarkdown === sourceMarkdown) return;
+    applyUndoableMarkdownTransform(date, compactedMarkdown, {
+      start: compactedMarkdown.length,
+      end: compactedMarkdown.length
     });
   };
 
@@ -3367,6 +3382,14 @@ export default function Home() {
                       onClick={startDailyNoteUpload}
                     >
                       {dailyNoteUploadInProgress() ? "Uploading daily notes..." : "Upload daily notes"}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                      onClick={compactCurrentDailyNoteLists}
+                    >
+                      Compactify lists
                     </button>
                     <button
                       type="button"
