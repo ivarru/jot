@@ -1334,6 +1334,82 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("keeps a space typed before inline code outside the code span when the DOM reports a replacement", async () => {
+    const testEditor = await createMilkdownDomTestEditor("Use foo today");
+
+    try {
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      const codeType = inlineCodeSchema.type(testEditor.editor.ctx);
+      const end = findTextEndPosition(view.state.doc, "Use ");
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, end)));
+      view.dispatch(
+        view.state.tr
+          .addStoredMark(codeType.create())
+          .setMeta(INLINE_CODE_AFFINITY_META, true)
+      );
+
+      // The DOM change detection reports the first typed character as
+      // replacing the space after the caret, sometimes with a leading
+      // space in the reported text. The space must stay plain.
+      typeTextInputThroughView(view, end - 1, end, " c");
+      typeTextThroughView(view, "ode");
+
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("Use `code`foo today\n");
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
+  it("drops a space prepended to typed text when the DOM reports an early collapsed insert", async () => {
+    const testEditor = await createMilkdownDomTestEditor("Use foo today");
+
+    try {
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      const codeType = inlineCodeSchema.type(testEditor.editor.ctx);
+      const end = findTextEndPosition(view.state.doc, "Use ");
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, end)));
+      view.dispatch(
+        view.state.tr
+          .addStoredMark(codeType.create())
+          .setMeta(INLINE_CODE_AFFINITY_META, true)
+      );
+
+      // The DOM change detection can report the first typed character at the
+      // space before the caret, prepending that space to the reported text.
+      // The space must stay plain and the typed text must be the code.
+      typeTextInputThroughView(view, end - 1, end - 1, " c");
+      typeTextThroughView(view, "ode");
+
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("Use `code`foo today\n");
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
+  it("keeps a space at the caret outside inline code when the DOM reports it replaced", async () => {
+    const testEditor = await createMilkdownDomTestEditor("Use  today");
+
+    try {
+      const view = testEditor.editor.ctx.get(editorViewCtx);
+      const codeType = inlineCodeSchema.type(testEditor.editor.ctx);
+      const gap = findTextEndPosition(view.state.doc, "Use ");
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, gap)));
+      view.dispatch(
+        view.state.tr
+          .addStoredMark(codeType.create())
+          .setMeta(INLINE_CODE_AFFINITY_META, true)
+      );
+
+      // The DOM change detection reports typing at a double-space gap as
+      // replacing the space after the caret. Both spaces must stay plain.
+      typeTextInputThroughView(view, gap, gap + 1, "foo");
+
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("Use `foo` today\n");
+    } finally {
+      await testEditor.destroy();
+    }
+  });
+
   it("keeps text after a closing backtick outside inline code", async () => {
     const testEditor = await createMilkdownDomTestEditor("");
 
@@ -2143,6 +2219,19 @@ async function placeNativeCaret(
 
 function typeTextThroughView(view: import("@milkdown/kit/prose/view").EditorView, text: string): void {
   const { from, to } = view.state.selection;
+  const handled = view.someProp(
+    "handleTextInput",
+    (handler) => handler(view, from, to, text, () => view.state.tr.insertText(text, from, to))
+  );
+  if (!handled) view.dispatch(view.state.tr.insertText(text, from, to));
+}
+
+function typeTextInputThroughView(
+  view: import("@milkdown/kit/prose/view").EditorView,
+  from: number,
+  to: number,
+  text: string
+): void {
   const handled = view.someProp(
     "handleTextInput",
     (handler) => handler(view, from, to, text, () => view.state.tr.insertText(text, from, to))

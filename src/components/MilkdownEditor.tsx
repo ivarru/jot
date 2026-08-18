@@ -32,7 +32,8 @@ import {
   recordInlineCodeDomAffinity,
   recordInlineCodeExplicitAffinity,
   resolveInlineCodeAffinity,
-  resolveInlineCodeExplicitAffinity
+  resolveInlineCodeExplicitAffinity,
+  type InlineCodeAffinityState
 } from "~/editor/inlineCodeAffinity";
 import {
   inactiveListItemFormatState,
@@ -1233,25 +1234,28 @@ export function createInlineCodeBoundaryAffinityPlugin(
     },
     props: {
       handleTextInput: (view, from, to, text, defaultTransaction) => {
-        const caretIsInsideCode = resolveInlineCodeAffinity(boundaryAffinity, from);
+        const corrected = inlineCodeSpaceBoundaryInput(view.state, from, to, text, boundaryAffinity);
+        const caretIsInsideCode = resolveInlineCodeAffinity(boundaryAffinity, corrected.from);
         if (caretIsInsideCode === null) return false;
-        const hasExplicitAffinity = resolveInlineCodeExplicitAffinity(boundaryAffinity, from) !== null;
+        const hasExplicitAffinity = resolveInlineCodeExplicitAffinity(boundaryAffinity, corrected.from) !== null;
         const transaction = inlineCodeBoundaryTextInputTransaction(
           view.state,
           codeType,
-          from,
-          to,
-          text,
+          corrected.from,
+          corrected.to,
+          corrected.text,
           caretIsInsideCode,
           hasExplicitAffinity,
-          defaultTransaction()
+          corrected.from === from && corrected.to === to
+            ? defaultTransaction()
+            : view.state.tr.insertText(corrected.text, corrected.from, corrected.to)
         );
         if (transaction === null) return false;
 
         boundaryAffinity = advanceInlineCodeAffinityAfterTextInput(
           boundaryAffinity,
-          from,
-          from + text.length
+          corrected.from,
+          corrected.from + corrected.text.length
         );
         view.dispatch(transaction);
         return true;
@@ -1286,6 +1290,43 @@ export function createInlineCodeBoundaryAffinityPlugin(
       };
     }
   });
+}
+
+function inlineCodeSpaceBoundaryInput(
+  state: EditorState,
+  from: number,
+  to: number,
+  text: string,
+  boundaryAffinity: InlineCodeAffinityState
+): { readonly from: number; readonly to: number; readonly text: string } {
+  if (text.length === 0) return { from, to, text };
+  const tracked = boundaryAffinity.position;
+  if (tracked === null) return { from, to, text };
+
+  // The DOM change detection can report typing next to whitespace as replacing
+  // that whitespace, or inserting one position before the real caret, and can
+  // prepend the whitespace to the reported text (as a regular space even when
+  // the document stores a non-breaking space). Detect the whitespace boundary
+  // and move the insertion to the tracked caret.
+  let adjacentWhitespace: string | null = null;
+  if (from === to && tracked === from + 1) {
+    const between = state.doc.textBetween(from, tracked, "", "");
+    if (between.length > 0 && /^\s+$/.test(between)) adjacentWhitespace = between;
+  } else if (from !== to && (tracked === from || tracked === to)) {
+    const replaced = state.doc.textBetween(from, to, "", "");
+    if (replaced.length > 0 && /^\s+$/.test(replaced)) adjacentWhitespace = replaced;
+  }
+
+  if (adjacentWhitespace === null) return { from, to, text };
+
+  // Drop the whitespace the DOM attributed to the change so the typed text
+  // stays outside the code span. Keep a purely-whitespace input untouched
+  // (that is a space the user actually typed).
+  const leading = text.match(/^\s+/)?.[0] ?? "";
+  const stripped = leading.length > 0 && leading.length < text.length
+    ? text.slice(leading.length)
+    : text;
+  return { from: tracked, to: tracked, text: stripped };
 }
 
 function inlineCodeInputRuleLeavesCaretOutside(
