@@ -62,7 +62,8 @@ function addListGapReplacement(
   if (start === undefined || end === undefined || start >= end) return;
 
   const gap = markdown.slice(start, end);
-  if (!/\r?\n[ \t]*\r?\n/.test(gap)) return;
+  // A blank line in a blockquote retains its `>` container prefix, for example `\n>\n> `.
+  if (!/\r?\n[ \t]*(?:>[ \t]*)*\r?\n/.test(gap)) return;
 
   const finalNewline = gap.lastIndexOf("\n");
   if (finalNewline === -1) return;

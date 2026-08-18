@@ -39,6 +39,17 @@ describe("compactMarkdownLists", () => {
     ].join("\n"));
   });
 
+  it("removes blank list gaps inside blockquotes while preserving the quote prefix", () => {
+    expect(compactMarkdownLists([
+      "> * one",
+      ">",
+      "> * two"
+    ].join("\n"))).toBe([
+      "> * one",
+      "> * two"
+    ].join("\n"));
+  });
+
   it("does not reformat Markdown that has no loose list gaps", () => {
     const markdown = "Before\n\n* one\n* two\n\nAfter\n";
     expect(compactMarkdownLists(markdown)).toBe(markdown);
