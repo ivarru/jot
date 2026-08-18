@@ -7,7 +7,7 @@ import {
 import type { ImageAttachmentDisplayMap } from "./milkdownImages";
 import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
 import { shouldSyncMilkdownInlineMarkdown } from "./milkdownInlineSync";
-import { createListTightnessPlugin } from "./milkdownListTightness";
+import { applyListTightnessUpdates, createListTightnessPlugin } from "./milkdownListTightness";
 import { renderMilkdownListItemLabel } from "./milkdownListItems";
 import { createPlainUrlLinkBoundaryPlugin } from "./milkdownPlainUrl";
 import { createMilkdownStructuralTabKeymap } from "./milkdownStructuralTab";
@@ -266,7 +266,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { history },
           { listener, listenerCtx },
           { listItemBlockComponent, listItemBlockConfig },
-          { Plugin, TextSelection },
+          { Plugin, TextSelection, EditorState: EditorStateConstructor },
           { closeHistory, redo, redoDepth, undo, undoDepth },
           { isInTable, selectedRect },
           { liftListItem, sinkListItem },
@@ -535,7 +535,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               const liveEditableMarkdown = editableLiveMarkdown(beforeView, liveSerializedMarkdown);
               const incomingSerializedMarkdown = parsedMarkdown === null
                 ? null
-                : serializeMilkdownMarkdown(serializer, parsedMarkdown);
+                : serializeMilkdownMarkdown(
+                  serializer,
+                  normalizeMilkdownListTightness(parsedMarkdown, EditorStateConstructor)
+                );
               if (markdown === liveEditableMarkdown || incomingSerializedMarkdown === liveSerializedMarkdown) {
                 trackMilkdownExternalMarkdown(markdownState, markdown, liveSerializedMarkdown);
                 return;
@@ -993,6 +996,15 @@ function isOpenLinkShortcut(event: KeyboardEvent): boolean {
 
 function serializeMilkdownMarkdown(serializer: MarkdownSerializer, doc: ProseNode): string {
   return serializer(doc).replaceAll("\u00a0", " ");
+}
+
+function normalizeMilkdownListTightness(
+  doc: ProseNode,
+  EditorStateConstructor: { readonly create: (config: { readonly doc: ProseNode }) => EditorState }
+): ProseNode {
+  const state = EditorStateConstructor.create({ doc });
+  const transaction = state.tr;
+  return applyListTightnessUpdates(doc, transaction) ? transaction.doc : doc;
 }
 
 function linkHrefFromEvent(event: Event, root: HTMLElement): string | null {

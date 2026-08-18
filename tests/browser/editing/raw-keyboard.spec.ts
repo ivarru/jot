@@ -185,6 +185,29 @@ test("Compactify lists removes gaps between nested and task list items", async (
   ].join("\n"));
 });
 
+test("raw compactification replaces the hidden WYSIWYG document before background saving", async ({ page }) => {
+  const looseMarkdown = "* first\n\n* second";
+  const compactMarkdown = "* first\n* second";
+
+  await setRawMarkdown(page, looseMarkdown);
+  await switchToWysiwygMode(page);
+  await switchToRawMode(page);
+  const blankLine = looseMarkdown.indexOf("\n\n");
+  await focusRawEditorRange(page, blankLine + 1, blankLine + 2);
+  await page.keyboard.press("Backspace");
+  await expectRawMarkdown(page, compactMarkdown);
+  await switchToWysiwygMode(page);
+  await expect(page.locator(".milkdown-root ul")).toHaveAttribute("data-spread", "false");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  await expectNormalizedRawMarkdown(page, compactMarkdown);
+});
+
 test("equivalent background snapshots do not replace the live WYSIWYG document", async ({ page }) => {
   await setRawMarkdown(page, "before");
   await switchToWysiwygMode(page);
