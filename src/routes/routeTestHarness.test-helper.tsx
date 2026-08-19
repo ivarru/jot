@@ -48,6 +48,12 @@ export interface DelayedSettingsLoad {
   readonly finish: Deferred<void>;
 }
 
+export interface DelayedDirtyList {
+  readonly started: Deferred<void>;
+  readonly finish: Deferred<void>;
+  consumed: boolean;
+}
+
 const routeTestState = vi.hoisted(() => ({
   drafts: new Map<string, LocalDraft>(),
   delayedDraftLoad: null as DelayedDraftLoad | null,
@@ -55,6 +61,7 @@ const routeTestState = vi.hoisted(() => ({
   delayedRemoteSave: null as DelayedRemoteSave | null,
   delayedRemoteLoad: null as DelayedRemoteLoad | null,
   delayedSettingsLoad: null as DelayedSettingsLoad | null,
+  delayedDirtyList: null as DelayedDirtyList | null,
   remoteNote: null as RouteTestRemoteNote | null,
   remoteLoadInputs: [] as IsoDate[],
   loadAuthError: false,
@@ -69,7 +76,14 @@ const routeTestState = vi.hoisted(() => ({
   focusSelectionApplyCount: 0,
   focusCurrentSelectionCount: 0,
   setWysiwygInternalMarkdown: null as ((markdown: string) => void) | null,
-  savedSettings: [] as unknown[]
+  savedSettings: [] as unknown[],
+  useGoogleRuntime: false,
+  googleRenewalDue: false,
+  googleRenewalAttempts: 0,
+  googleRenewalFailuresRemaining: 0,
+  googleTokenInvalidations: 0,
+  remoteSaveFailuresRemaining: 0,
+  remoteSaveFailureDate: null as IsoDate | null
 }));
 
 export function getRouteTestState(): typeof routeTestState {
@@ -82,11 +96,127 @@ vi.mock("~/config", () => ({
   APP_PROJECT_URL: "https://github.com/example/jot",
   APP_VERSION: "test",
   ENABLE_FAKE_AUTH: true,
-  FORCE_FAKE_STORAGE: true,
-  GOOGLE_CLIENT_ID: "",
+  get FORCE_FAKE_STORAGE() {
+    return !routeTestState.useGoogleRuntime;
+  },
+  GOOGLE_CLIENT_ID: "test-google-client-id",
   LOCAL_DRAFT_DEBOUNCE_MS: 250,
   MILKDOWN_VERSION: "7.21.1"
 }));
+
+vi.mock("~/auth/googleIdentity", async () => {
+  const actual = await vi.importActual<typeof import("~/auth/googleIdentity")>("~/auth/googleIdentity");
+
+  class GoogleIdentityTokenProvider {
+    initialize = async () => undefined;
+    consumeRedirectAccessToken = () => routeTestState.useGoogleRuntime
+      ? { type: "authenticated" as const }
+      : { type: "none" as const };
+    getAccessToken = async () => "test-google-token";
+    redirectForAccessToken = () => undefined;
+    revoke = async () => undefined;
+    isRenewalDue = () => routeTestState.googleRenewalDue;
+    renewalDueAtMs = () => routeTestState.googleRenewalDue ? Date.now() - 1 : Date.now() + 60 * 60 * 1000;
+    renewAccessTokenSilently = async () => {
+      routeTestState.googleRenewalAttempts += 1;
+      if (routeTestState.googleRenewalFailuresRemaining > 0) {
+        routeTestState.googleRenewalFailuresRemaining -= 1;
+        throw new actual.GoogleAccessTokenUnavailableError();
+      }
+      routeTestState.googleRenewalDue = false;
+      return "renewed-test-google-token";
+    };
+    invalidateAccessToken = () => {
+      routeTestState.googleTokenInvalidations += 1;
+    };
+  }
+
+  return {
+    ...actual,
+    GoogleIdentityTokenProvider
+  };
+});
+
+vi.mock("~/storage/googleDriveStorage", () => {
+  class GoogleDriveStorageProvider {
+    async loadDailyNote(date: IsoDate) {
+      routeTestState.remoteLoadInputs.push(date);
+      return routeTestState.remoteNote?.date === date ? routeTestState.remoteNote : null;
+    }
+
+    async listDailyNoteDates() {
+      return routeTestState.remoteNote === null ? [] : [routeTestState.remoteNote.date];
+    }
+
+    async saveDailyNote(input: SaveDailyNoteInput) {
+      const delayedSave = routeTestState.delayedRemoteSave;
+      if (delayedSave !== null && !delayedSave.consumed && delayedSave.date === input.date) {
+        delayedSave.consumed = true;
+        delayedSave.started.resolve();
+        await delayedSave.finish.promise;
+      }
+      if (
+        routeTestState.remoteSaveFailuresRemaining > 0 &&
+        (routeTestState.remoteSaveFailureDate === null || routeTestState.remoteSaveFailureDate === input.date)
+      ) {
+        routeTestState.remoteSaveFailuresRemaining -= 1;
+        throw new Error("temporary Drive failure");
+      }
+      routeTestState.remoteNote = {
+        date: input.date,
+        markdown: input.markdown,
+        revisionId: "saved-revision",
+        updatedAt: "2030-01-01T00:00:00.000Z"
+      };
+      return { type: "saved" as const, note: routeTestState.remoteNote };
+    }
+
+    async loadSettings() {
+      return null;
+    }
+
+    async saveSettings(settings: unknown) {
+      routeTestState.savedSettings.push(settings);
+      return settings;
+    }
+
+    async loadJotImageAlbum() {
+      return null;
+    }
+
+    async saveJotImageAlbum() {
+      return undefined;
+    }
+
+    async loadImageAttachmentMetadata() {
+      return null;
+    }
+
+    async findImageAttachmentMetadataByCopiedMediaItemId() {
+      return null;
+    }
+
+    async findImageAttachmentMetadataByMediaItemId() {
+      return null;
+    }
+
+    async saveImageAttachmentMetadata() {
+      return undefined;
+    }
+  }
+
+  class GoogleDriveRequestError extends Error {
+    constructor(readonly status: number, readonly responseBody: string) {
+      super(`Google Drive request failed with HTTP ${status}: ${responseBody}`);
+    }
+  }
+
+  return {
+    GOOGLE_DRIVE_FILE_SCOPE: "https://www.googleapis.com/auth/drive.file",
+    GoogleDriveRequestError,
+    GoogleDriveStorageProvider
+  };
+});
 
 vi.mock("~/components/MilkdownEditor", async () => {
   const { createEffect } = await vi.importActual<typeof import("solid-js")>("solid-js");
@@ -379,6 +509,12 @@ vi.mock("~/storage/localDraftStore", () => ({
     }
 
     async listDirty() {
+      const delayedDirtyList = routeTestState.delayedDirtyList;
+      if (delayedDirtyList !== null && !delayedDirtyList.consumed) {
+        delayedDirtyList.consumed = true;
+        delayedDirtyList.started.resolve();
+        await delayedDirtyList.finish.promise;
+      }
       return Array.from(routeTestState.drafts.values()).filter((draft) => draft.dirty);
     }
 
@@ -523,6 +659,7 @@ export function resetRouteTestState(): void {
   routeTestState.delayedRemoteSave = null;
   routeTestState.delayedRemoteLoad = null;
   routeTestState.delayedSettingsLoad = null;
+  routeTestState.delayedDirtyList = null;
   routeTestState.remoteNote = null;
   routeTestState.remoteLoadInputs = [];
   routeTestState.loadAuthError = false;
@@ -538,6 +675,13 @@ export function resetRouteTestState(): void {
   routeTestState.focusCurrentSelectionCount = 0;
   routeTestState.setWysiwygInternalMarkdown = null;
   routeTestState.savedSettings = [];
+  routeTestState.useGoogleRuntime = false;
+  routeTestState.googleRenewalDue = false;
+  routeTestState.googleRenewalAttempts = 0;
+  routeTestState.googleRenewalFailuresRemaining = 0;
+  routeTestState.googleTokenInvalidations = 0;
+  routeTestState.remoteSaveFailuresRemaining = 0;
+  routeTestState.remoteSaveFailureDate = null;
   window.location.hash = "#/date/2030-02-02";
   localStorage.setItem("jot.fakeAuth", "true");
 }

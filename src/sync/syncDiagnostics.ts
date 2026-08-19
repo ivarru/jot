@@ -11,6 +11,7 @@ export type SyncDiagnosticSource =
   | "foreground"
   | "manual"
   | "poll"
+  | "renewal"
   | "retry"
   | "reconnect";
 

@@ -26,6 +26,232 @@ describe("Home reconnect and conflict handling", () => {
     cleanupRouteTestDom();
   });
 
+  it("retries production renewal for date B after date A's renewal save finishes stale", async () => {
+    testState.useGoogleRuntime = true;
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "A original",
+      revisionId: "a-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "A original"));
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "B original"));
+    testState.delayedRemoteSave = delayedRemoteSave("2030-02-02");
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("A original");
+      });
+      testState.googleRenewalDue = true;
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editor.value = "A changed";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " changed" }));
+      await testState.delayedRemoteSave.started.promise;
+
+      clickButton(host, "Next day");
+      await waitFor(() => {
+        expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")?.value).toBe("2030-02-03");
+      });
+      testState.delayedRemoteSave.finish.resolve();
+
+      await waitFor(() => expect(testState.googleRenewalAttempts).toBe(1));
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("B original");
+    } finally {
+      testState.delayedRemoteSave?.finish.resolve();
+      dispose();
+    }
+  });
+
+  it("renews after a retryable background-draft failure is successfully retried", async () => {
+    testState.useGoogleRuntime = true;
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "A original",
+      revisionId: "a-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "A original"));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => expect(host.querySelector(".sync-status")?.getAttribute("aria-label")).toContain("Synced"));
+      testState.drafts.set("2030-02-04", {
+        ...draft("2030-02-04", "background edit"),
+        dirty: true
+      });
+      testState.remoteSaveFailureDate = "2030-02-04";
+      testState.remoteSaveFailuresRemaining = 1;
+      testState.googleRenewalDue = true;
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editor.value = "A renewal trigger";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " renewal trigger" }));
+
+      await waitFor(() => expect(host.querySelector(".sync-status")?.getAttribute("aria-label")).toContain("Sync error"));
+      expect(testState.googleRenewalAttempts).toBe(0);
+      const recoveryDraft = testState.drafts.get("2030-02-02")!;
+      const delayedRecoveryLoad = delayedDraftLoad("2030-02-02", recoveryDraft);
+      testState.delayedDraftLoad = delayedRecoveryLoad;
+      host.querySelector<HTMLButtonElement>(".sync-status")!.click();
+      await delayedRecoveryLoad.started.promise;
+      editor.value = "A changed during recovery";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " changed during recovery" }));
+      delayedRecoveryLoad.finish.resolve();
+
+      await waitFor(() => expect(testState.googleRenewalAttempts).toBe(1));
+      expect(testState.drafts.get("2030-02-04")?.dirty).toBe(false);
+      expect(testState.remoteNote).toMatchObject({
+        date: "2030-02-02",
+        markdown: "A changed during recovery"
+      });
+      expect(host.querySelector(".sync-status")?.getAttribute("aria-label")).toContain("Synced");
+    } finally {
+      testState.delayedDraftLoad?.finish.resolve();
+      dispose();
+    }
+  });
+
+  it("syncs an editor change made before its local-persist debounce fires", async () => {
+    testState.useGoogleRuntime = true;
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "A original",
+      revisionId: "a-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "A original"));
+    testState.googleRenewalFailuresRemaining = 1;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => expect(host.querySelector(".sync-status")?.getAttribute("aria-label")).toContain("Synced"));
+      testState.googleRenewalDue = true;
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editor.value = "A typed just before renewal";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " typed just before renewal" }));
+
+      await waitFor(() => {
+        expect(dialog(host, "Reconnect to sync")?.textContent).toContain("latest edits are synced");
+      });
+      expect(testState.remoteNote).toMatchObject({
+        date: "2030-02-02",
+        markdown: "A typed just before renewal"
+      });
+      expect(testState.drafts.get("2030-02-02")?.dirty).toBe(false);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("syncs edits typed while renewal is synchronizing background drafts before reporting success", async () => {
+    testState.useGoogleRuntime = true;
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "A original",
+      revisionId: "a-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "A original"));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => expect(host.querySelector(".sync-status")?.getAttribute("aria-label")).toContain("Synced"));
+      testState.drafts.set("2030-02-04", {
+        ...draft("2030-02-04", "background edit"),
+        dirty: true
+      });
+      testState.delayedRemoteSave = delayedRemoteSave("2030-02-04");
+      testState.googleRenewalFailuresRemaining = 1;
+      testState.googleRenewalDue = true;
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editor.value = "A renewal trigger";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " renewal trigger" }));
+      await testState.delayedRemoteSave.started.promise;
+
+      editor.value = "A original plus newest edit";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " plus newest edit" }));
+      testState.delayedRemoteSave.finish.resolve();
+
+      await waitFor(() => {
+        expect(dialog(host, "Reconnect to sync")?.textContent).toContain("latest edits are synced");
+      });
+      expect(testState.googleTokenInvalidations).toBe(1);
+      expect(testState.drafts.get("2030-02-02")).toMatchObject({
+        markdown: "A original plus newest edit",
+        dirty: false
+      });
+      expect(testState.remoteNote).toMatchObject({
+        date: "2030-02-02",
+        markdown: "A original plus newest edit"
+      });
+    } finally {
+      testState.delayedRemoteSave?.finish.resolve();
+      dispose();
+    }
+  });
+
+  it("persists a note that becomes editable after renewal begins without a visible snapshot", async () => {
+    testState.useGoogleRuntime = true;
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "A original",
+      revisionId: "a-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const delayedSettings = {
+      result: DEFAULT_JOT_SETTINGS,
+      started: deferred<void>(),
+      finish: deferred<void>()
+    };
+    const delayedLocal = delayedDraftLoad("2030-02-02", draft("2030-02-02", "A original"));
+    const delayedDirtyList = {
+      started: deferred<void>(),
+      finish: deferred<void>(),
+      consumed: false
+    };
+    testState.delayedSettingsLoad = delayedSettings;
+    testState.delayedDraftLoad = delayedLocal;
+    testState.delayedDirtyList = delayedDirtyList;
+    testState.googleRenewalDue = true;
+    testState.googleRenewalFailuresRemaining = 1;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await delayedDirtyList.started.promise;
+      delayedLocal.finish.resolve();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("A original");
+      });
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editor.value = "A became editable during renewal";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " became editable during renewal" }));
+      delayedDirtyList.finish.resolve();
+
+      await waitFor(() => {
+        expect(dialog(host, "Reconnect to sync")?.textContent).toContain("saved locally but could not be synced");
+      });
+      expect(testState.drafts.get("2030-02-02")).toMatchObject({
+        markdown: "A became editable during renewal",
+        dirty: true
+      });
+    } finally {
+      delayedSettings.finish.resolve();
+      delayedLocal.finish.resolve();
+      delayedDirtyList.finish.resolve();
+      dispose();
+    }
+  });
+
   it("opens the reconnect modal before showing inline reconnect affordances after background auth expiry", async () => {
     testState.loadAuthError = true;
     const host = document.createElement("div");
@@ -2188,6 +2414,40 @@ describe("Home reconnect and conflict handling", () => {
     expect(sync!.classList.contains("sync-status-remote")).toBe(true);
 
     dispose();
+  });
+
+  it("keeps the status disk yellow while a local save is actively syncing", async () => {
+    testState.drafts.set("2030-02-02", {
+      date: "2030-02-02",
+      markdown: "local draft",
+      baselineMarkdown: "before",
+      baselineRevisionId: "baseline-revision",
+      dirty: true,
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    });
+    const remoteSaveStarted = deferred<void>();
+    const remoteSaveFinish = deferred<void>();
+    testState.delayedRemoteSave = {
+      date: "2030-02-02",
+      started: remoteSaveStarted,
+      finish: remoteSaveFinish,
+      consumed: false
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await settle();
+      clickButton(host, "Saved locally");
+      await remoteSaveStarted.promise;
+      const sync = host.querySelector<HTMLButtonElement>(".sync-status");
+      expect(sync?.getAttribute("aria-label")).toContain("Syncing");
+      expect(sync?.classList.contains("sync-status-local")).toBe(true);
+    } finally {
+      remoteSaveFinish.resolve();
+      dispose();
+    }
   });
 
   it("shows synced after checking Drive for a date with no existing note", async () => {

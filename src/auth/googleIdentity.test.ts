@@ -9,7 +9,7 @@ describe("GoogleIdentityTokenProvider", () => {
     document.head.replaceChildren();
   });
 
-  it("reuses cached access tokens and accepts a no-UI renewal result after expiry", async () => {
+  it("keeps an expiring access token available for a final sync before renewing it", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
 
@@ -18,7 +18,7 @@ describe("GoogleIdentityTokenProvider", () => {
       requestAccessToken: vi.fn(() => {
         tokenClient.callback({
           access_token: `token-${tokenClient.requestAccessToken.mock.calls.length}`,
-          expires_in: 120
+          expires_in: 600
         });
       })
     };
@@ -34,13 +34,15 @@ describe("GoogleIdentityTokenProvider", () => {
 
     await expect(provider.getAccessToken({ interactive: true })).resolves.toBe("token-1");
     await expect(provider.getAccessToken()).resolves.toBe("token-1");
-    vi.setSystemTime(61000);
+    vi.setSystemTime(421000);
 
-    // This covers our wrapper behavior when GIS returns a token. Google does not guarantee
-    // that no-UI renewal succeeds outside a user-driven token flow; keep the failure case below.
-    await expect(provider.getAccessToken()).resolves.toBe("token-2");
+    expect(provider.isRenewalDue()).toBe(true);
+    await expect(provider.getAccessToken()).resolves.toBe("token-1");
+    expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(1);
+
+    // A no-UI renewal may fail in a real browser, so Jot must save with the still-valid token first.
+    await expect(provider.renewAccessTokenSilently()).resolves.toBe("token-2");
     expect(tokenClient.requestAccessToken).toHaveBeenNthCalledWith(2, { prompt: "none" });
-    expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(2);
     await expect(provider.getAccessToken()).resolves.toBe("token-2");
     expect(tokenClient.requestAccessToken).toHaveBeenCalledTimes(2);
   });

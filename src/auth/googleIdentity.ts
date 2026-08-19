@@ -6,6 +6,7 @@ const ACCESS_TOKEN_STORAGE_PREFIX = "jot.googleAccessToken.";
 const REDIRECT_STATE_STORAGE_PREFIX = "jot.googleOAuthRedirect.";
 const REDIRECT_STATE_TTL_MS = 10 * 60 * 1000;
 const TOKEN_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
+export const GOOGLE_TOKEN_RENEWAL_WINDOW_MS = 3 * 60 * 1000;
 
 interface GoogleTokenResponse {
   readonly access_token?: string;
@@ -155,6 +156,25 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
     return await this.requestFreshAccessToken(googleRequest, mapFailureToReconnect);
   }
 
+  /**
+   * Returns whether the existing token is close enough to expiry that Jot should refresh it
+   * proactively. The token remains usable until its actual Google expiry for a final sync.
+   */
+  isRenewalDue(): boolean {
+    return this.getUsableCachedToken() !== null && Date.now() >= this.accessTokenExpiresAtMs - GOOGLE_TOKEN_RENEWAL_WINDOW_MS;
+  }
+
+  renewalDueAtMs(): number | null {
+    return this.getUsableCachedToken() === null
+      ? null
+      : Math.max(0, this.accessTokenExpiresAtMs - GOOGLE_TOKEN_RENEWAL_WINDOW_MS);
+  }
+
+  async renewAccessTokenSilently(): Promise<string> {
+    if (this.getUsableCachedToken() === null) return await this.getAccessToken();
+    return await this.requestFreshAccessToken({ prompt: "none" }, true);
+  }
+
   private async requestFreshAccessToken(
     request: GoogleTokenRequest | undefined,
     mapFailureToReconnect: boolean
@@ -247,7 +267,7 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
 
   private storeAccessToken(accessToken: string, expiresInSeconds: number): void {
     this.accessToken = accessToken;
-    this.accessTokenExpiresAtMs = Date.now() + Math.max(expiresInSeconds - 60, 0) * 1000;
+    this.accessTokenExpiresAtMs = Date.now() + Math.max(expiresInSeconds, 0) * 1000;
     getSessionStorage()?.setItem(
       accessTokenStorageKey(this.clientId),
       JSON.stringify({

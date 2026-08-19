@@ -72,7 +72,7 @@ If the OAuth consent screen remains in Testing mode, add the Google account used
 
 ## OAuth And Photos Notes
 
-Jot uses Google Identity Services token popups first. If a browser cannot open the popup, Jot falls back to a full-page OAuth redirect and stores the returned access token in tab-scoped `sessionStorage` until expiry. Signing out clears the token.
+Jot uses Google Identity Services token popups first. If a browser cannot open the popup, Jot falls back to a full-page OAuth redirect and stores the returned access token in tab-scoped `sessionStorage` until expiry. Signing out clears the token. Three minutes before actual token expiry, Jot uses the still-valid token to synchronize all unsynced drafts, if any, then tries a no-UI renewal even when the session is already clean. If Google requires interaction, Jot discards the old cached token, reports whether all edits were synchronized, and asks the user to reconnect with a fresh token.
 
 For image insertion, Jot creates a Google Photos Picker session, opens a picker tab during the user action, and keeps an explicit `Open Google Photos` link as fallback. Active picker session state is stored in tab-scoped `sessionStorage` so returning from Google Photos can resume the import flow.
 

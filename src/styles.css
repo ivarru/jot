@@ -399,6 +399,19 @@ select {
   background: var(--sync-alert);
 }
 
+.sync-status-syncing {
+  animation: sync-status-pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes sync-status-pulse {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-status-syncing { animation: none; }
+}
+
 .sync-alert {
   display: grid;
   gap: 8px;

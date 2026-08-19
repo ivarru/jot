@@ -43,6 +43,7 @@ import {
   type DailyNoteLinkTarget
 } from "~/domain/dailyNoteLinks";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
+import { hasDailyNoteContent } from "~/domain/dailyNoteMarkdown";
 import {
   extractJotTags,
   filterJotTagSuggestions,
@@ -158,6 +159,7 @@ import {
   SyncDiagnosticsBuffer,
   type SyncDiagnosticSource
 } from "~/sync/syncDiagnostics";
+import { performGoogleTokenRenewal, shouldSyncVisibleEditsBeforeRenewal } from "~/sync/googleTokenRenewal";
 import {
   GOOGLE_PHOTOS_APPENDONLY_SCOPE,
   GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE,
@@ -183,10 +185,17 @@ type StorageRuntime =
     }
   | {
       readonly kind: "google";
-      readonly remote: GoogleDriveStorageProvider;
+      readonly remote: RemoteStorageProvider;
       readonly tokenProvider: GoogleIdentityTokenProvider;
       readonly imageAttachments: ImageAttachmentFlow | null;
     };
+
+declare global {
+  interface Window {
+    /** Browser-test-only Google runtime switch, honored only by fake-auth builds. */
+    __JOT_TEST_GOOGLE_AUTH__?: boolean;
+  }
+}
 
 type ImageAttachmentStatus = "idle" | "starting" | "waiting" | "choosing" | "importing";
 type LocalImageSourceKind = LocalImageAttachmentSource["kind"];
@@ -260,6 +269,9 @@ export default function Home() {
   const [authReconnectRequired, setAuthReconnectRequired] = createSignal(false);
   const [reconnectingAuth, setReconnectingAuth] = createSignal(false);
   const [reconnectPromptPostponed, setReconnectPromptPostponed] = createSignal(false);
+  const [reconnectMessage, setReconnectMessage] = createSignal(
+    "Jot is keeping edits on this device until Google access is refreshed."
+  );
   const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(initialRoute.date);
   const [invalidDate, setInvalidDate] = createSignal<string | null>(initialRoute.invalidDate);
   const [pendingSectionLinkNavigation, setPendingSectionLinkNavigation] = createSignal<DailyNoteLinkTarget | null>(
@@ -483,15 +495,21 @@ export default function Home() {
     }, millisecondsUntilNextLocalDay());
   };
 
+  const requireReconnect = (message = "Jot is keeping edits on this device until Google access is refreshed.", showPrompt = false) => {
+    setReconnectMessage(message);
+    setAuthReconnectRequired(true);
+    if (showPrompt) setReconnectPromptPostponed(false);
+    setSyncStatus("auth-required");
+    setLastSyncError(null);
+  };
+
   const handleRemoteError = (error: unknown, retry: SyncErrorState | null = null): boolean => {
     if (!isAuthReconnectError(error)) return false;
 
     if (runtime.kind === "google") {
       runtime.tokenProvider.invalidateAccessToken?.();
     }
-    setAuthReconnectRequired(true);
-    setSyncStatus("auth-required");
-    setLastSyncError(null);
+    requireReconnect();
     if (retry?.retry === "load-selected-note") {
       setLoadError(null);
     }
@@ -610,10 +628,10 @@ export default function Home() {
     setPendingDailyNoteUpload(null);
   };
 
-  const syncDirtyDraftsExceptSelected = async (): Promise<void> => {
+  const syncDirtyDraftsExceptSelected = async (skipDate: IsoDate | null = untrack(selectedDate)): Promise<void> => {
     const generation = backgroundSyncGeneration;
     try {
-      await syncDirtyDailyNoteDrafts(drafts, runtime.remote, untrack(selectedDate), {
+      await syncDirtyDailyNoteDrafts(drafts, runtime.remote, skipDate, {
         canContinue: canContinueBackgroundSync(generation)
       });
     } catch (error: unknown) {
@@ -740,6 +758,209 @@ export default function Home() {
     recordSyncRequest("foreground", flushed?.snapshot ?? null);
     void dailyNoteReplication.syncSelectedDateOnDemand();
   };
+
+  const restoreSelectedSyncStatusAfterBackgroundRetry = async () => {
+    const captured = flushCurrentVisibleEditorSnapshot();
+    if (captured === null) return;
+    const draft = await drafts.load(captured.snapshot.date);
+    const current = flushCurrentVisibleEditorSnapshot();
+    if (
+      current === null ||
+      current.snapshot.date !== captured.snapshot.date ||
+      !canEditDailyNoteDate(captured.snapshot.date, dateBoundEditorState())
+    ) return;
+    if (current.snapshot.markdown !== captured.snapshot.markdown) {
+      await dailyNoteReplication.persistVisibleLocalDraft(current.snapshot);
+      return;
+    }
+    if (draft === null || draft.markdown !== current.snapshot.markdown) {
+      await dailyNoteReplication.persistVisibleLocalDraft(current.snapshot);
+      return;
+    }
+    setSyncStatus(
+      draft.dirty
+        ? "saved-locally"
+        : draft.baselineRevisionId !== null || !hasDailyNoteContent(draft.markdown)
+          ? "synced"
+          : "local-only"
+    );
+  };
+
+  let googleRenewalTimeout: number | undefined;
+  let renewalInProgress = false;
+  let renewalAttemptedAtMs: number | null = null;
+  let renewalPendingAfterSyncError = false;
+
+  const scheduleGoogleTokenRenewal = () => {
+    if (googleRenewalTimeout !== undefined) {
+      window.clearTimeout(googleRenewalTimeout);
+      googleRenewalTimeout = undefined;
+    }
+    if (runtime.kind !== "google" || !authenticated() || authReconnectRequired()) return;
+
+    const renewalDueAtMs = runtime.tokenProvider.renewalDueAtMs();
+    if (renewalDueAtMs === null || renewalDueAtMs <= Date.now()) return;
+    googleRenewalTimeout = window.setTimeout(() => {
+      googleRenewalTimeout = undefined;
+      void renewGoogleTokenBeforeExpiry();
+    }, renewalDueAtMs - Date.now());
+  };
+
+  const renewGoogleTokenBeforeExpiry = async () => {
+    if (
+      runtime.kind !== "google" ||
+      renewalInProgress ||
+      !authenticated() ||
+      authReconnectRequired() ||
+      pendingSyncConflict() !== null ||
+      resolvingSyncConflict() ||
+      syncStatus() === "syncing" ||
+      !runtime.tokenProvider.isRenewalDue()
+    ) return;
+
+    const renewalDueAtMs = runtime.tokenProvider.renewalDueAtMs();
+    if (renewalDueAtMs === null || renewalAttemptedAtMs === renewalDueAtMs) return;
+
+    const flushed = flushCurrentVisibleEditorSnapshot();
+    let visibleEditsNeedSync = false;
+    let synchronizedVisibleSnapshot: VisibleDailyNoteSnapshot | null = null;
+
+    renewalInProgress = true;
+    renewalAttemptedAtMs = renewalDueAtMs;
+    let retryAfterAttempt = false;
+    try {
+      const capturedVisibleSnapshotStillCurrent = () => {
+        if (flushed === null) return true;
+        const current = flushCurrentVisibleEditorSnapshot();
+        return (
+          current !== null &&
+          current.snapshot.date === flushed.snapshot.date &&
+          current.snapshot.markdown === flushed.snapshot.markdown
+        );
+      };
+      const result = await performGoogleTokenRenewal({
+        syncVisibleEdits: flushed !== null
+          ? async () => {
+              const selectedDraft = await drafts.load(flushed.snapshot.date);
+              if (!capturedVisibleSnapshotStillCurrent()) return;
+              const selectedDraftMatchesSnapshot = (
+                selectedDraft !== null && selectedDraft.markdown === flushed.snapshot.markdown
+              );
+              visibleEditsNeedSync = shouldSyncVisibleEditsBeforeRenewal({
+                editorSnapshotChanged: flushed.changed,
+                selectedDraftMatchesSnapshot,
+                selectedDraftDirty: selectedDraft?.dirty === true,
+                status: syncStatus()
+              });
+              if (visibleEditsNeedSync) {
+                recordSyncRequest("renewal", flushed.snapshot);
+                await dailyNoteReplication.saveAndSyncSnapshot(flushed.snapshot);
+              }
+              if (
+                syncStatus() === "synced" &&
+                (visibleEditsNeedSync || selectedDraftMatchesSnapshot)
+              ) synchronizedVisibleSnapshot = flushed.snapshot;
+            }
+          : null,
+        syncBackgroundDrafts: () => syncDirtyDraftsExceptSelected(flushed?.snapshot.date ?? null),
+        canContinue: () => (
+          pendingSyncConflict() === null &&
+          !authReconnectRequired() &&
+          (
+            flushed === null ||
+            capturedVisibleSnapshotStillCurrent()
+          )
+        ),
+        editsSynced: async () => {
+          let currentVisible = flushCurrentVisibleEditorSnapshot();
+          const matchesSynchronizedSnapshot = (snapshot: VisibleDailyNoteSnapshot | null): boolean => (
+            snapshot === null || (
+              synchronizedVisibleSnapshot !== null &&
+              snapshot.date === synchronizedVisibleSnapshot.date &&
+              snapshot.markdown === synchronizedVisibleSnapshot.markdown
+            )
+          );
+          if (currentVisible !== null && !matchesSynchronizedSnapshot(currentVisible.snapshot)) {
+            await dailyNoteReplication.persistVisibleLocalDraft(currentVisible.snapshot);
+          }
+
+          let dirtyDrafts = await drafts.listDirty();
+          const latestVisible = flushCurrentVisibleEditorSnapshot();
+          if (
+            latestVisible !== null &&
+            (
+              currentVisible === null ||
+              latestVisible.snapshot.date !== currentVisible.snapshot.date ||
+              latestVisible.snapshot.markdown !== currentVisible.snapshot.markdown
+            )
+          ) {
+            await dailyNoteReplication.persistVisibleLocalDraft(latestVisible.snapshot);
+            dirtyDrafts = await drafts.listDirty();
+            currentVisible = latestVisible;
+          }
+          const visibleSnapshotStillSynced = currentVisible === null || (
+            synchronizedVisibleSnapshot !== null &&
+            currentVisible.snapshot.date === synchronizedVisibleSnapshot.date &&
+            currentVisible.snapshot.markdown === synchronizedVisibleSnapshot.markdown
+          );
+          return dirtyDrafts.length === 0 && visibleSnapshotStillSynced;
+        },
+        renewSilently: async () => {
+          await runtime.tokenProvider.renewAccessTokenSilently();
+        },
+        invalidateToken: () => runtime.tokenProvider.invalidateAccessToken(),
+        onAbort: () => {
+          renewalAttemptedAtMs = null;
+          retryAfterAttempt = true;
+        }
+      });
+
+      if (result.type === "renewed") {
+        renewalPendingAfterSyncError = false;
+        if (syncStatus() === "error" && lastSyncError() === null) {
+          await restoreSelectedSyncStatusAfterBackgroundRetry();
+        }
+        renewalAttemptedAtMs = null;
+        scheduleGoogleTokenRenewal();
+      } else if (result.type === "reconnect") {
+        renewalPendingAfterSyncError = false;
+        requireReconnect(
+          result.editsSynced
+            ? "Your latest edits are synced. Reconnect to keep future edits syncing."
+            : "Your latest edits are saved locally but could not be synced. Reconnect now.",
+          true
+        );
+      } else {
+        renewalAttemptedAtMs = null;
+      }
+    } catch (error: unknown) {
+      renewalAttemptedAtMs = null;
+      if (!handleRemoteError(error, { message: errorMessage(error), retry: "sync-dirty-drafts" })) {
+        renewalPendingAfterSyncError = true;
+        setLastSyncError({ message: errorMessage(error), retry: "sync-dirty-drafts" });
+        setSyncStatus("error");
+      } else {
+        renewalPendingAfterSyncError = false;
+      }
+    } finally {
+      renewalInProgress = false;
+      if (retryAfterAttempt) window.queueMicrotask(() => void renewGoogleTokenBeforeExpiry());
+    }
+  };
+
+  createEffect(on(
+    () => [authenticated(), authReconnectRequired(), markdown(), syncStatus(), selectedDate(), loadedDate()] as const,
+    () => {
+      scheduleGoogleTokenRenewal();
+      if (runtime.kind === "google" && runtime.tokenProvider.isRenewalDue()) {
+        void renewGoogleTokenBeforeExpiry();
+      }
+    }
+  ));
+
+  onCleanup(() => {
+    if (googleRenewalTimeout !== undefined) window.clearTimeout(googleRenewalTimeout);
+  });
 
   createEffect(() => {
     if (runtime.kind !== "google") {
@@ -1150,6 +1371,7 @@ export default function Home() {
       foregroundCycleHandled = true;
       focusPendingEditor();
       resetBackgroundSaveDeduplication();
+      void renewGoogleTokenBeforeExpiry();
       syncSelectedDateOnDemandWithLatestEditor();
     };
     const onFocusIn = (event: FocusEvent) => {
@@ -1515,8 +1737,17 @@ export default function Home() {
     void dailyNoteReplication.retryLastSyncError({
       saveSettings: () => updateSettings(settings()),
       syncDirtyDrafts: () => {
-        void syncDirtyDraftsExceptSelected().catch((syncError: unknown) => {
-          if (handleRemoteError(syncError, { message: errorMessage(syncError), retry: "sync-dirty-drafts" })) return;
+        void syncDirtyDraftsExceptSelected().then(async () => {
+          if (!renewalPendingAfterSyncError) return;
+          await restoreSelectedSyncStatusAfterBackgroundRetry();
+          renewalPendingAfterSyncError = false;
+          window.queueMicrotask(() => void renewGoogleTokenBeforeExpiry());
+        }).catch((syncError: unknown) => {
+          if (handleRemoteError(syncError, { message: errorMessage(syncError), retry: "sync-dirty-drafts" })) {
+            renewalPendingAfterSyncError = false;
+            return;
+          }
+          renewalPendingAfterSyncError = true;
           setLastSyncError({ message: errorMessage(syncError), retry: "sync-dirty-drafts" });
           setSyncStatus("error");
         });
@@ -2846,6 +3077,7 @@ export default function Home() {
       setAuthenticated(true);
       setAuthReconnectRequired(false);
       setReconnectPromptPostponed(false);
+      setReconnectMessage("Jot is keeping edits on this device until Google access is refreshed.");
       refreshAndScheduleToday();
       await dailyNoteReplication.reconnect();
       await syncDirtyDraftsExceptSelected();
@@ -2883,6 +3115,7 @@ export default function Home() {
     browserLocalStorage?.removeItem("jot.fakeAuth");
     setAuthReconnectRequired(false);
     setReconnectPromptPostponed(false);
+    setReconnectMessage("Jot is keeping edits on this device until Google access is refreshed.");
     setAuthenticated(false);
     setCleanEditorMarkdown(null);
     setMarkdown("");
@@ -2916,6 +3149,7 @@ export default function Home() {
                       }
                       setAuthReconnectRequired(false);
                       setReconnectPromptPostponed(false);
+                      setReconnectMessage("Jot is keeping edits on this device until Google access is refreshed.");
                       setAuthenticated(true);
                     })
                     .catch((error: unknown) => setAuthError(errorMessage(error)))
@@ -3326,11 +3560,24 @@ export default function Home() {
             <div class="toolbar-column toolbar-status-column">
               <button
                 type="button"
-                class={`sync-status ${syncStatusClass(syncStatus())}`}
-                aria-label={`Sync status: ${syncStatusLabel(syncStatus())}. Force synchronization`}
-                data-tooltip={`Sync status: ${syncStatusLabel(syncStatus())}. Force synchronization`}
-                disabled={!dailyNoteReplication.canSyncSelectedDateOnDemand()}
+                class={`sync-status ${syncStatusClass(syncStatus())}${syncStatus() === "syncing" ? " sync-status-syncing" : ""}`}
+                aria-label={`Sync status: ${syncStatusLabel(syncStatus())}. ${syncStatusActionLabel(syncStatus(), authReconnectRequired())}`}
+                data-tooltip={`Sync status: ${syncStatusLabel(syncStatus())}. ${syncStatusActionLabel(syncStatus(), authReconnectRequired())}`}
+                disabled={
+                  reconnectingAuth() ||
+                  resolvingSyncConflict() ||
+                  pendingSyncConflict() !== null ||
+                  (!authReconnectRequired() && syncStatus() !== "error" && !dailyNoteReplication.canSyncSelectedDateOnDemand())
+                }
                 onClick={() => {
+                  if (authReconnectRequired()) {
+                    void reconnectGoogle();
+                    return;
+                  }
+                  if (syncStatus() === "error") {
+                    retryLastSyncError();
+                    return;
+                  }
                   recordSyncRequest("manual");
                   void dailyNoteReplication.syncSelectedDateOnDemand();
                 }}
@@ -3434,7 +3681,7 @@ export default function Home() {
               >
                 <div class="reconnect-modal-header">
                   <h2 id="reconnect-modal-title">Reconnect to sync</h2>
-                  <p>Jot is keeping edits on this device until Google access is refreshed.</p>
+                  <p>{reconnectMessage()}</p>
                 </div>
                 <Show when={authError()}>
                   {(message) => <p class="auth-error">{message()}</p>}
@@ -3834,7 +4081,7 @@ export default function Home() {
           <Show when={reconnectInlineVisible()}>
             <aside class="sync-alert sync-alert-auth" aria-live="polite">
               <strong>Reconnect to sync</strong>
-              <p>Jot is keeping edits on this device until Google access is refreshed.</p>
+              <p>{reconnectMessage()}</p>
               <Show when={authError()}>
                 {(message) => <p class="auth-error">{message()}</p>}
               </Show>
@@ -4139,13 +4386,24 @@ export default function Home() {
 }
 
 function createStorageRuntime(): StorageRuntime {
+  const scopes = [
+    GOOGLE_DRIVE_FILE_SCOPE,
+    GOOGLE_PHOTOS_PICKER_SCOPE,
+    GOOGLE_PHOTOS_APPENDONLY_SCOPE,
+    GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE
+  ];
+  if (FORCE_FAKE_STORAGE && window.__JOT_TEST_GOOGLE_AUTH__ === true) {
+    const tokenProvider = new GoogleIdentityTokenProvider("test-google-client-id", scopes);
+    const remote = new FakeRemoteStorageProvider();
+    return {
+      kind: "google",
+      tokenProvider,
+      remote,
+      imageAttachments: new ImageAttachmentFlow(new FakePhotosAttachmentProvider(), remote)
+    };
+  }
+
   if (GOOGLE_CLIENT_ID && !FORCE_FAKE_STORAGE) {
-    const scopes = [
-      GOOGLE_DRIVE_FILE_SCOPE,
-      GOOGLE_PHOTOS_PICKER_SCOPE,
-      GOOGLE_PHOTOS_APPENDONLY_SCOPE,
-      GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE
-    ];
     const tokenProvider = new GoogleIdentityTokenProvider(GOOGLE_CLIENT_ID, scopes);
     const remote = new GoogleDriveStorageProvider(tokenProvider);
     return {
@@ -4323,7 +4581,7 @@ function syncStatusLabel(status: SyncStatus): string {
     case "saved-locally":
       return "Saved locally";
     case "syncing":
-      return "Syncing";
+      return "Syncing local edits to Google Drive";
     case "synced":
       return "Synced";
     case "offline":
@@ -4346,11 +4604,19 @@ function syncStatusClass(status: SyncStatus): string {
       return "sync-status-local";
     case "syncing":
     case "offline":
+      return "sync-status-local";
     case "auth-required":
     case "conflict":
     case "error":
       return "sync-status-alert";
   }
+}
+
+function syncStatusActionLabel(status: SyncStatus, reconnectRequired: boolean): string {
+  if (reconnectRequired || status === "auth-required") return "Reconnect to sync";
+  if (status === "error") return "Retry synchronization";
+  if (status === "conflict") return "Resolve the sync conflict";
+  return "Force synchronization";
 }
 
 function isInlineSourceSelection(markdown: string, selection: MarkdownSelection): boolean {
