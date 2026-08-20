@@ -103,6 +103,7 @@ Project terminology and decisions are documented in:
 - [Tag syntax and usage](docs/tags.md)
 - [NOTES.md](NOTES.md) for known issues, future work, and unsettled design questions
 - [docs/testing.md](docs/testing.md)
+- [Sync and connection statuses](docs/sync-and-connection-statuses.md)
 - [docs/sync-model.md](docs/sync-model.md)
 - [docs/adr/README.md](docs/adr/README.md)
 
