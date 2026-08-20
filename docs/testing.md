@@ -10,7 +10,7 @@ with real-browser coverage added when browser behavior is part of the risk.
 | Unit and integration | `src/**/*.test.ts(x)` | Vitest and jsdom | Domain logic, editor/model integration, components, storage, mocked providers, and focused regressions |
 | Sync model | `src/sync/dailyNoteReplication/syncModel.test.ts` | Vitest | Bounded traces and invariants for Daily Note Replication |
 | Browser editing | `tests/browser/editing` | Playwright | Native selection, keyboard input, clipboard behavior, layout, and DOM geometry |
-| Browser workflows | `tests/browser/workflows` | Playwright | Complete user workflows against development storage and fake providers |
+| Browser workflows | `tests/browser/workflows` | Playwright | Complete user workflows against development storage and fake providers, including stubbed external browser APIs |
 | Browser smoke | `tests/browser/smoke` | Playwright | A small critical-path check that the built preview starts and serves its assets |
 | Artifact | `tests/artifact` | Playwright test runner | Generated GitHub Pages files, paths, manifest, service worker, and build assets |
 | Manual external | `docs/manual-*.md` | A real browser and account | OAuth and provider behavior that should not be required for routine regression coverage |
@@ -70,6 +70,10 @@ BASE_PATH=/jot/ VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com 
 Browser tests build and start a fake-provider preview automatically. The build log is
 `/tmp/jot-preview-test-fake-build.log`; the preview log is `/tmp/jot-preview-test-fake-preview.log`.
 
+The Google auth-renewal workflow runs the production `GoogleIdentityTokenProvider` in a real browser while stubbing the
+Google Identity Services browser object and using fake remote storage. It covers final synchronization, a failed
+no-UI renewal, cached-token invalidation, and interactive reconnect without using a real Google account.
+
 To use an already-running preview, set `BROWSER_TEST_BASE_URL`:
 
 ```sh
@@ -92,8 +96,9 @@ deterministic. Failed checks retain a trace and capture a screenshot.
   multi-step user flow. Exercise the real browser boundary and assert the resulting application state.
 - Add an artifact test when correctness depends on generated files or base-path rewriting rather than an interactive
   browser session.
-- Keep real Google accounts out of routine automated coverage. Mock Drive requests, use fake providers for browser
-  workflows, and maintain a manual checklist for provider integration.
+- Keep real Google accounts out of routine automated coverage. Use mocked Drive requests and fake remote storage;
+  browser-facing APIs such as Google Identity Services may be stubbed while the production adapter exercises the actual
+  browser workflow. Maintain a manual checklist for real-provider integration.
 
 ## Regression Workflow
 
@@ -127,15 +132,15 @@ by:
 
 1. Vitest regressions and the sync model.
 2. TypeScript checking.
-3. The complete fake-provider Playwright browser suite.
+3. The complete fake-storage Playwright browser suite, including stubbed Google Identity Services renewal.
 4. The production Pages build.
 5. Pages artifact validation.
 
 Real OAuth, Drive, and Google Photos behavior remains a manual release check because it requires account state and
-external services. See [manual-google-photos-retest.md](manual-google-photos-retest.md).
+external services. See [manual-google-provider-retest.md](manual-google-provider-retest.md).
 
 ## Domain-Specific References
 
 - [Sync model](sync-model.md) documents the modeled state, events, invariants, and scope.
 - [Deployment](deployment.md) documents Pages and OAuth release configuration.
-- [Manual Google Photos retest](manual-google-photos-retest.md) documents real-provider validation.
+- [Manual Google provider retest](manual-google-provider-retest.md) documents real OAuth, Drive, and Photos validation.

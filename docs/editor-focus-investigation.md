@@ -1,6 +1,6 @@
-# Milkdown focus and caret investigation
+# Milkdown focus and caret investigation postmortem
 
-## Current status
+## Resolution shipped in 0.21.32
 
 Version `0.21.32` fixes both return-focus failures without capturing or replaying a caret:
 
@@ -109,11 +109,11 @@ The final regression coverage includes:
 
 The temporary production trace was removed after validation. The final build recorded 23 visible returns in a normal Brave tab and 9 in Brave app mode, with zero `replaceAll` calls, intact focus/selection, and no reported focus or cursor failure. The manual timing was exploratory rather than an exact 30-cycle scripted run for every transition.
 
-The rollback was verified with:
+At the time of the investigation, the rollback was verified with:
 
 - `controlled WYSIWYG updates keep delayed typing in order`, repeated five times.
-- The complete browser editing suite: 32 tests.
-- `npm run verify`: 538 tests, typechecking, and production build.
+- The then-current complete browser editing suite: 32 tests.
+- The then-current `npm run verify`: 538 tests, typechecking, and production build.
 
 The recovery test did not fail against the broken version in headless Chromium, so it is a guard for basic typing order rather than a faithful reproduction of the Brave issue.
 

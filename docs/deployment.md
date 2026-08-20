@@ -106,3 +106,6 @@ After the first Pages deployment:
 5. Insert an image from Google Photos and confirm it renders in Milkdown.
 6. Reload and confirm the note and image preview still render.
 7. Install the PWA where supported and confirm the app shell loads after a reload.
+
+Use [manual-google-provider-retest.md](manual-google-provider-retest.md) for the fuller real-account OAuth, token-renewal,
+Drive, and Google Photos checks.

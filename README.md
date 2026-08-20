@@ -21,10 +21,6 @@ The app is built with SolidStart's static output path and is intended to run on 
 - Portable reference tags using `[#tag](jot:tag/tag)`, with WYSIWYG chips and browser-local suggestions.
 - Development-only fake storage, fake image flows, and real-browser regression tests.
 
-## Known Issues
-
-- On some browsers, particularly Brave on macOS, the Milkdown editor may lose focus after returning to Jot or shortly after it is manually refocused. Click the editor again before continuing to type. Automatic focus and caret restoration is intentionally disabled because previous attempts could relocate, reverse, or lose typed text. See the [Milkdown focus and caret investigation](docs/editor-focus-investigation.md) for the current findings and diagnostic next steps.
-
 ## Local Development
 
 Install dependencies:
@@ -39,7 +35,7 @@ Run routine verification:
 npm run verify
 ```
 
-Run the complete fake-provider browser suite:
+Run the complete fake-storage browser suite:
 
 ```sh
 npm run test:browser
@@ -96,7 +92,8 @@ See [docs/deployment.md](docs/deployment.md) for GitHub Pages setup, Google OAut
 
 Jot copies selected images into a Jot-created Google Photos album named `jot` at the chosen resolution. The Daily Note stores only a normal Markdown image reference with a `jot:image:<id>` target. Attachment metadata lives separately in Drive under `jot/Image Attachments`.
 
-Manual Google Photos validation is tracked in [docs/manual-google-photos-retest.md](docs/manual-google-photos-retest.md).
+Manual Google OAuth, Drive, and Photos validation is tracked in
+[docs/manual-google-provider-retest.md](docs/manual-google-provider-retest.md).
 
 ## Architecture Notes
 

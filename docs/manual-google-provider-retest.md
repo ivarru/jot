@@ -1,6 +1,8 @@
-# Manual Google Photos Retest
+# Manual Google Provider Retest
 
-Use this checklist when validating the Google-backed image attachment flow with a real Google account.
+Use this checklist when validating OAuth, Google Drive synchronization, and Google Photos image attachments with a real
+Google account. Routine automated coverage uses mocked requests, fake remote storage, and stubbed Google Identity
+Services; it does not replace this provider-level check.
 
 ## Setup
 
@@ -23,6 +25,26 @@ Use this checklist when validating the Google-backed image attachment flow with 
 2. Complete Google OAuth with the test account.
 3. Confirm the daily note editor loads for the selected date.
 4. Confirm Google consent includes Drive file access, Google Photos Picker access, append-only Google Photos Library access, and app-created Google Photos read access.
+
+## Drive Synchronization
+
+1. Make a distinctive edit to today's Daily Note and confirm the status returns to `Synced`.
+2. Confirm the matching `YYYY-MM-DD.md` file under Drive `jot/Daily Notes` contains the edit.
+3. Reload Jot and confirm the same content returns without a conflict.
+4. Edit a different date, navigate away before synchronization completes, and confirm that date eventually reaches
+   Drive without changing the currently selected note.
+
+## Access-Token Renewal
+
+Google access tokens normally expire after about one hour. Jot schedules renewal three minutes before the actual expiry.
+
+1. Keep the signed-in session open until the renewal window, making at least one edit shortly beforehand.
+2. Confirm pending Daily Notes synchronize before Jot attempts the no-UI renewal.
+3. If no-UI renewal succeeds, confirm editing and later Drive synchronization continue without a reconnect dialog.
+4. If Google requires interaction, confirm Jot shows a red action-needed status and a reconnect dialog that accurately
+   says whether the latest edits reached Drive or remain saved locally.
+5. Choose `Reconnect`, complete any Google interaction, and confirm a subsequent edit synchronizes. The reconnect must
+   obtain a fresh token rather than briefly closing and reopening the same dialog.
 
 ## Image Insertion
 

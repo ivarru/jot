@@ -1,7 +1,8 @@
 # Daily Note Replication Safety
 
-This document records Jot's current safety contract, threat model, and staged reliability plan. It describes required
-behavior; `docs/sync-model.md` describes the bounded executable model that currently checks part of it.
+This document records Jot's current safety contract, threat model, reliability work, and deferred proposals. It
+describes required behavior; `docs/sync-model.md` describes the bounded executable model that currently checks part of
+it.
 
 ## Safety Contract
 
@@ -86,20 +87,21 @@ exposes each interaction:
 An eight-hour delay requires no clock-specific event: the stale device simply takes no steps while other devices
 advance the remote revision.
 
-## Staged Reliability Plan
+## Reliability Work
 
-### 1. Record the contract and threat model
+### Maintain the contract and threat model
 
 Keep the required safety properties, provider assumptions, and excluded failures explicit. Refine this document whenever
 a bug reveals an unstated assumption.
 
-### 2. Deepen the Daily Note Replication module
+### Concentrate Daily Note Replication — completed
 
-Concentrate the current behavior behind one public module interface without changing sync semantics. Keep core
-replication, selected-session adaptation, and lifecycle coordination as internal seams with focused tests. Local Draft
-and remote storage remain adapter seams.
+Daily Note Replication is concentrated behind one public module interface without changing the Plain Markdown File
+source of truth. Core replication, selected-session adaptation, and lifecycle coordination remain internal seams with
+focused tests. Local Draft and remote storage remain adapter seams. See
+[ADR 0009](adr/0009-concentrate-daily-note-replication.md).
 
-### 5. Add adversarial provider and browser checks
+### Adversarial provider and browser checks — established
 
 The initial adversarial suite uses independent provider instances and a stateful Drive transport to check:
 
@@ -114,13 +116,13 @@ Google Drive filenames are not treated as unique. Concurrent first creation may 
 the same Daily Note filename. The safety requirement is that all versions remain active until their content has been
 incorporated, and that stable duplicates eventually consolidate; immediate singleton creation is not assumed.
 
-### Deferred for reconsideration
+## Deferred For Reconsideration
 
-3. Specify the proposed protocol in TLA+, parameterized by devices, and turn important counterexamples into executable
-   regression traces.
-4. Consider immutable Recovery Snapshots created before a remote clean acknowledgement. A Recovery Snapshot would be a
-   separate write-once record; conditional replacement of the canonical Plain Markdown File would remain a distinct
-   compare-and-swap operation.
+- Specify the protocol in TLA+, parameterized by devices, and turn important counterexamples into executable regression
+  traces.
+- Consider immutable Recovery Snapshots created before a remote clean acknowledgement. A Recovery Snapshot would be a
+  separate write-once record; conditional replacement of the canonical Plain Markdown File would remain a distinct
+  compare-and-swap operation.
 
 Further adversarial checks should be added for newly modeled crash and ambiguous-response points as they are identified.
 
