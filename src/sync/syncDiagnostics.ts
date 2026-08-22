@@ -105,9 +105,9 @@ export class SyncDiagnosticsBuffer {
   }
 }
 
-export function formatSyncDiagnostics(events: readonly SyncDiagnosticEvent[]): string {
+export function formatSyncDiagnostics(events: readonly SyncDiagnosticEvent[], appVersion: string): string {
   return [
-    "Jot sync diagnostics v1",
+    `Jot ${appVersion} sync diagnostics`,
     "Retention: last 60 seconds in memory. Note contents and raw Drive identifiers are omitted.",
     ...events.map((event) => JSON.stringify(event))
   ].join("\n");

@@ -35,6 +35,12 @@ describe("settings", () => {
     expect(normalizeJotSettings({ syncDiagnosticsEnabled: true }).syncDiagnosticsEnabled).toBe(true);
   });
 
+  it("defaults empty editor placeholder normalization on when the stored value is missing or invalid", () => {
+    expect(normalizeJotSettings({}).normalizeEmptyEditorPlaceholders).toBe(true);
+    expect(normalizeJotSettings({ normalizeEmptyEditorPlaceholders: "false" }).normalizeEmptyEditorPlaceholders).toBe(true);
+    expect(normalizeJotSettings({ normalizeEmptyEditorPlaceholders: false }).normalizeEmptyEditorPlaceholders).toBe(false);
+  });
+
   it("converts between milliseconds and user-facing seconds", () => {
     expect(millisecondsToSeconds(15000)).toBe(15);
     expect(secondsToMilliseconds(2.5)).toBe(2500);

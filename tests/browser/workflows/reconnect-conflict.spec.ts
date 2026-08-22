@@ -70,7 +70,7 @@ test("an enabled diagnostic buffer can be copied and freezes when a conflict ope
   await expect(copy).toBeEnabled();
   await copy.click();
   const copied = await page.evaluate(async () => await navigator.clipboard.readText());
-  expect(copied).toContain("Jot sync diagnostics v1");
+  expect(copied).toContain("Jot 0.25.0 sync diagnostics");
   expect(copied).toContain("sync-conflict");
   expect(copied).not.toContain(local);
   expect(copied).not.toContain(remote);

@@ -115,6 +115,46 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("does not replace the live editor when a canonical saved value is equivalent", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    let setMarkdown!: (markdown: string) => void;
+    let getLiveMarkdown!: () => string;
+
+    const dispose = render(
+      () => {
+        const [markdown, innerSetMarkdown] = createSignal("before placeholder");
+        setMarkdown = innerSetMarkdown;
+
+        return (
+          <MilkdownEditor
+            documentKey="2030-02-02"
+            value={markdown()}
+            isExternalMarkdownEquivalent={(incoming, live) =>
+              incoming === "canonical saved value" && live === "before placeholder"}
+            onChange={() => undefined}
+            onBlur={() => undefined}
+            onController={(controller) => {
+              if (controller !== null) getLiveMarkdown = controller.getLiveMarkdown;
+            }}
+          />
+        );
+      },
+      host
+    );
+
+    try {
+      await waitForEditable(host);
+      setMarkdown("canonical saved value");
+      await animationFrame();
+      await animationFrame();
+
+      expect(getLiveMarkdown()).toBe("before placeholder");
+    } finally {
+      dispose();
+    }
+  });
+
   it("does not report external markdown updates as user edits after Milkdown debounces", async () => {
     const host = document.createElement("div");
     document.body.append(host);

@@ -65,6 +65,7 @@ interface MilkdownEditorProps {
   readonly onFocusApplied?: () => void;
   readonly imageAttachmentDisplays?: ImageAttachmentDisplayMap;
   readonly value: string;
+  readonly isExternalMarkdownEquivalent?: (incoming: string, live: string) => boolean;
   readonly readOnly?: boolean;
   readonly spellcheck?: boolean;
   readonly onChange: (documentKey: string, markdown: string) => void;
@@ -540,7 +541,11 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                   serializer,
                   normalizeMilkdownListTightness(parsedMarkdown, EditorStateConstructor)
                 );
-              if (markdown === liveEditableMarkdown || incomingSerializedMarkdown === liveSerializedMarkdown) {
+              if (
+                markdown === liveEditableMarkdown ||
+                incomingSerializedMarkdown === liveSerializedMarkdown ||
+                props.isExternalMarkdownEquivalent?.(markdown, liveEditableMarkdown) === true
+              ) {
                 trackMilkdownExternalMarkdown(markdownState, markdown, liveSerializedMarkdown);
                 return;
               }

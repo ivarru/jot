@@ -56,6 +56,7 @@ export interface ReplicateDailyNoteSnapshotInput {
   readonly refreshRemoteBeforeSave?: boolean;
   readonly beforeApply?: () => void;
   readonly canContinue?: DailyNoteSyncControl["canContinue"];
+  readonly normalizeMarkdown?: DailyNoteSyncControl["normalizeMarkdown"];
 }
 
 export interface SaveVisibleDailyNoteSnapshotInput {
@@ -65,6 +66,7 @@ export interface SaveVisibleDailyNoteSnapshotInput {
   readonly getState: () => DateBoundEditorState;
   readonly refreshRemoteBeforeSave?: boolean;
   readonly canContinue?: DailyNoteSyncControl["canContinue"];
+  readonly normalizeMarkdown?: DailyNoteSyncControl["normalizeMarkdown"];
 }
 
 export interface ResolveSelectedDailyNoteConflictInput {
@@ -75,6 +77,7 @@ export interface ResolveSelectedDailyNoteConflictInput {
   readonly getState: () => DateBoundEditorState;
   readonly beforeApply?: () => void;
   readonly canContinue?: DailyNoteSyncControl["canContinue"];
+  readonly normalizeMarkdown?: DailyNoteSyncControl["normalizeMarkdown"];
 }
 
 export type LoadSelectedDailyNoteSessionResult =
@@ -534,6 +537,12 @@ function selectedDateStillRequested(state: DateBoundEditorState, date: IsoDate):
   return state.selectedDate === date;
 }
 
-function syncControl(input: { readonly canContinue?: DailyNoteSyncControl["canContinue"] }): DailyNoteSyncControl {
-  return input.canContinue === undefined ? {} : { canContinue: input.canContinue };
+function syncControl(input: {
+  readonly canContinue?: DailyNoteSyncControl["canContinue"];
+  readonly normalizeMarkdown?: DailyNoteSyncControl["normalizeMarkdown"];
+}): DailyNoteSyncControl {
+  return {
+    ...(input.canContinue === undefined ? {} : { canContinue: input.canContinue }),
+    ...(input.normalizeMarkdown === undefined ? {} : { normalizeMarkdown: input.normalizeMarkdown })
+  };
 }

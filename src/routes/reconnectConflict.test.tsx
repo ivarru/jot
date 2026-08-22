@@ -274,6 +274,32 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("keeps the reconnect-required status disk red after a local-only edit", async () => {
+    testState.loadAuthError = true;
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "before expiry"));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await settle();
+      clickButton(host, "Not now");
+      await waitFor(() => expect(host.querySelector("textarea[aria-label='Mock WYSIWYG editor']")).not.toBeNull());
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editor.value = "saved only on this Mac";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "saved only on this Mac" }));
+      editor.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+
+      await waitFor(() => {
+        const sync = host.querySelector<HTMLButtonElement>(".sync-status");
+        expect(sync?.getAttribute("aria-label")).toContain("Reconnect required");
+        expect(sync?.classList.contains("sync-status-alert")).toBe(true);
+      });
+    } finally {
+      dispose();
+    }
+  });
+
   it("cancels pending selected-date loads before clearing drafts on sign-out", async () => {
     const cachedDraft = draft("2030-02-02", "cached before sign-out");
     testState.drafts.set("2030-02-02", cachedDraft);
@@ -372,7 +398,7 @@ describe("Home reconnect and conflict handling", () => {
       clickButton(host, "Open menu");
       clickButton(host, "Settings");
       const diagnosticsEnabled = host.querySelector<HTMLInputElement>(
-        ".settings-panel input[type='checkbox']"
+        "input[aria-label='Collect sync diagnostics for conflict reports']"
       );
       expect(diagnosticsEnabled).not.toBeNull();
       diagnosticsEnabled!.checked = true;
@@ -389,7 +415,7 @@ describe("Home reconnect and conflict handling", () => {
       expect(button(host, "Copy sync diagnostics")?.disabled).toBe(false);
       clickButton(host, "Copy sync diagnostics");
       await settle();
-      expect(copied).toContain("Jot sync diagnostics v1");
+      expect(copied).toContain("Jot test sync diagnostics");
       expect(copied).toContain("sync-conflict");
       expect(copied).not.toContain("local secret");
       expect(copied).not.toContain("baseline-revision");
@@ -408,6 +434,30 @@ describe("Home reconnect and conflict handling", () => {
       } else {
         Object.defineProperty(navigator, "clipboard", originalClipboard);
       }
+    }
+  });
+
+  it("offers placeholder normalization by default and closes settings with its close button", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await settle();
+      clickButton(host, "Open menu");
+      clickButton(host, "Settings");
+
+      expect(host.querySelector<HTMLInputElement>(
+        "input[aria-label='Normalize empty editor placeholders when saving']"
+      )?.checked).toBe(true);
+      expect(host.querySelector<HTMLInputElement>(
+        "input[aria-label='Collect sync diagnostics for conflict reports']"
+      )?.checked).toBe(false);
+
+      clickButton(host, "Close settings");
+      expect(host.querySelector(".settings-panel")).toBeNull();
+    } finally {
+      dispose();
     }
   });
 

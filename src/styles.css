@@ -462,7 +462,6 @@ select {
 
 .settings-panel {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
   margin: 12px 0;
   padding: 12px;
@@ -477,6 +476,48 @@ select {
   gap: 4px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.settings-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-panel-header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.settings-timer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.settings-toggle-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-toggle-row {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text) !important;
+}
+
+.settings-toggle-row input {
+  margin-top: 3px;
+}
+
+.settings-toggle-row span {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-toggle-row small {
+  color: var(--muted);
 }
 
 .image-attachment-panel {

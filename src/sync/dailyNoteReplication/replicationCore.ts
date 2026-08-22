@@ -12,6 +12,7 @@ export interface DailyNoteSession {
 
 export interface DailyNoteSyncControl {
   readonly canContinue?: () => boolean;
+  readonly normalizeMarkdown?: (markdown: string) => string;
 }
 
 export class CancelledDailyNoteSyncError extends Error {
@@ -159,7 +160,7 @@ export async function persistLocalDraft(
   drafts: LocalDraftStore,
   control: DailyNoteSyncControl = {}
 ): Promise<SyncStatus> {
-  const normalizedMarkdown = normalizeDailyNoteMarkdown(markdown);
+  const normalizedMarkdown = normalizeMarkdownForControl(markdown, control);
   const existing = await drafts.load(date);
   assertCanContinue(control);
   const baselineMarkdown = existing?.baselineMarkdown ?? "";
@@ -178,13 +179,29 @@ export async function syncDailyNote(
   remote: RemoteStorageProvider,
   control: DailyNoteSyncControl = {}
 ): Promise<DailyNoteSession> {
-  const draft = await drafts.load(date);
+  const loadedDraft = await drafts.load(date);
   assertCanContinue(control);
-  if (draft === null) {
+  if (loadedDraft === null) {
     return {
       markdown: "",
       status: "synced"
     };
+  }
+
+  const canonicalMarkdown = normalizeMarkdownForControl(loadedDraft.markdown, control);
+  const canonicalBaselineMarkdown = normalizeMarkdownForControl(loadedDraft.baselineMarkdown, control);
+  const draft = canonicalMarkdown === loadedDraft.markdown && canonicalBaselineMarkdown === loadedDraft.baselineMarkdown
+    ? loadedDraft
+    : createDraft(
+        date,
+        canonicalMarkdown,
+        canonicalBaselineMarkdown,
+        loadedDraft.baselineRevisionId,
+        canonicalMarkdown !== canonicalBaselineMarkdown
+      );
+  if (draft !== loadedDraft) {
+    await drafts.save(draft);
+    assertCanContinue(control);
   }
 
   if (!draft.dirty) {
@@ -223,7 +240,7 @@ export async function syncDailyNote(
     };
   }
 
-  return await mergeRemoteConflict(date, draft, result.remote, drafts, null, control);
+  return await mergeRemoteConflict(date, draft, normalizeRemoteMarkdown(result.remote, control), drafts, null, control);
 }
 
 export async function saveAndSyncDailyNoteSnapshot(
@@ -266,7 +283,7 @@ export async function rebaseAndSyncDailyNote(
     return await syncDailyNote(date, drafts, remote, control);
   }
 
-  return await mergeRemoteConflict(date, draft, remoteNote, drafts, remote, control);
+  return await mergeRemoteConflict(date, draft, normalizeRemoteMarkdown(remoteNote, control), drafts, remote, control);
 }
 
 export async function syncDirtyDailyNoteDrafts(
@@ -350,6 +367,15 @@ function currentDraftStartedFromSameBaseline(startedWith: LocalDraft, current: L
 function cleanDraftStatus(markdown: string, baselineRevisionId: string | null): "local-only" | "synced" {
   if (baselineRevisionId !== null) return "synced";
   return hasDailyNoteContent(markdown) ? "local-only" : "synced";
+}
+
+function normalizeMarkdownForControl(markdown: string, control: DailyNoteSyncControl): string {
+  return control.normalizeMarkdown?.(markdown) ?? normalizeDailyNoteMarkdown(markdown);
+}
+
+function normalizeRemoteMarkdown(remote: RemoteDailyNote, control: DailyNoteSyncControl): RemoteDailyNote {
+  const markdown = normalizeMarkdownForControl(remote.markdown, control);
+  return markdown === remote.markdown ? remote : { ...remote, markdown };
 }
 
 function draftToSession(draft: LocalDraft): DailyNoteSession {

@@ -4,6 +4,7 @@ export interface JotSettings {
   readonly dirtyPollingIntervalMs: number;
   readonly spellcheck: boolean;
   readonly syncDiagnosticsEnabled: boolean;
+  readonly normalizeEmptyEditorPlaceholders: boolean;
   readonly retryInitialDelayMs: number;
   readonly retryMaxDelayMs: number;
 }
@@ -14,6 +15,7 @@ export const DEFAULT_JOT_SETTINGS: JotSettings = {
   dirtyPollingIntervalMs: 15000,
   spellcheck: true,
   syncDiagnosticsEnabled: false,
+  normalizeEmptyEditorPlaceholders: true,
   retryInitialDelayMs: 5000,
   retryMaxDelayMs: 300000
 };
@@ -30,6 +32,10 @@ export function normalizeJotSettings(input: unknown): JotSettings {
     dirtyPollingIntervalMs: positiveNumber(input.dirtyPollingIntervalMs, DEFAULT_JOT_SETTINGS.dirtyPollingIntervalMs),
     spellcheck: booleanValue(input.spellcheck, DEFAULT_JOT_SETTINGS.spellcheck),
     syncDiagnosticsEnabled: booleanValue(input.syncDiagnosticsEnabled, DEFAULT_JOT_SETTINGS.syncDiagnosticsEnabled),
+    normalizeEmptyEditorPlaceholders: booleanValue(
+      input.normalizeEmptyEditorPlaceholders,
+      DEFAULT_JOT_SETTINGS.normalizeEmptyEditorPlaceholders
+    ),
     retryInitialDelayMs: positiveNumber(input.retryInitialDelayMs, DEFAULT_JOT_SETTINGS.retryInitialDelayMs),
     retryMaxDelayMs: positiveNumber(input.retryMaxDelayMs, DEFAULT_JOT_SETTINGS.retryMaxDelayMs)
   };

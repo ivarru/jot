@@ -31,8 +31,9 @@ describe("SyncDiagnosticsBuffer", () => {
       revisionId: "private-new-revision"
     });
 
-    const copied = formatSyncDiagnostics(diagnostics.snapshot());
-    expect(copied).toContain("Jot sync diagnostics v1");
+    const copied = formatSyncDiagnostics(diagnostics.snapshot(), "0.25.0-test");
+    expect(copied).toContain("Jot 0.25.0-test sync diagnostics");
+    expect(copied).not.toContain("diagnostics v1");
     expect(copied).toContain('"length":12');
     expect(copied).toContain('"expectedRevisionHash"');
     expect(copied).not.toContain("private note");

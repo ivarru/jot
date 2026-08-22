@@ -71,8 +71,18 @@ note contents, OAuth data, Drive URLs or file IDs, or raw revision IDs.
 When Jot opens a Sync Conflict, it records the conflict boundary and then pauses diagnostics collection along with
 editing. That pause freezes the preceding one-minute snapshot, so it remains available if the dialog stays open longer.
 Jot loads this opt-in before starting initial background synchronization. The conflict dialog can copy the retained
-report to the clipboard. Diagnostics are never uploaded or persisted and are cleared when collection is disabled or the
+report to the clipboard. Its first line identifies the running Jot version, so reports can be compared with the
+corresponding behavior. Diagnostics are never uploaded or persisted and are cleared when collection is disabled or the
 page reloads.
+
+## Empty Editor Placeholders
+
+By default, Jot canonicalizes empty editor placeholders at the Local Draft and Google Drive persistence boundaries.
+A standalone line containing only `<br />` becomes one blank line; an empty Markdown list item such as `* <br />` is
+removed. Runs of blank lines are collapsed so the saved file does not contain consecutive blank lines. The live WYSIWYG document is not rewritten merely because its equivalent saved representation is canonicalized,
+which preserves its focus, caret, and undo history. This behavior can be disabled in **Settings** for source-preserving
+workflows. Literal placeholder-looking lines inside fenced or indented code blocks, or raw HTML blocks, are never
+normalized.
 
 ## Device Counts
 

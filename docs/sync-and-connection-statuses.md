@@ -112,13 +112,14 @@ The status disk maps the selected note's `SyncStatus` as follows:
 | --- | --- | --- |
 | Green | `synced` | The current canonical content and revision have been acknowledged remotely. |
 | Yellow | `local-only`, `saved-locally`, `syncing`, `offline` | No immediate conflict is known, but the state is not currently acknowledged as synced. `syncing` pulses. |
-| Red | `auth-required`, `conflict`, `error` | User action or recovery is required. |
+| Red | `auth-required`, `conflict`, `error`, or **Reconnect required** | User action or recovery is required. Reconnect required takes precedence even if a later local persistence operation reports `saved-locally`. |
 
 ## Coupling Between the Two State Machines
 
 - Entering **Reconnect required** initially sets the selected note's sync status to `auth-required`.
 - The connection flag remains authoritative. If another edit is persisted while reconnect is required, the sync status
-  can become `saved-locally`; remote autosave remains blocked and clicking the disk still starts reconnect.
+  can become `saved-locally`, but the disk remains red and says **Reconnect required**; remote autosave remains blocked
+  and clicking the disk still starts reconnect.
 - A successful reconnect clears the connection requirement, refreshes the selected Daily Note, and synchronizes dirty
   drafts for other dates. The resulting sync status depends on those replication results.
 - A Sync Conflict is not a connection failure. Jot remains connected, but editing and diagnostics collection pause while

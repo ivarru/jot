@@ -47,6 +47,7 @@ export interface DailyNoteReplicationInput {
   readonly setExistingNoteDate: (date: IsoDate, exists: boolean) => void;
   readonly handleRemoteError: (error: unknown, retry?: SyncErrorState | null) => boolean;
   readonly errorMessage: (error: unknown) => string;
+  readonly normalizeMarkdown?: DailyNoteSyncControl["normalizeMarkdown"];
 }
 
 export interface DailyNoteReplication {
@@ -139,7 +140,8 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
     const startedInGeneration = currentGeneration();
     try {
       const status = await persistLocalDraft(snapshot.date, snapshot.markdown, input.drafts, {
-        canContinue: canContinueInGeneration(startedInGeneration)
+        canContinue: canContinueInGeneration(startedInGeneration),
+        ...(input.normalizeMarkdown === undefined ? {} : { normalizeMarkdown: input.normalizeMarkdown })
       });
       if (!isCurrentGeneration(startedInGeneration)) return;
       input.setSyncStatus(status);
@@ -169,6 +171,7 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
       remote: input.remote,
       getState: input.getState,
       canContinue: canContinueInGeneration(startedInGeneration),
+      ...(input.normalizeMarkdown === undefined ? {} : { normalizeMarkdown: input.normalizeMarkdown }),
       ...(options.refreshRemoteBeforeSave === undefined
         ? {}
         : { refreshRemoteBeforeSave: options.refreshRemoteBeforeSave })
@@ -184,7 +187,8 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
       drafts: input.drafts,
       remote: input.remote,
       getState: input.getState,
-      canContinue: canContinueInGeneration(startedInGeneration)
+      canContinue: canContinueInGeneration(startedInGeneration),
+      ...(input.normalizeMarkdown === undefined ? {} : { normalizeMarkdown: input.normalizeMarkdown })
     });
     if (!isCurrentGeneration(startedInGeneration)) return;
     if (result !== null) applySaveResult(result);
@@ -259,7 +263,8 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
       drafts: input.drafts,
       remote: input.remote,
       getState: input.getState,
-      canContinue: canContinueInGeneration(startedInGeneration)
+      canContinue: canContinueInGeneration(startedInGeneration),
+      ...(input.normalizeMarkdown === undefined ? {} : { normalizeMarkdown: input.normalizeMarkdown })
     });
     if (!isCurrentGeneration(startedInGeneration)) return;
     applySaveResult(result);

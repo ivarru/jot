@@ -43,7 +43,7 @@ import {
   type DailyNoteLinkTarget
 } from "~/domain/dailyNoteLinks";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
-import { hasDailyNoteContent } from "~/domain/dailyNoteMarkdown";
+import { hasDailyNoteContent, normalizeDailyNoteMarkdown } from "~/domain/dailyNoteMarkdown";
 import {
   extractJotTags,
   filterJotTagSuggestions,
@@ -632,7 +632,10 @@ export default function Home() {
     const generation = backgroundSyncGeneration;
     try {
       await syncDirtyDailyNoteDrafts(drafts, runtime.remote, skipDate, {
-        canContinue: canContinueBackgroundSync(generation)
+        canContinue: canContinueBackgroundSync(generation),
+        normalizeMarkdown: (markdown) => normalizeDailyNoteMarkdown(markdown, {
+          normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+        })
       });
     } catch (error: unknown) {
       if (isCancelledDailyNoteSyncError(error)) return;
@@ -655,7 +658,10 @@ export default function Home() {
     setSyncStatus,
     setExistingNoteDate,
     handleRemoteError,
-    errorMessage
+    errorMessage,
+    normalizeMarkdown: (markdown) => normalizeDailyNoteMarkdown(markdown, {
+      normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+    })
   });
 
   const currentEditorMarkdown = (): string =>
@@ -699,7 +705,9 @@ export default function Home() {
     const date = selectedDate();
     if (!canEditDailyNoteDate(date, dateBoundEditorState())) return null;
 
-    const currentMarkdown = currentEditorMarkdown();
+    const currentMarkdown = normalizeDailyNoteMarkdown(currentEditorMarkdown(), {
+      normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+    });
     const changed = currentMarkdown !== markdown();
     if (changed) {
       if (editorMode() === "wysiwyg") {
@@ -1725,7 +1733,7 @@ export default function Home() {
 
   const copySyncDiagnostics = async () => {
     try {
-      await navigator.clipboard.writeText(formatSyncDiagnostics(syncDiagnostics.snapshot()));
+      await navigator.clipboard.writeText(formatSyncDiagnostics(syncDiagnostics.snapshot(), APP_VERSION));
       setSyncDiagnosticsCopyMessage("Sync diagnostics copied.");
     } catch {
       setSyncDiagnosticsCopyMessage("Could not copy sync diagnostics.");
@@ -2607,7 +2615,11 @@ export default function Home() {
     }
 
     recordSyncRequest("background", result.backgroundSave);
-    void saveAndSyncDailyNoteSnapshot(result.backgroundSave.date, result.backgroundSave.markdown, drafts, runtime.remote).catch((error: unknown) => {
+    void saveAndSyncDailyNoteSnapshot(result.backgroundSave.date, result.backgroundSave.markdown, drafts, runtime.remote, {
+      normalizeMarkdown: (markdown) => normalizeDailyNoteMarkdown(markdown, {
+        normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+      })
+    }).catch((error: unknown) => {
       if (handleRemoteError(error, { message: errorMessage(error), retry: "save-current-note", date: result.backgroundSave.date })) return;
     });
   };
@@ -2681,8 +2693,11 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
-    recordSyncRequest("blur", captureDocumentSnapshot(date, value));
-    void dailyNoteReplication.saveBlurSnapshot(captureDocumentSnapshot(date, value));
+    const normalizedValue = normalizeDailyNoteMarkdown(value, {
+      normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+    });
+    recordSyncRequest("blur", captureDocumentSnapshot(date, normalizedValue));
+    void dailyNoteReplication.saveBlurSnapshot(captureDocumentSnapshot(date, normalizedValue));
   };
 
   const startGooglePhotosImagePick = async () => {
@@ -3560,9 +3575,9 @@ export default function Home() {
             <div class="toolbar-column toolbar-status-column">
               <button
                 type="button"
-                class={`sync-status ${syncStatusClass(syncStatus())}${syncStatus() === "syncing" ? " sync-status-syncing" : ""}`}
-                aria-label={`Sync status: ${syncStatusLabel(syncStatus())}. ${syncStatusActionLabel(syncStatus(), authReconnectRequired())}`}
-                data-tooltip={`Sync status: ${syncStatusLabel(syncStatus())}. ${syncStatusActionLabel(syncStatus(), authReconnectRequired())}`}
+                class={`sync-status ${syncStatusClass(syncStatus(), authReconnectRequired())}${syncStatus() === "syncing" ? " sync-status-syncing" : ""}`}
+                aria-label={`Sync status: ${syncStatusLabel(syncStatus(), authReconnectRequired())}. ${syncStatusActionLabel(syncStatus(), authReconnectRequired())}`}
+                data-tooltip={`Sync status: ${syncStatusLabel(syncStatus(), authReconnectRequired())}. ${syncStatusActionLabel(syncStatus(), authReconnectRequired())}`}
                 disabled={
                   reconnectingAuth() ||
                   resolvingSyncConflict() ||
@@ -4114,7 +4129,7 @@ export default function Home() {
           />
 
           <Show when={settingsOpen()}>
-            <SettingsPanel settings={settings()} onChange={updateSettings} />
+            <SettingsPanel settings={settings()} onChange={updateSettings} onClose={() => setSettingsOpen(false)} />
           </Show>
 
           <Show when={aboutOpen()}>
@@ -4360,6 +4375,11 @@ export default function Home() {
                   }}
                   imageAttachmentDisplays={imageAttachmentDisplays()}
                   value={markdown()}
+                  isExternalMarkdownEquivalent={(incoming, live) => normalizeDailyNoteMarkdown(incoming, {
+                    normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+                  }) === normalizeDailyNoteMarkdown(live, {
+                    normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+                  })}
                   readOnly={editorReadOnly() || editorMode() !== "wysiwyg" || !wysiwygFocusRestored()}
                   spellcheck={settings().spellcheck}
                   onChange={handleEditorChange}
@@ -4574,7 +4594,8 @@ function dailyNoteRouteHash(date: IsoDate, headingSlug: string | null): string {
   return headingSlug === null ? `#/date/${date}` : dailyNoteSectionHref(date, headingSlug);
 }
 
-function syncStatusLabel(status: SyncStatus): string {
+function syncStatusLabel(status: SyncStatus, reconnectRequired = false): string {
+  if (reconnectRequired) return status === "saved-locally" ? "Reconnect required; saved locally" : "Reconnect required";
   switch (status) {
     case "local-only":
       return "Local only";
@@ -4595,7 +4616,8 @@ function syncStatusLabel(status: SyncStatus): string {
   }
 }
 
-function syncStatusClass(status: SyncStatus): string {
+function syncStatusClass(status: SyncStatus, reconnectRequired = false): string {
+  if (reconnectRequired) return "sync-status-alert";
   switch (status) {
     case "synced":
       return "sync-status-remote";

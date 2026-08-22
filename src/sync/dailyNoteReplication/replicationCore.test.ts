@@ -1,5 +1,6 @@
 import { createDraft } from "~/storage/localDraftStore";
 import type { IsoDate } from "~/domain/dates";
+import { normalizeDailyNoteMarkdown } from "~/domain/dailyNoteMarkdown";
 import type { JotSettings } from "~/domain/settings";
 import type {
   LocalDraft,
@@ -411,6 +412,40 @@ describe("daily note sync", () => {
     await expect(drafts.load("2030-02-02")).resolves.toMatchObject({
       markdown: "",
       baselineMarkdown: "",
+      dirty: false
+    });
+  });
+
+  it("persists and synchronizes canonical empty editor placeholders", async () => {
+    const drafts = new MemoryDraftStore();
+    const remote = new RecordingRemoteStorageProvider();
+    const normalizeMarkdown = (markdown: string) => normalizeDailyNoteMarkdown(markdown, {
+      normalizeEmptyEditorPlaceholders: true
+    });
+
+    await expect(
+      saveAndSyncDailyNoteSnapshot(
+        "2030-02-02",
+        "before\n<br />\n* <br />\nafter\n",
+        drafts,
+        remote,
+        { normalizeMarkdown }
+      )
+    ).resolves.toEqual({
+      markdown: "before\n\nafter\n",
+      status: "synced"
+    });
+
+    expect(remote.savedInputs).toEqual([
+      {
+        date: "2030-02-02",
+        markdown: "before\n\nafter\n",
+        expectedRevisionId: null
+      }
+    ]);
+    await expect(drafts.load("2030-02-02")).resolves.toMatchObject({
+      markdown: "before\n\nafter\n",
+      baselineMarkdown: "before\n\nafter\n",
       dirty: false
     });
   });
