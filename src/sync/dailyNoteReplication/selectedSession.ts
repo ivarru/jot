@@ -195,6 +195,7 @@ export interface RefreshCleanSelectedDailyNoteSessionInput {
   readonly getState: () => DateBoundEditorState;
   readonly beforeApply?: () => void;
   readonly canContinue?: DailyNoteSyncControl["canContinue"];
+  readonly isCanonicalEquivalent?: (live: string, canonical: string) => boolean;
 }
 
 export async function loadSelectedDailyNoteSession(
@@ -263,7 +264,11 @@ export function selectedDailyNoteRemoteLoadAction(
 export async function refreshCleanSelectedDailyNoteSession(
   input: RefreshCleanSelectedDailyNoteSessionInput
 ): Promise<RefreshCleanSelectedDailyNoteSessionResult> {
-  const request = createCleanDailyNoteRefreshRequest(input.getState(), input.date);
+  const request = createCleanDailyNoteRefreshRequest(
+    input.getState(),
+    input.date,
+    input.isCanonicalEquivalent
+  );
   if (request === null) return { type: "skipped" };
 
   let refresh: CleanDailyNoteRefresh | null;

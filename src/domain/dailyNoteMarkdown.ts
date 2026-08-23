@@ -4,6 +4,13 @@ export function hasDailyNoteContent(markdown: string): boolean {
 
 export interface DailyNoteMarkdownNormalizationOptions {
   readonly normalizeEmptyEditorPlaceholders?: boolean;
+  /** Source offset on a collapsed caret line that must remain live-editor editable. */
+  readonly preserveLineAt?: number;
+}
+
+export interface DailyNoteMarkdownCaretNormalization {
+  readonly markdown: string;
+  readonly caret: number;
 }
 
 export function normalizeDailyNoteMarkdown(
@@ -11,20 +18,49 @@ export function normalizeDailyNoteMarkdown(
   options: DailyNoteMarkdownNormalizationOptions = {}
 ): string {
   const normalized = options.normalizeEmptyEditorPlaceholders === true
-    ? normalizeEmptyEditorPlaceholders(markdown)
+    ? normalizeEmptyEditorPlaceholders(markdown, options.preserveLineAt)
     : markdown;
   return hasDailyNoteContent(normalized) ? normalized : "";
 }
 
-function normalizeEmptyEditorPlaceholders(markdown: string): string {
+export function normalizeDailyNoteMarkdownAtCaret(
+  markdown: string,
+  caret: number,
+  options: DailyNoteMarkdownNormalizationOptions = {}
+): DailyNoteMarkdownCaretNormalization {
+  if (options.normalizeEmptyEditorPlaceholders !== true) {
+    return { markdown: normalizeDailyNoteMarkdown(markdown, options), caret };
+  }
+
+  const line = markdownLineAt(markdown, caret);
+  let marker = "jot-caret-line-marker-7f1c6df3";
+  while (markdown.includes(marker)) marker = `${marker}-`;
+  const markedMarkdown = `${markdown.slice(0, line.start)}${marker}${markdown.slice(line.end)}`;
+  const marked = normalizeDailyNoteMarkdown(markedMarkdown, {
+    ...options,
+    preserveLineAt: line.start
+  });
+  const normalized = normalizeDailyNoteMarkdown(markdown, {
+    ...options,
+    preserveLineAt: caret
+  });
+  const markerStart = marked.indexOf(marker);
+  return {
+    markdown: normalized,
+    caret: markerStart < 0 ? caret : markerStart + Math.min(Math.max(caret - line.start, 0), line.end - line.start)
+  };
+}
+
+function normalizeEmptyEditorPlaceholders(markdown: string, preserveLineAt?: number): string {
   const lines = markdown.split("\n");
   const normalized: MarkdownLine[] = [];
   let fence: MarkdownFence | null = null;
   let indentedCode = false;
   let htmlBlock: HtmlBlock | null = null;
 
-  for (let index = 0; index < lines.length; index += 1) {
+  for (let index = 0, sourceStart = 0; index < lines.length; sourceStart += lines[index]!.length + 1, index += 1) {
     const line = lines[index]!;
+    const preserveLine = preserveLineAt !== undefined && preserveLineAt >= sourceStart && preserveLineAt <= sourceStart + line.length;
     if (fence !== null) {
       normalized.push({ value: line, protected: true });
       if (isClosingFence(line, fence)) fence = null;
@@ -56,6 +92,15 @@ function normalizeEmptyEditorPlaceholders(markdown: string): string {
     }
 
     indentedCode = false;
+
+    if (preserveLine) {
+      const openingHtmlBlock = htmlBlockStart(line);
+      normalized.push({ value: line, protected: true });
+      if (openingHtmlBlock !== null && !htmlBlockEnds(line, openingHtmlBlock)) {
+        htmlBlock = openingHtmlBlock;
+      }
+      continue;
+    }
 
     if (isEmptyListItemPlaceholder(line)) continue;
     if (isEmptyParagraphPlaceholder(line)) {
@@ -148,4 +193,11 @@ function collapseBlankLines(lines: readonly MarkdownLine[]): readonly MarkdownLi
     const previous = lines[index - 1];
     return line.value !== "" || previous?.value !== "" || line.protected || previous.protected;
   });
+}
+
+function markdownLineAt(markdown: string, offset: number): { readonly start: number; readonly end: number } {
+  const clamped = Math.max(0, Math.min(offset, markdown.length));
+  const start = markdown.lastIndexOf("\n", Math.max(0, clamped - 1)) + 1;
+  const nextNewline = markdown.indexOf("\n", clamped);
+  return { start, end: nextNewline === -1 ? markdown.length : nextNewline };
 }

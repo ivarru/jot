@@ -79,10 +79,14 @@ page reloads.
 
 By default, Jot canonicalizes empty editor placeholders at the Local Draft and Google Drive persistence boundaries.
 A standalone line containing only `<br />` becomes one blank line; an empty Markdown list item such as `* <br />` is
-removed. Runs of blank lines are collapsed so the saved file does not contain consecutive blank lines. The live WYSIWYG document is not rewritten merely because its equivalent saved representation is canonicalized,
-which preserves its focus, caret, and undo history. This behavior can be disabled in **Settings** for source-preserving
-workflows. Literal placeholder-looking lines inside fenced or indented code blocks, or raw HTML blocks, are never
-normalized.
+removed. Runs of blank lines are collapsed so the saved file does not contain consecutive blank lines.
+
+While the collapsed caret is on an eligible empty paragraph or list item, Jot keeps that one line in the live editor so
+the user can pause and continue typing. Other eligible lines are normalized in the live editor. The Local Draft and
+Google Drive snapshot is still fully canonical, and its successful completion never replaces the retained active line.
+Moving the caret away, reloading, or explicitly replacing the document may remove it normally. This behavior can be
+disabled in **Settings** for source-preserving workflows. Literal placeholder-looking lines inside fenced or indented
+code blocks, or raw HTML blocks, are never normalized.
 
 ## Device Counts
 

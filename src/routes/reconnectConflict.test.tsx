@@ -461,6 +461,88 @@ describe("Home reconnect and conflict handling", () => {
     }
   });
 
+  it("keeps the collapsed-caret placeholder live while foreground-loss sync saves its canonical snapshot", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "before",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    testState.delayedRemoteSave = delayedRemoteSave("2030-02-02");
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("before");
+      });
+      await waitFor(() => {
+        expect(host.querySelector(".sync-status")?.getAttribute("aria-label")).toContain("Synced");
+      });
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      const pending = "before\n* <br />\n* <br />";
+      editor.value = pending;
+      editor.setSelectionRange(pending.lastIndexOf("* <br />") + 2, pending.lastIndexOf("* <br />") + 2);
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " " }));
+      await settle();
+
+      window.dispatchEvent(new PageTransitionEvent("pagehide"));
+      testState.delayedRemoteSave.finish.resolve();
+      await waitFor(() => expect(testState.remoteNote?.markdown).toBe("before"));
+      expect(editor.value).toBe("before\n* <br />");
+      expect(editor.selectionStart).toBe("before\n* ".length);
+      expect(editor.selectionEnd).toBe("before\n* ".length);
+      expect(testState.drafts.get("2030-02-02")).toMatchObject({ markdown: "before", dirty: false });
+      expect(editor.value).toBe("before\n* <br />");
+      expect(editor.selectionStart).toBe("before\n* ".length);
+    } finally {
+      testState.delayedRemoteSave?.finish.resolve();
+      dispose();
+    }
+  });
+
+  it("leaves every placeholder untouched when normalization is disabled", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "before",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("before");
+      });
+      clickButton(host, "Open menu");
+      clickButton(host, "Settings");
+      const normalization = host.querySelector<HTMLInputElement>(
+        "input[aria-label='Normalize empty editor placeholders when saving']"
+      )!;
+      normalization.checked = false;
+      normalization.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      const pending = "before\n* <br />\n* <br />";
+      editor.value = pending;
+      editor.setSelectionRange(pending.lastIndexOf("* <br />") + 2, pending.lastIndexOf("* <br />") + 2);
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " " }));
+      await settle();
+
+      window.dispatchEvent(new PageTransitionEvent("pagehide"));
+      await waitFor(() => expect(testState.remoteNote?.markdown).toBe(pending));
+      expect(testState.drafts.get("2030-02-02")).toMatchObject({ markdown: pending, dirty: false });
+      expect(editor.value).toBe(pending);
+      expect(editor.selectionStart).toBe(pending.lastIndexOf("* <br />") + 2);
+    } finally {
+      dispose();
+    }
+  });
+
   it("waits for the diagnostics preference before initially syncing dirty drafts", async () => {
     const settingsLoad = deferred<void>();
     const settingsStarted = deferred<void>();
@@ -1043,6 +1125,41 @@ describe("Home reconnect and conflict handling", () => {
     expect(testState.drafts.get("2030-02-02")?.markdown).toBe("saved while switching apps");
 
     dispose();
+  });
+
+  it("does not let a pending date A autosave save date B after navigation", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "A original",
+      revisionId: "a-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "A changed"));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("A original");
+      });
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editor.value = "A changed";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " changed" }));
+      await settle();
+      testState.remoteSaveInputs = [];
+
+      await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+      clickButton(host, "Next day");
+      await waitFor(() => {
+        expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")?.value).toBe("2030-02-03");
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 750));
+
+      expect(testState.remoteSaveInputs).toEqual(["2030-02-02"]);
+    } finally {
+      dispose();
+    }
   });
 
   it("does not submit a stale link modal after date navigation", async () => {

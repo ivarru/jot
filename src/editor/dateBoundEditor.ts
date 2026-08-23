@@ -22,6 +22,7 @@ export interface CleanDailyNoteRefreshRequest {
   readonly cleanMarkdown: string;
   readonly editorChangeEpoch: number;
   readonly markdown: string;
+  readonly preserveEquivalentLiveMarkdown: boolean;
 }
 
 export type MarkdownWriteSource = "storage" | "editor";
@@ -125,9 +126,14 @@ export function applyLoadedDailyNoteResult(
 
 export function createCleanDailyNoteRefreshRequest(
   state: DateBoundEditorState,
-  date: IsoDate
+  date: IsoDate,
+  isCanonicalEquivalent: (live: string, canonical: string) => boolean = (live, canonical) => live === canonical
 ): CleanDailyNoteRefreshRequest | null {
-  if (!canEditDailyNoteDate(date, state) || state.cleanMarkdown === null || state.markdown !== state.cleanMarkdown) {
+  if (
+    !canEditDailyNoteDate(date, state)
+    || state.cleanMarkdown === null
+    || !isCanonicalEquivalent(state.markdown, state.cleanMarkdown)
+  ) {
     return null;
   }
 
@@ -135,7 +141,8 @@ export function createCleanDailyNoteRefreshRequest(
     date,
     cleanMarkdown: state.cleanMarkdown,
     editorChangeEpoch: state.editorChangeEpoch,
-    markdown: state.markdown
+    markdown: state.markdown,
+    preserveEquivalentLiveMarkdown: state.markdown !== state.cleanMarkdown
   };
 }
 
@@ -153,14 +160,16 @@ export function applyCleanDailyNoteRefreshResult(
     return null;
   }
 
+  const preserveEquivalentLiveMarkdown = request.preserveEquivalentLiveMarkdown
+    && refresh.markdown === request.cleanMarkdown;
   const next = {
     ...state,
-    markdown: refresh.markdown,
+    markdown: preserveEquivalentLiveMarkdown ? state.markdown : refresh.markdown,
     cleanMarkdown: cleanMarkdownForStatus(refresh.markdown, refresh.status)
   };
   return {
     state: next,
-    ...(refresh.markdown === state.markdown
+    ...(preserveEquivalentLiveMarkdown || refresh.markdown === state.markdown
       ? {}
       : {
           markdownWrite: {
