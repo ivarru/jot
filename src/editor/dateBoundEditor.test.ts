@@ -151,10 +151,35 @@ describe("date-bound editor session", () => {
       date: "2030-02-02",
       cleanMarkdown: "clean",
       editorChangeEpoch: 1,
-      markdown: "clean"
+      markdown: "clean",
+      preserveEquivalentLiveMarkdown: false
     });
     expect(editResult.type).toBe("current-editor");
     expect(applyCleanDailyNoteRefreshResult(editResult.state, request!, session("remote", "synced"))).toBeNull();
+  });
+
+  it("keeps an equivalent live placeholder while accepting its canonical clean refresh", () => {
+    const selectiveState = state({
+      selectedDate: "2030-02-02",
+      loadedDate: "2030-02-02",
+      markdown: "before\n* <br />",
+      cleanMarkdown: "before",
+      editorChangeEpoch: 1
+    });
+    const request = createCleanDailyNoteRefreshRequest(
+      selectiveState,
+      "2030-02-02",
+      (live, canonical) => live === "before\n* <br />" && canonical === "before"
+    );
+
+    expect(request).toMatchObject({
+      date: "2030-02-02",
+      markdown: "before\n* <br />",
+      cleanMarkdown: "before"
+    });
+    expect(applyCleanDailyNoteRefreshResult(selectiveState, request!, session("before", "synced"))).toEqual({
+      state: selectiveState
+    });
   });
 
   it("does not apply stale sync conflicts to the visible Daily Note", () => {

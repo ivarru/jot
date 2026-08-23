@@ -43,7 +43,11 @@ import {
   type DailyNoteLinkTarget
 } from "~/domain/dailyNoteLinks";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
-import { hasDailyNoteContent, normalizeDailyNoteMarkdown } from "~/domain/dailyNoteMarkdown";
+import {
+  hasDailyNoteContent,
+  normalizeDailyNoteMarkdown,
+  normalizeDailyNoteMarkdownAtCaret
+} from "~/domain/dailyNoteMarkdown";
 import {
   extractJotTags,
   filterJotTagSuggestions,
@@ -669,6 +673,29 @@ export default function Home() {
       ? plainTextEditorElement.value
       : milkdownController?.getLiveMarkdown() ?? markdown();
 
+  const markdownNormalizationOptions = () => ({
+    normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+  });
+
+  const selectivelyNormalizedLiveMarkdown = (value: string): {
+    readonly markdown: string;
+    readonly selection: MarkdownSelection | null;
+  } => {
+    const selection = currentEditorSelection();
+    if (selection !== null && selection.start === selection.end) {
+      const normalized = normalizeDailyNoteMarkdownAtCaret(value, selection.start, markdownNormalizationOptions());
+      return {
+        markdown: normalized.markdown,
+        selection: { start: normalized.caret, end: normalized.caret }
+      };
+    }
+
+    return {
+      markdown: normalizeDailyNoteMarkdown(value, markdownNormalizationOptions()),
+      selection
+    };
+  };
+
   const recordSyncRequest = (
     source: SyncDiagnosticSource,
     snapshot: VisibleDailyNoteSnapshot | null = null
@@ -705,22 +732,26 @@ export default function Home() {
     const date = selectedDate();
     if (!canEditDailyNoteDate(date, dateBoundEditorState())) return null;
 
-    const currentMarkdown = normalizeDailyNoteMarkdown(currentEditorMarkdown(), {
-      normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
-    });
-    const changed = currentMarkdown !== markdown();
-    if (changed) {
+    const rawMarkdown = currentEditorMarkdown();
+    const live = selectivelyNormalizedLiveMarkdown(rawMarkdown);
+    const persistedMarkdown = normalizeDailyNoteMarkdown(rawMarkdown, markdownNormalizationOptions());
+    const liveChanged = live.markdown !== markdown();
+    if (liveChanged) {
       if (editorMode() === "wysiwyg") {
         clearRawHistory();
       }
-      const result = applyEditorChange(dateBoundEditorState(), date, currentMarkdown);
+      const result = applyEditorChange(dateBoundEditorState(), date, live.markdown);
       if (result.type !== "current-editor") return null;
       applyDateBoundEditorTransition({ state: result.state, markdownWrite: result.markdownWrite });
+      if (live.selection !== null) {
+        setFocusEditorAtEnd(false);
+        setFocusEditorSelection(live.selection);
+      }
     }
 
     return {
-      changed,
-      snapshot: captureDocumentSnapshot(date, currentMarkdown)
+      changed: liveChanged || persistedMarkdown !== markdown(),
+      snapshot: captureDocumentSnapshot(date, persistedMarkdown)
     };
   };
 
@@ -1164,13 +1195,17 @@ export default function Home() {
 
   createEffect(
     on(
-      () => [markdown(), settings().autosaveDebounceMs, settingsLoaded()] as const,
-      ([value]) => {
-        const snapshot = captureVisibleDailyNoteSnapshot({ ...dateBoundEditorState(), markdown: value });
-        if (!authenticated() || !settingsLoaded() || snapshot === null) return;
+      () => [markdown(), selectedDate(), loadedDate(), settings().autosaveDebounceMs, settingsLoaded()] as const,
+      () => {
+        if (!authenticated() || !settingsLoaded() || selectedDate() === null || loadedDate() !== selectedDate()) return;
         if (authReconnectRequired()) return;
 
+        const flushed = flushCurrentVisibleEditorSnapshot();
+        if (flushed === null) return;
+        const snapshot = flushed.snapshot;
+
         const timeout = window.setTimeout(() => {
+          if (!canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) return;
           recordSyncRequest("autosave", snapshot);
           void dailyNoteReplication.saveAndSyncSnapshot(snapshot);
         }, settings().autosaveDebounceMs);
@@ -2693,11 +2728,12 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
-    const normalizedValue = normalizeDailyNoteMarkdown(value, {
-      normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
-    });
-    recordSyncRequest("blur", captureDocumentSnapshot(date, normalizedValue));
-    void dailyNoteReplication.saveBlurSnapshot(captureDocumentSnapshot(date, normalizedValue));
+    const flushed = flushCurrentVisibleEditorSnapshot();
+    const snapshot = flushed?.snapshot.date === date
+      ? flushed.snapshot
+      : captureDocumentSnapshot(date, normalizeDailyNoteMarkdown(value, markdownNormalizationOptions()));
+    recordSyncRequest("blur", snapshot);
+    void dailyNoteReplication.saveBlurSnapshot(snapshot);
   };
 
   const startGooglePhotosImagePick = async () => {
@@ -4375,11 +4411,12 @@ export default function Home() {
                   }}
                   imageAttachmentDisplays={imageAttachmentDisplays()}
                   value={markdown()}
-                  isExternalMarkdownEquivalent={(incoming, live) => normalizeDailyNoteMarkdown(incoming, {
-                    normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
-                  }) === normalizeDailyNoteMarkdown(live, {
-                    normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
-                  })}
+                  isExternalMarkdownEquivalent={(incoming, live) => {
+                    const selectiveLive = selectivelyNormalizedLiveMarkdown(live).markdown;
+                    return selectiveLive === live
+                      && normalizeDailyNoteMarkdown(incoming, markdownNormalizationOptions())
+                        === normalizeDailyNoteMarkdown(live, markdownNormalizationOptions());
+                  }}
                   readOnly={editorReadOnly() || editorMode() !== "wysiwyg" || !wysiwygFocusRestored()}
                   spellcheck={settings().spellcheck}
                   onChange={handleEditorChange}

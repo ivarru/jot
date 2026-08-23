@@ -130,7 +130,13 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
       drafts: input.drafts,
       remote: input.remote,
       getState: input.getState,
-      canContinue: canContinueInGeneration(startedInGeneration)
+      canContinue: canContinueInGeneration(startedInGeneration),
+      ...(input.normalizeMarkdown === undefined
+        ? {}
+        : {
+            isCanonicalEquivalent: (live: string, canonical: string) =>
+              input.normalizeMarkdown!(live) === input.normalizeMarkdown!(canonical)
+          })
     });
     if (!isCurrentGeneration(startedInGeneration)) return;
     applyRefreshResult(result);

@@ -1,4 +1,5 @@
 import { createDraft } from "~/storage/localDraftStore";
+import { normalizeDailyNoteMarkdown } from "~/domain/dailyNoteMarkdown";
 import type { IsoDate } from "~/domain/dates";
 import type { DateBoundEditorState, DateBoundEditorTransition } from "~/editor/dateBoundEditor";
 import type {
@@ -42,6 +43,38 @@ describe("Daily Note Replication lifecycle", () => {
       baselineRevisionId: "revision-2",
       dirty: false
     });
+  });
+
+  it("refreshes a selectively retained caret line through its canonical snapshot", async () => {
+    const drafts = new MemoryDraftStore();
+    await drafts.save(createDraft(DATE, "before", "before", "revision-1", false));
+    const remote = new RecordingRemoteStorageProvider();
+    remote.note = {
+      date: DATE,
+      markdown: "before",
+      revisionId: "revision-1",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const harness = createHarness({
+      drafts,
+      remote,
+      state: editorState({
+        selectedDate: DATE,
+        loadedDate: DATE,
+        markdown: "before\n* <br />",
+        cleanMarkdown: "before"
+      }),
+      syncStatus: "synced",
+      normalizeMarkdown: (markdown) => normalizeDailyNoteMarkdown(markdown, {
+        normalizeEmptyEditorPlaceholders: true
+      })
+    });
+
+    await harness.sync.refreshCleanSelectedDate(DATE);
+
+    expect(remote.loadInputs).toEqual([DATE]);
+    expect(harness.state.markdown).toBe("before\n* <br />");
+    expect(harness.state.cleanMarkdown).toBe("before");
   });
 
   it("does not continue from local draft load into remote follow-up after cancellation", async () => {
@@ -296,6 +329,7 @@ function createHarness(input: {
   readonly state?: DateBoundEditorState;
   readonly syncStatus?: SyncStatus;
   readonly lastSyncError?: SyncErrorState | null;
+  readonly normalizeMarkdown?: (markdown: string) => string;
 }) {
   let state = input.state ?? editorState({ selectedDate: DATE, loadedDate: null });
   let syncStatus: SyncStatus = input.syncStatus ?? "local-only";
@@ -334,7 +368,8 @@ function createHarness(input: {
       if (!exists && existingIndex !== -1) markedExistingDates.splice(existingIndex, 1);
     },
     handleRemoteError: () => false,
-    errorMessage: (error) => error instanceof Error ? error.message : String(error)
+    errorMessage: (error) => error instanceof Error ? error.message : String(error),
+    ...(input.normalizeMarkdown === undefined ? {} : { normalizeMarkdown: input.normalizeMarkdown })
   });
 
   return {

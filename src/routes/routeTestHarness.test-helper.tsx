@@ -63,6 +63,7 @@ const routeTestState = vi.hoisted(() => ({
   delayedSettingsLoad: null as DelayedSettingsLoad | null,
   delayedDirtyList: null as DelayedDirtyList | null,
   remoteNote: null as RouteTestRemoteNote | null,
+  remoteSaveInputs: [] as IsoDate[],
   remoteLoadInputs: [] as IsoDate[],
   loadAuthError: false,
   saveConflict: false,
@@ -149,6 +150,7 @@ vi.mock("~/storage/googleDriveStorage", () => {
     }
 
     async saveDailyNote(input: SaveDailyNoteInput) {
+      routeTestState.remoteSaveInputs.push(input.date);
       const delayedSave = routeTestState.delayedRemoteSave;
       if (delayedSave !== null && !delayedSave.consumed && delayedSave.date === input.date) {
         delayedSave.consumed = true;
@@ -575,6 +577,7 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
     }
 
     async saveDailyNote(input: SaveDailyNoteInput) {
+      routeTestState.remoteSaveInputs.push(input.date);
       const delayedSave = routeTestState.delayedRemoteSave;
       if (delayedSave !== null && !delayedSave.consumed && delayedSave.date === input.date) {
         delayedSave.consumed = true;
@@ -661,6 +664,7 @@ export function resetRouteTestState(): void {
   routeTestState.delayedSettingsLoad = null;
   routeTestState.delayedDirtyList = null;
   routeTestState.remoteNote = null;
+  routeTestState.remoteSaveInputs = [];
   routeTestState.remoteLoadInputs = [];
   routeTestState.loadAuthError = false;
   routeTestState.saveConflict = false;

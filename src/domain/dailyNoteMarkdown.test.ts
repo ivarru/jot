@@ -1,4 +1,4 @@
-import { normalizeDailyNoteMarkdown } from "./dailyNoteMarkdown";
+import { normalizeDailyNoteMarkdown, normalizeDailyNoteMarkdownAtCaret } from "./dailyNoteMarkdown";
 
 describe("daily note Markdown normalization", () => {
   it("keeps whitespace-only notes empty", () => {
@@ -19,6 +19,75 @@ describe("daily note Markdown normalization", () => {
     expect(
       normalizeDailyNoteMarkdown(markdown, { normalizeEmptyEditorPlaceholders: false })
     ).toBe(markdown);
+  });
+
+  it("preserves an eligible placeholder on the collapsed caret line while canonicalizing the others", () => {
+    const markdown = "before\n* <br />\n* <br />\n<br />\nafter\n";
+    const activeItem = markdown.lastIndexOf("* <br />");
+
+    expect(
+      normalizeDailyNoteMarkdown(markdown, {
+        normalizeEmptyEditorPlaceholders: true,
+        preserveLineAt: activeItem + 2
+      })
+    ).toBe("before\n* <br />\n\nafter\n");
+  });
+
+  it("does not selectively normalize placeholders when the preference is disabled", () => {
+    const markdown = "before\n* <br />\n* <br />\nafter\n";
+
+    expect(
+      normalizeDailyNoteMarkdown(markdown, {
+        normalizeEmptyEditorPlaceholders: false,
+        preserveLineAt: markdown.lastIndexOf("* <br />")
+      })
+    ).toBe(markdown);
+  });
+
+  it("maps the collapsed caret onto its retained line after removing preceding placeholders", () => {
+    const markdown = "before\n* <br />\n* <br />\nafter\n";
+    const caret = markdown.lastIndexOf("* <br />") + 2;
+
+    expect(
+      normalizeDailyNoteMarkdownAtCaret(markdown, caret, { normalizeEmptyEditorPlaceholders: true })
+    ).toEqual({ markdown: "before\n* <br />\nafter\n", caret: "before\n* ".length });
+  });
+
+  it("maps the caret safely when the note already contains the internal offset marker text", () => {
+    const marker = "jot-caret-line-marker-7f1c6df3";
+    const markdown = `${marker}\n* <br />\n* <br />`;
+    const caret = markdown.lastIndexOf("* <br />") + 2;
+
+    expect(
+      normalizeDailyNoteMarkdownAtCaret(markdown, caret, { normalizeEmptyEditorPlaceholders: true })
+    ).toEqual({ markdown: `${marker}\n* <br />`, caret: `${marker}\n* `.length });
+  });
+
+  it("protects a raw HTML block when the caret is on its opening line", () => {
+    const markdown = [
+      "before",
+      "<pre>",
+      "<br />",
+      "* <br />",
+      "</pre>",
+      "<br />",
+      "after"
+    ].join("\n");
+
+    expect(
+      normalizeDailyNoteMarkdown(markdown, {
+        normalizeEmptyEditorPlaceholders: true,
+        preserveLineAt: markdown.indexOf("<pre>") + 2
+      })
+    ).toBe([
+      "before",
+      "<pre>",
+      "<br />",
+      "* <br />",
+      "</pre>",
+      "",
+      "after"
+    ].join("\n"));
   });
 
   it("preserves placeholder-like text inside fenced and indented code blocks", () => {
