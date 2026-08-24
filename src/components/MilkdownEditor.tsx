@@ -2160,13 +2160,24 @@ function emptyMarkdownLineOffset(markdown: string, targetIndex: number): number 
     const lineEnd = nextLineBreak === -1 ? markdown.length : nextLineBreak;
     const lineText = markdown.slice(lineStart, lineEnd);
     const syntaxKind = syntaxOnlyLineKind(lineText);
-    if (lineText.trim() === "" || syntaxKind !== null) {
-      if (currentIndex === targetIndex) return syntaxKind === null ? lineStart : lineEnd;
+    const emptyPlaceholderOffset = emptyTextblockPlaceholderOffset(lineText);
+    if (lineText.trim() === "" || syntaxKind !== null || emptyPlaceholderOffset !== null) {
+      if (currentIndex === targetIndex) {
+        if (emptyPlaceholderOffset !== null) return lineStart + emptyPlaceholderOffset;
+        return syntaxKind === null ? lineStart : lineEnd;
+      }
       currentIndex += 1;
     }
     if (nextLineBreak === -1) break;
     lineStart = nextLineBreak + 1;
   }
+  return null;
+}
+
+function emptyTextblockPlaceholderOffset(lineText: string): number | null {
+  const listItemPlaceholder = /^([\t ]*[-+*][\t ]+)<br\s*\/?\s*>[\t ]*$/i.exec(lineText);
+  if (listItemPlaceholder !== null) return listItemPlaceholder[1]!.length;
+  if (/^[\t ]*<br\s*\/?\s*>[\t ]*$/i.test(lineText)) return 0;
   return null;
 }
 

@@ -1,4 +1,5 @@
 import type { SyncStatus } from "~/storage/types";
+import { normalizeDailyNoteMarkdown } from "~/domain/dailyNoteMarkdown";
 import {
   applyCleanDailyNoteRefreshResult,
   applyEditorChange,
@@ -9,6 +10,7 @@ import {
   captureVisibleDailyNoteSnapshot,
   createCleanDailyNoteRefreshRequest,
   resetSelectedDailyNoteSession,
+  type CanonicalMarkdownEquivalence,
   type DateBoundEditorState
 } from "./dateBoundEditor";
 
@@ -151,8 +153,7 @@ describe("date-bound editor session", () => {
       date: "2030-02-02",
       cleanMarkdown: "clean",
       editorChangeEpoch: 1,
-      markdown: "clean",
-      preserveEquivalentLiveMarkdown: false
+      markdown: "clean"
     });
     expect(editResult.type).toBe("current-editor");
     expect(applyCleanDailyNoteRefreshResult(editResult.state, request!, session("remote", "synced"))).toBeNull();
@@ -166,19 +167,43 @@ describe("date-bound editor session", () => {
       cleanMarkdown: "before",
       editorChangeEpoch: 1
     });
-    const request = createCleanDailyNoteRefreshRequest(
-      selectiveState,
-      "2030-02-02",
-      (live, canonical) => live === "before\n* <br />" && canonical === "before"
-    );
+    const isCanonicalEquivalent = (live: string, canonical: string) =>
+      live === "before\n* <br />" && canonical === "before";
+    const request = createCleanDailyNoteRefreshRequest(selectiveState, "2030-02-02", isCanonicalEquivalent);
 
     expect(request).toMatchObject({
       date: "2030-02-02",
       markdown: "before\n* <br />",
       cleanMarkdown: "before"
     });
-    expect(applyCleanDailyNoteRefreshResult(selectiveState, request!, session("before", "synced"))).toEqual({
+    expect(
+      applyCleanDailyNoteRefreshResult(selectiveState, request!, session("before", "synced"), isCanonicalEquivalent)
+    ).toEqual({
       state: selectiveState
+    });
+  });
+
+  it("keeps a canonically equivalent live editor when a save only removes empty placeholders", () => {
+    const liveState = state({
+      selectedDate: "2030-02-02",
+      loadedDate: "2030-02-02",
+      markdown: "before\n* <br />\n",
+      cleanMarkdown: null,
+      editorChangeEpoch: 1
+    });
+
+    expect(
+      applySyncResult(
+        liveState,
+        { date: "2030-02-02", markdown: "before\n* <br />\n" },
+        session("before\n", "synced"),
+        placeholderEquivalence
+      )
+    ).toEqual({
+      state: {
+        ...liveState,
+        cleanMarkdown: "before\n"
+      }
     });
   });
 
@@ -308,3 +333,7 @@ function state(overrides: Partial<DateBoundEditorState>): DateBoundEditorState {
 function session(markdown: string, status: SyncStatus): { readonly markdown: string; readonly status: SyncStatus } {
   return { markdown, status };
 }
+
+const placeholderEquivalence: CanonicalMarkdownEquivalence = (live, canonical) =>
+  normalizeDailyNoteMarkdown(live, { normalizeEmptyEditorPlaceholders: true })
+    === normalizeDailyNoteMarkdown(canonical, { normalizeEmptyEditorPlaceholders: true });

@@ -5,6 +5,7 @@ import {
   canEditDailyNoteDate,
   captureVisibleDailyNoteSnapshot,
   createCleanDailyNoteRefreshRequest,
+  type CanonicalMarkdownEquivalence,
   type DateBoundEditorState,
   type DateBoundEditorTransition,
   type VisibleDailyNoteSnapshot
@@ -287,13 +288,20 @@ export async function refreshCleanSelectedDailyNoteSession(
 
   input.beforeApply?.();
   const session = cleanDailyNoteRefreshToSession(refresh);
-  if (applyCleanDailyNoteRefreshResult(input.getState(), request, session) === null) return { type: "skipped" };
+  if (applyCleanDailyNoteRefreshResult(input.getState(), request, session, input.isCanonicalEquivalent) === null) {
+    return { type: "skipped" };
+  }
 
   try {
     const draftCommitted = await commitVisibleCleanDailyNoteRefresh(input.date, refresh, input.drafts, syncControl(input));
     if (!draftCommitted) return { type: "skipped" };
 
-    const transition = applyCleanDailyNoteRefreshResult(input.getState(), request, session);
+    const transition = applyCleanDailyNoteRefreshResult(
+      input.getState(),
+      request,
+      session,
+      input.isCanonicalEquivalent
+    );
     if (transition === null) return { type: "skipped" };
 
     return {
@@ -444,7 +452,12 @@ export async function replicateDailyNoteSnapshot(
     return {
       type: "saved",
       session,
-      transition: applySyncResult(input.getState(), input.snapshot, session)
+      transition: applySyncResult(
+        input.getState(),
+        input.snapshot,
+        session,
+        canonicalEquivalence(input.normalizeMarkdown)
+      )
     };
   } catch (error) {
     if (isCancelledDailyNoteSyncError(error)) {
@@ -485,7 +498,8 @@ export async function resolveSelectedDailyNoteConflict(
           date: input.conflict.date,
           markdown: input.conflict.localMarkdown
         },
-        session
+        session,
+        canonicalEquivalence(input.normalizeMarkdown)
       )
     };
   } catch (error) {
@@ -550,4 +564,12 @@ function syncControl(input: {
     ...(input.canContinue === undefined ? {} : { canContinue: input.canContinue }),
     ...(input.normalizeMarkdown === undefined ? {} : { normalizeMarkdown: input.normalizeMarkdown })
   };
+}
+
+function canonicalEquivalence(
+  normalizeMarkdown?: DailyNoteSyncControl["normalizeMarkdown"]
+): CanonicalMarkdownEquivalence {
+  return normalizeMarkdown === undefined
+    ? (live, canonical) => live === canonical
+    : (live, canonical) => normalizeMarkdown(live) === normalizeMarkdown(canonical);
 }

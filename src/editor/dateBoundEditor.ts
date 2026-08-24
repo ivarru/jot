@@ -22,7 +22,6 @@ export interface CleanDailyNoteRefreshRequest {
   readonly cleanMarkdown: string;
   readonly editorChangeEpoch: number;
   readonly markdown: string;
-  readonly preserveEquivalentLiveMarkdown: boolean;
 }
 
 export type MarkdownWriteSource = "storage" | "editor";
@@ -124,10 +123,14 @@ export function applyLoadedDailyNoteResult(
   };
 }
 
+export type CanonicalMarkdownEquivalence = (live: string, canonical: string) => boolean;
+
+const exactMarkdownEquivalence: CanonicalMarkdownEquivalence = (live, canonical) => live === canonical;
+
 export function createCleanDailyNoteRefreshRequest(
   state: DateBoundEditorState,
   date: IsoDate,
-  isCanonicalEquivalent: (live: string, canonical: string) => boolean = (live, canonical) => live === canonical
+  isCanonicalEquivalent: CanonicalMarkdownEquivalence = exactMarkdownEquivalence
 ): CleanDailyNoteRefreshRequest | null {
   if (
     !canEditDailyNoteDate(date, state)
@@ -141,15 +144,15 @@ export function createCleanDailyNoteRefreshRequest(
     date,
     cleanMarkdown: state.cleanMarkdown,
     editorChangeEpoch: state.editorChangeEpoch,
-    markdown: state.markdown,
-    preserveEquivalentLiveMarkdown: state.markdown !== state.cleanMarkdown
+    markdown: state.markdown
   };
 }
 
 export function applyCleanDailyNoteRefreshResult(
   state: DateBoundEditorState,
   request: CleanDailyNoteRefreshRequest,
-  refresh: DailyNoteSessionResult
+  refresh: DailyNoteSessionResult,
+  isCanonicalEquivalent: CanonicalMarkdownEquivalence = exactMarkdownEquivalence
 ): DateBoundEditorTransition | null {
   if (
     !canEditDailyNoteDate(request.date, state) ||
@@ -160,16 +163,18 @@ export function applyCleanDailyNoteRefreshResult(
     return null;
   }
 
-  const preserveEquivalentLiveMarkdown = request.preserveEquivalentLiveMarkdown
-    && refresh.markdown === request.cleanMarkdown;
+  // A clean refresh that returns content canonically equivalent to the live
+  // editor must not replace the live document: doing so would erase the active
+  // empty paragraph or list item the user is about to type into.
+  const refreshEquivalent = isCanonicalEquivalent(state.markdown, refresh.markdown);
   const next = {
     ...state,
-    markdown: preserveEquivalentLiveMarkdown ? state.markdown : refresh.markdown,
+    markdown: refreshEquivalent ? state.markdown : refresh.markdown,
     cleanMarkdown: cleanMarkdownForStatus(refresh.markdown, refresh.status)
   };
   return {
     state: next,
-    ...(preserveEquivalentLiveMarkdown || refresh.markdown === state.markdown
+    ...(refreshEquivalent || refresh.markdown === state.markdown
       ? {}
       : {
           markdownWrite: {
@@ -183,12 +188,17 @@ export function applyCleanDailyNoteRefreshResult(
 export function applySyncResult(
   state: DateBoundEditorState,
   snapshot: VisibleDailyNoteSnapshot,
-  session: DailyNoteSessionResult
+  session: DailyNoteSessionResult,
+  isCanonicalEquivalent: CanonicalMarkdownEquivalence = exactMarkdownEquivalence
 ): DateBoundEditorTransition | null {
   if (!canEditDailyNoteDate(snapshot.date, state)) return null;
   if (session.status === "conflict" && state.markdown !== snapshot.markdown) return null;
 
-  const shouldApplyMarkdown = state.markdown === snapshot.markdown;
+  // A save that merely canonicalizes the live editor (removing placeholder-only
+  // empty lines) must keep the live document so a paused caret line stays editable.
+  const resultEquivalent = session.status !== "conflict"
+    && isCanonicalEquivalent(state.markdown, session.markdown);
+  const shouldApplyMarkdown = state.markdown === snapshot.markdown && !resultEquivalent;
   const nextMarkdown = shouldApplyMarkdown ? session.markdown : state.markdown;
   const next = {
     ...state,
