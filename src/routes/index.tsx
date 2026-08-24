@@ -316,7 +316,16 @@ export default function Home() {
   const [syncRetryAttempt, setSyncRetryAttempt] = createSignal(0);
   const [unsyncedSinceMs, setUnsyncedSinceMs] = createSignal<number | null>(null);
   const [syncWarningTick, setSyncWarningTick] = createSignal(0);
-  const [settings, setSettings] = createSignal<JotSettings>(DEFAULT_JOT_SETTINGS);
+  const fakeNormalizationProfile = runtime.kind === "fake"
+    ? browserLocalStorage?.getItem("jot.fakeNormalizationProfile")
+    : null;
+  const initialSettings = fakeNormalizationProfile === "enabled" || fakeNormalizationProfile === "disabled"
+    ? normalizeJotSettings({
+        ...DEFAULT_JOT_SETTINGS,
+        normalizeEmptyEditorPlaceholders: fakeNormalizationProfile === "enabled"
+      })
+    : DEFAULT_JOT_SETTINGS;
+  const [settings, setSettings] = createSignal<JotSettings>(initialSettings);
   const [settingsLoaded, setSettingsLoaded] = createSignal(false);
   const [syncDiagnosticsCopyMessage, setSyncDiagnosticsCopyMessage] = createSignal<string | null>(null);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
@@ -395,6 +404,14 @@ export default function Home() {
   let pendingStructuralTabSelection: MarkdownSelection | null | undefined;
   let structuralToolbarPointerHandled = false;
   let pendingSectionLinkSourceSelection: MarkdownSelection | null | undefined;
+  type RememberedCollapsedEditorSelection = {
+    readonly date: IsoDate;
+    readonly mode: EditorMode;
+    readonly resetKey: number;
+    readonly markdown: string;
+    readonly selection: MarkdownSelection;
+  };
+  let rememberedCollapsedEditorSelection: RememberedCollapsedEditorSelection | null = null;
   let rawHistoryPast: EditorHistoryEntry[] = [];
   let rawHistoryFuture: EditorHistoryEntry[] = [];
   let backgroundSyncGeneration = 0;
@@ -681,7 +698,7 @@ export default function Home() {
     readonly markdown: string;
     readonly selection: MarkdownSelection | null;
   } => {
-    const selection = currentEditorSelection();
+    const selection = currentOrRememberedEditorSelection(value);
     if (selection !== null && selection.start === selection.end) {
       const normalized = normalizeDailyNoteMarkdownAtCaret(value, selection.start, markdownNormalizationOptions());
       return {
@@ -735,7 +752,9 @@ export default function Home() {
     const rawMarkdown = currentEditorMarkdown();
     const live = selectivelyNormalizedLiveMarkdown(rawMarkdown);
     const persistedMarkdown = normalizeDailyNoteMarkdown(rawMarkdown, markdownNormalizationOptions());
-    const liveChanged = live.markdown !== markdown();
+    // Milkdown may serialize an equivalent document differently from application state.
+    // Only write back when selective normalization itself changed that live serialization.
+    const liveChanged = live.markdown !== rawMarkdown;
     if (liveChanged) {
       if (editorMode() === "wysiwyg") {
         clearRawHistory();
@@ -746,7 +765,36 @@ export default function Home() {
       if (live.selection !== null) {
         setFocusEditorAtEnd(false);
         setFocusEditorSelection(live.selection);
+        rememberedCollapsedEditorSelection = live.selection.start === live.selection.end
+          ? {
+              date,
+              mode: editorMode(),
+              resetKey: editorResetKey(),
+              markdown: live.markdown,
+              selection: live.selection
+            }
+          : null;
       }
+    } else if (
+      rawMarkdown !== markdown() &&
+      !(
+        editorMode() === "wysiwyg" &&
+        (
+          milkdownController?.hasUnreportedLiveMarkdown() !== true ||
+          milkdownController.isMarkdownEquivalentToLive(markdown())
+        )
+      )
+    ) {
+      // A live editor serialization can be newer than application state without
+      // being changed by normalization. Acknowledge it without replacing or
+      // restoring the live editor document.
+      if (editorMode() === "wysiwyg") clearRawHistory();
+      const acknowledgedMarkdown = editorMode() === "wysiwyg"
+        ? milkdownController?.getSerializedMarkdown() ?? rawMarkdown
+        : rawMarkdown;
+      const result = applyEditorChange(dateBoundEditorState(), date, acknowledgedMarkdown);
+      if (result.type !== "current-editor") return null;
+      applyDateBoundEditorTransition({ state: result.state, markdownWrite: result.markdownWrite });
     }
 
     return {
@@ -1207,7 +1255,7 @@ export default function Home() {
         const timeout = window.setTimeout(() => {
           if (!canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) return;
           recordSyncRequest("autosave", snapshot);
-          void dailyNoteReplication.saveAndSyncSnapshot(snapshot);
+          void dailyNoteReplication.saveAndSyncSnapshot(snapshot, { revalidateVisibleSnapshot: true });
         }, settings().autosaveDebounceMs);
 
         onCleanup(() => window.clearTimeout(timeout));
@@ -1866,6 +1914,34 @@ export default function Home() {
     return milkdownController?.getSelection() ?? null;
   };
 
+  const editorForModeHasFocus = (mode: EditorMode): boolean => mode === "text"
+    ? document.activeElement === plainTextEditorElement
+    : document.activeElement instanceof HTMLElement &&
+      document.activeElement.matches(".milkdown-root [contenteditable=\"true\"]");
+
+  const rememberedEditorSelection = (value: string): MarkdownSelection | null => {
+    const remembered = rememberedCollapsedEditorSelection;
+    const date = selectedDate();
+    if (
+      remembered === null ||
+      date === null ||
+      !selectedDateCanWrite() ||
+      remembered.date !== date ||
+      remembered.mode !== editorMode() ||
+      remembered.resetKey !== editorResetKey() ||
+      remembered.markdown !== value ||
+      remembered.selection.start > value.length
+    ) {
+      return null;
+    }
+    return remembered.selection;
+  };
+
+  const currentOrRememberedEditorSelection = (value = currentEditorMarkdown()): MarkdownSelection | null => {
+    if (editorForModeHasFocus(editorMode())) return currentEditorSelection();
+    return rememberedEditorSelection(value) ?? currentEditorSelection();
+  };
+
   const currentLinkModalBaseMarkdown = (session: LinkModalSession): string =>
     session.baseMarkdownSource === "state" ? markdown() : currentEditorMarkdown();
 
@@ -1911,7 +1987,7 @@ export default function Home() {
       return selection;
     }
 
-    return currentEditorSelection();
+    return currentOrRememberedEditorSelection();
   };
 
   const openTagModal = () => {
@@ -2176,6 +2252,24 @@ export default function Home() {
   };
 
   const handleEditorSelectionChange = () => {
+    const date = selectedDate();
+    const selection = currentEditorSelection();
+    if (
+      date !== null &&
+      selectedDateCanWrite() &&
+      selection !== null &&
+      selection.start === selection.end
+    ) {
+      rememberedCollapsedEditorSelection = {
+        date,
+        mode: editorMode(),
+        resetKey: editorResetKey(),
+        markdown: currentEditorMarkdown(),
+        selection
+      };
+    } else {
+      rememberedCollapsedEditorSelection = null;
+    }
     refreshEditorFormatState();
   };
 

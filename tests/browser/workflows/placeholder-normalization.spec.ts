@@ -8,10 +8,31 @@ import {
   setRawMarkdown,
   switchToRawMode
 } from "../helpers/editor";
-import { readFakeRemoteNote } from "../helpers/idb";
+import { readFakeRemoteNote, readLocalDraft, seedLocalDraft } from "../helpers/idb";
+
+test("the default browser profile exposes the shipped normalization preference", async ({ page }) => {
+  await openDevelopmentStorage(page, "/", "default");
+  await page.getByRole("button", { name: "Open menu" }).click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel("Normalize empty editor placeholders when saving")).toBeChecked();
+});
+
+test("the disabled profile applies before startup synchronization", async ({ page }) => {
+  await openDevelopmentStorage(page, "/", "disabled");
+  const date = "2030-02-05";
+  const pending = "before\n* <br />";
+  await seedLocalDraft(page, date, pending);
+
+  await page.goto(`/#/date/${date}`);
+  await expectRawMarkdown(page, pending);
+  await expect.poll(async () => (await readLocalDraft(page, date))?.markdown).toBe(pending);
+  await page.getByRole("button", { name: "Open menu" }).click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel("Normalize empty editor placeholders when saving")).not.toBeChecked();
+});
 
 test("sync keeps the current empty list item editable while saving the canonical note", async ({ page }) => {
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "enabled");
   const date = "2030-02-02";
   await page.goto(`/#/date/${date}`);
   await expect(rawEditor(page)).toBeHidden();
@@ -37,7 +58,7 @@ test("sync keeps the current empty list item editable while saving the canonical
 });
 
 test("disabled normalization preserves all empty placeholders locally and remotely", async ({ page }) => {
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
   const date = "2030-02-04";
   await page.goto(`/#/date/${date}`);
   await page.getByRole("button", { name: "Open menu" }).click();

@@ -3,7 +3,7 @@ import { openDevelopmentStorage, switchToRawMode, wysiwygEditor } from "../helpe
 import { seedLocalDraft } from "../helpers/idb";
 
 test("the date picker marks only notes with visible content", async ({ page }) => {
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
   const dateInput = page.getByRole("textbox", { name: "Selected date", exact: true });
   const selectedDate = await dateInput.inputValue();
   const monthPrefix = selectedDate.slice(0, 8);
@@ -23,7 +23,7 @@ test("the date picker marks only notes with visible content", async ({ page }) =
 });
 
 test("editor shortcuts move to the next and previous Daily Note", async ({ page }) => {
-  await openDevelopmentStorage(page, "/#/date/2030-02-02");
+  await openDevelopmentStorage(page, "/#/date/2030-02-02", "enabled");
   const dateInput = page.getByRole("textbox", { name: "Selected date", exact: true });
   const useMac = process.platform === "darwin";
 

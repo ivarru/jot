@@ -83,6 +83,21 @@ BROWSER_TEST_BASE_URL=http://127.0.0.1:4173/ npm run test:browser:editing
 The Playwright configuration uses one Chrome worker so that browser-local storage and the preview server remain
 deterministic. Failed checks retain a trace and capture a screenshot.
 
+### Placeholder-normalization profiles
+
+Fake-provider browser tests choose one of three profiles in `openDevelopmentStorage` before Jot starts loading settings,
+the editor, or synchronization work:
+
+- `disabled` is the normal choice for general editing, layout, and exact-Markdown tests whose contract is unrelated to
+  empty-placeholder policy.
+- `enabled` is required for placeholder-contract tests and the compact compatibility coverage for formatting, modal
+  insertion, autosave/sync, conflict pause, and date navigation.
+- `default` is reserved for assertions about the shipped preference and a small integration check that the default
+  remains compatible with editor controls.
+
+Call sites pass the profile explicitly. This is intentional: changing placeholder policy should affect its contract
+tests, not silently rewrite unrelated editing fixtures.
+
 ## Choosing a Test Layer
 
 - Prefer a pure unit test for transformations, parsing, formatting, and state transitions.
@@ -111,6 +126,9 @@ Bug fixes follow red-green-refactor:
 
 Daily Note work that crosses timers, promises, editor callbacks, storage operations, or date navigation must cover stale
 date transitions explicitly. Carry the exact date and markdown snapshot through the asynchronous boundary.
+
+Run `npm run verify:full`, not only `npm run verify`, before completing changes that cross editor, autosave, sync, or
+settings boundaries. Those changes can pass jsdom while failing only under native browser selection or startup timing.
 
 ## Writing Browser Tests
 

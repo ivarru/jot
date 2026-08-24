@@ -90,6 +90,9 @@ interface MilkdownEditorSession {
   readonly getSelection: () => MarkdownSelection | null;
   readonly getMarkdown: () => string;
   readonly getLiveMarkdown: () => string;
+  readonly getSerializedMarkdown: () => string;
+  readonly hasUnreportedLiveMarkdown: () => boolean;
+  readonly isMarkdownEquivalentToLive: (markdown: string) => boolean;
   readonly getLiveMarkdownSelection: () => {
     readonly markdown: string;
     readonly selection: MarkdownSelection;
@@ -133,6 +136,9 @@ export interface MilkdownEditorController {
   readonly getListItemFormatState: () => ListItemFormatState;
   readonly getMarkdown: () => string;
   readonly getLiveMarkdown: () => string;
+  readonly getSerializedMarkdown: () => string;
+  readonly hasUnreportedLiveMarkdown: () => boolean;
+  readonly isMarkdownEquivalentToLive: (markdown: string) => boolean;
   readonly getLiveMarkdownSelection: () => {
     readonly markdown: string;
     readonly selection: MarkdownSelection;
@@ -661,6 +667,33 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 serializeMilkdownMarkdown(editor.ctx.get(serializerCtx), view.state.doc)
               );
             },
+            getSerializedMarkdown: () => {
+              if (disposed || activeSession !== session || editor === null) return markdownState.currentMarkdown;
+              return serializeMilkdownMarkdown(
+                editor.ctx.get(serializerCtx),
+                editor.ctx.get(editorViewCtx).state.doc
+              );
+            },
+            hasUnreportedLiveMarkdown: () => {
+              if (disposed || activeSession !== session || editor === null || markdownState.lastSerializedMarkdown === null) {
+                return false;
+              }
+              return serializeMilkdownMarkdown(
+                editor.ctx.get(serializerCtx),
+                editor.ctx.get(editorViewCtx).state.doc
+              ) !== markdownState.lastSerializedMarkdown;
+            },
+            isMarkdownEquivalentToLive: (markdown) => {
+              if (disposed || activeSession !== session || editor === null) return false;
+              const view = editor.ctx.get(editorViewCtx);
+              const serializer = editor.ctx.get(serializerCtx);
+              const parsedMarkdown = editor.ctx.get(parserCtx)(markdown);
+              if (parsedMarkdown === null) return false;
+              return serializeMilkdownMarkdown(
+                serializer,
+                normalizeMilkdownListTightness(parsedMarkdown, EditorStateConstructor)
+              ) === serializeMilkdownMarkdown(serializer, view.state.doc);
+            },
             getLiveMarkdownSelection: () => {
               if (disposed || activeSession !== session || editor === null) return null;
               const view = editor.ctx.get(editorViewCtx);
@@ -833,6 +866,9 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             getListItemFormatState: () => session?.getListItemFormatState() ?? inactiveListItemFormatState,
             getMarkdown: () => session?.getMarkdown() ?? markdownState.currentMarkdown,
             getLiveMarkdown: () => session?.getLiveMarkdown() ?? markdownState.currentMarkdown,
+            getSerializedMarkdown: () => session?.getSerializedMarkdown() ?? markdownState.currentMarkdown,
+            hasUnreportedLiveMarkdown: () => session?.hasUnreportedLiveMarkdown() ?? false,
+            isMarkdownEquivalentToLive: (markdown) => session?.isMarkdownEquivalentToLive(markdown) ?? false,
             getLiveMarkdownSelection: () => session?.getLiveMarkdownSelection() ?? null,
             getSelection: () => session?.getSelection() ?? null,
             focusCurrentSelection: () => {

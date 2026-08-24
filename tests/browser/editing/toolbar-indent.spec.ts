@@ -1,9 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { openDevelopmentStorage } from "../helpers/editor";
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Use development storage" }).click();
-  await expect(page.locator(".milkdown-root [contenteditable=\"true\"]")).toBeVisible();
+  await openDevelopmentStorage(page, "/", "default");
 });
 
 test("toolbar indent keeps the WYSIWYG caret on marker-only lines", async ({ page }) => {

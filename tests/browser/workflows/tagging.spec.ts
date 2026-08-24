@@ -12,7 +12,7 @@ import {
 import { seedLocalDraft } from "../helpers/idb";
 
 test("inserts a tag in the trailing empty WYSIWYG paragraph", async ({ page }) => {
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "enabled");
   await setRawMarkdown(page, "abcd\n\nefgh");
   await switchToWysiwygMode(page);
   await focusWysiwygEditorAtEnd(page);
@@ -41,7 +41,7 @@ test("inserts a tag in the trailing empty WYSIWYG paragraph", async ({ page }) =
 });
 
 test("tags can be inserted, rendered, suggested, and removed from suggestions", async ({ page }) => {
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
   const initial = "Lead paragraph\n\n# Plan [#research](jot:tag/research)\n\nReview";
   const date = await page.getByRole("textbox", { name: "Selected date", exact: true }).inputValue();
   await seedLocalDraft(page, date, initial);
