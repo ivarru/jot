@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openDevelopmentStorage } from "../helpers/editor";
 
 interface RectMetrics {
   readonly left: number;
@@ -32,9 +33,7 @@ test.use({
 });
 
 test("wide code blocks shift, recenter, and keep editor prose wrapped", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Use development storage" }).click();
-  await expect(page.locator(".milkdown-root [contenteditable=\"true\"]")).toBeVisible();
+  await openDevelopmentStorage(page, "/", "disabled");
 
   const extreme = await setMarkdownAndMeasure(page, "abc ".repeat(220), "pinned-left");
   expect(extreme.shell.left, JSON.stringify(extreme)).toBeGreaterThanOrEqual(-1);

@@ -10,7 +10,7 @@ test("fake storage uploads a Daily Note Markdown file", async ({ page }, testInf
   const notePath = testInfo.outputPath(`${uploadDate}.md`);
   await writeFile(notePath, uploadMarkdown);
 
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
   await page.locator("input[accept=\".md,text/markdown\"]").setInputFiles(notePath);
 
   const note = await waitForFakeRemoteNote(page, uploadDate);

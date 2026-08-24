@@ -22,7 +22,7 @@ const remote = "before\nremote\nsame\nafter\n";
 const resolved = "resolved note\n";
 
 test("fake reconnect conflict can be resolved manually and synced", async ({ page }) => {
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
   await expect(page.locator(".sync-status[aria-label*=\"Local only\"], .sync-status[aria-label*=\"Synced\"]")).toBeVisible();
 
   await seedConflictState(page, {
@@ -51,7 +51,7 @@ test("fake reconnect conflict can be resolved manually and synced", async ({ pag
 });
 
 test("an enabled diagnostic buffer can be copied and freezes when a conflict opens", async ({ page }) => {
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "enabled");
   await grantClipboardPermissions(page);
   await page.getByRole("button", { name: "Open menu" }).click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
@@ -70,7 +70,7 @@ test("an enabled diagnostic buffer can be copied and freezes when a conflict ope
   await expect(copy).toBeEnabled();
   await copy.click();
   const copied = await page.evaluate(async () => await navigator.clipboard.readText());
-  expect(copied).toContain("Jot 0.25.0 sync diagnostics");
+  expect(copied).toMatch(/^Jot \d+\.\d+\.\d+ sync diagnostics/);
   expect(copied).toContain("sync-conflict");
   expect(copied).not.toContain(local);
   expect(copied).not.toContain(remote);
@@ -82,7 +82,7 @@ test("an enabled diagnostic buffer can be copied and freezes when a conflict ope
 test("a clean stale phone cache refreshes to the longer remote note before remaining synced", async ({ page }) => {
   const shortPhoneCopy = "# Day\n\nBreakfast\n";
   const longPcCopy = "# Day\n\nBreakfast\n\nWork completed on the PC\n\nEvening notes\n";
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
   await seedDailyNoteState(page, {
     draft: {
       date,
@@ -126,7 +126,7 @@ test("a dirty stale phone edit cannot replace a newer PC revision", async ({ pag
   const staleBaseline = "# Day\n\nShared line\n";
   const phoneEdit = "# Day\n\nChanged on the phone\n";
   const pcEdit = "# Day\n\nChanged on the PC with substantially more detail\n";
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
   await seedDailyNoteState(page, {
     draft: {
       date,

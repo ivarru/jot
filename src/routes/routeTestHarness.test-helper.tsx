@@ -243,6 +243,9 @@ vi.mock("~/components/MilkdownEditor", async () => {
         readonly getListItemFormatState: () => { readonly task: boolean };
         readonly getMarkdown: () => string;
         readonly getLiveMarkdown: () => string;
+        readonly getSerializedMarkdown: () => string;
+        readonly hasUnreportedLiveMarkdown: () => boolean;
+        readonly isMarkdownEquivalentToLive: (markdown: string) => boolean;
         readonly getLiveMarkdownSelection: () => {
           readonly markdown: string;
           readonly selection: { readonly start: number; readonly end: number };
@@ -264,6 +267,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
     }) => {
       let textarea: HTMLTextAreaElement | undefined;
       let present = props.value;
+      let unreportedLiveMarkdown = false;
       const past: string[] = [];
       const future: string[] = [];
       const inlineFormatState = {
@@ -288,6 +292,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
       const controllerSerializedMarkdown = (markdown: string) => markdown.endsWith(" ") ? `${markdown.trimEnd()}\n` : markdown;
       const setInternalMarkdownWithoutChangeEvent = (markdown: string) => {
         present = markdown;
+        unreportedLiveMarkdown = true;
         if (textarea !== undefined) textarea.value = markdown;
       };
 
@@ -298,6 +303,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
         if (serialized === present) return;
         past.push(present);
         present = serialized;
+        unreportedLiveMarkdown = false;
         future.length = 0;
         if (textarea !== undefined) textarea.value = serialized;
         reportHistoryAvailability();
@@ -311,6 +317,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
         if (previous === undefined) return false;
         future.push(present);
         present = previous;
+        unreportedLiveMarkdown = false;
         if (textarea !== undefined) textarea.value = previous;
         props.onChange(props.documentKey, previous);
         reportHistoryAvailability();
@@ -321,6 +328,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
         if (next === undefined) return false;
         past.push(present);
         present = next;
+        unreportedLiveMarkdown = false;
         if (textarea !== undefined) textarea.value = next;
         props.onChange(props.documentKey, next);
         reportHistoryAvailability();
@@ -371,6 +379,10 @@ vi.mock("~/components/MilkdownEditor", async () => {
         getListItemFormatState: () => ({ ...listItemFormatState }),
         getMarkdown: () => present,
         getLiveMarkdown: () => textarea?.value ?? present,
+        getSerializedMarkdown: () => textarea?.value ?? present,
+        hasUnreportedLiveMarkdown: () => unreportedLiveMarkdown,
+        isMarkdownEquivalentToLive: (markdown) =>
+          markdown.replace(/\n$/, "") === (textarea?.value ?? present).replace(/\n$/, ""),
         getLiveMarkdownSelection: () =>
           textarea === undefined || !routeTestState.wysiwygSelectionAvailable
             ? null

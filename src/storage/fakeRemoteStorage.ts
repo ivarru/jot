@@ -56,6 +56,13 @@ export class FakeRemoteStorageProvider implements RemoteStorageProvider {
       store.get("jot-settings")
     );
 
+    const profile = typeof window === "undefined" ? null : window.localStorage.getItem("jot.fakeNormalizationProfile");
+    if (profile === "enabled" || profile === "disabled") {
+      return normalizeJotSettings({
+        ...(stored?.value ?? DEFAULT_JOT_SETTINGS),
+        normalizeEmptyEditorPlaceholders: profile === "enabled"
+      });
+    }
     return stored ? normalizeJotSettings(stored.value) : null;
   }
 

@@ -16,7 +16,7 @@ import {
 test("link modal supports clipboard autofill, editing, and share-target insertion", async ({ page }) => {
   await assertManifestShareTarget(page);
   await grantClipboardPermissions(page);
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
   await switchToRawMode(page);
 
   await assertWysiwygTrailingEmptyParagraphInsert(page);

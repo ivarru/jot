@@ -77,6 +77,32 @@ describe("Daily Note Replication lifecycle", () => {
     expect(harness.state.cleanMarkdown).toBe("before");
   });
 
+  it("does not replace canonically equivalent live markdown after saving", async () => {
+    const drafts = new MemoryDraftStore();
+    await drafts.save(createDraft(DATE, "before", "", null, true));
+    const remote = new RecordingRemoteStorageProvider();
+    const harness = createHarness({
+      drafts,
+      remote,
+      state: editorState({
+        selectedDate: DATE,
+        loadedDate: DATE,
+        markdown: "before\n* <br />",
+        cleanMarkdown: null
+      }),
+      syncStatus: "saved-locally",
+      normalizeMarkdown: (markdown) => normalizeDailyNoteMarkdown(markdown, {
+        normalizeEmptyEditorPlaceholders: true
+      })
+    });
+
+    await harness.sync.saveAndSyncSnapshot({ date: DATE, markdown: "before" });
+
+    expect(remote.savedInputs).toEqual([{ date: DATE, markdown: "before", expectedRevisionId: null }]);
+    expect(harness.state.markdown).toBe("before\n* <br />");
+    expect(harness.state.cleanMarkdown).toBe("before");
+  });
+
   it("does not continue from local draft load into remote follow-up after cancellation", async () => {
     const cachedDraft = createDraft(DATE, "cached", "cached", "revision-1", false);
     const drafts = new DelayedFirstLoadDraftStore(cachedDraft);
@@ -174,6 +200,178 @@ describe("Daily Note Replication lifecycle", () => {
     expect(harness.transitions).toEqual([]);
     expect(harness.syncStatuses).toEqual([]);
     await expect(drafts.load(DATE)).resolves.toBeNull();
+  });
+
+  it("holds an older save until a newer clean refresh has replaced it", async () => {
+    const drafts = new MemoryDraftStore();
+    await drafts.save(createDraft(DATE, "short", "short", "revision-7", false));
+    const remote = new DelayedLoadRemoteStorageProvider({
+      date: DATE,
+      markdown: "a newer and longer remote note",
+      revisionId: "revision-8",
+      updatedAt: "2030-01-02T00:00:00.000Z"
+    });
+    const harness = createHarness({
+      drafts,
+      remote,
+      state: editorState({
+        selectedDate: DATE,
+        loadedDate: DATE,
+        markdown: "short",
+        cleanMarkdown: "short"
+      }),
+      syncStatus: "synced"
+    });
+
+    const scheduledSnapshot = { date: DATE, markdown: "short" } as const;
+    const refreshing = harness.sync.refreshCleanSelectedDate(DATE);
+    await remote.loadStarted.promise;
+
+    expect(remote.savedInputs).toEqual([]);
+    remote.finishLoad();
+    await refreshing;
+    // The timer carrying the old snapshot becomes due only after the refresh closes.
+    await harness.sync.saveAndSyncSnapshot(scheduledSnapshot, { revalidateVisibleSnapshot: true });
+
+    expect(remote.savedInputs).toEqual([]);
+    expect(harness.state.markdown).toBe("a newer and longer remote note");
+    await expect(drafts.load(DATE)).resolves.toMatchObject({
+      markdown: "a newer and longer remote note",
+      baselineRevisionId: "revision-8",
+      dirty: false
+    });
+  });
+
+  it("coalesces held saves and saves only the latest edit after an unchanged refresh", async () => {
+    const drafts = new MemoryDraftStore();
+    await drafts.save(createDraft(DATE, "clean", "clean", "revision-7", false));
+    const remote = new DelayedLoadRemoteStorageProvider({
+      date: DATE,
+      markdown: "clean",
+      revisionId: "revision-7",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    });
+    const harness = createHarness({
+      drafts,
+      remote,
+      state: editorState({ selectedDate: DATE, loadedDate: DATE, markdown: "clean", cleanMarkdown: "clean" }),
+      syncStatus: "synced"
+    });
+
+    const refreshing = harness.sync.refreshCleanSelectedDate(DATE);
+    await remote.loadStarted.promise;
+    harness.setState(editorState({
+      selectedDate: DATE,
+      loadedDate: DATE,
+      markdown: "clean plus current edit",
+      cleanMarkdown: "clean",
+      editorChangeEpoch: 1
+    }));
+    const firstSave = harness.sync.saveAndSyncSnapshot({ date: DATE, markdown: "clean" });
+    const secondSave = harness.sync.saveAndSyncSnapshot({ date: DATE, markdown: "clean plus current edit" });
+    remote.finishLoad();
+    await Promise.all([refreshing, firstSave, secondSave]);
+
+    expect(remote.savedInputs).toEqual([{
+      date: DATE,
+      markdown: "clean plus current edit",
+      expectedRevisionId: "revision-7"
+    }]);
+  });
+
+  it("releases held work after a failed refresh and saves the latest explicit snapshot", async () => {
+    const drafts = new MemoryDraftStore();
+    await drafts.save(createDraft(DATE, "clean", "clean", "revision-7", false));
+    const remote = new DelayedFailingLoadRemoteStorageProvider();
+    const harness = createHarness({
+      drafts,
+      remote,
+      state: editorState({ selectedDate: DATE, loadedDate: DATE, markdown: "clean", cleanMarkdown: "clean" }),
+      syncStatus: "synced"
+    });
+
+    const refreshing = harness.sync.refreshCleanSelectedDate(DATE);
+    await remote.loadStarted.promise;
+    harness.setState(editorState({
+      selectedDate: DATE,
+      loadedDate: DATE,
+      markdown: "edit typed during failed refresh",
+      cleanMarkdown: "clean",
+      editorChangeEpoch: 1
+    }));
+    const saving = harness.sync.saveAndSyncSnapshot({ date: DATE, markdown: "clean" });
+    remote.finishLoad();
+    await Promise.all([refreshing, saving]);
+
+    expect(remote.savedInputs).toEqual([{
+      date: DATE,
+      markdown: "edit typed during failed refresh",
+      expectedRevisionId: "revision-7"
+    }]);
+  });
+
+  it("drops held date-A work after navigation to date B", async () => {
+    const dateB: IsoDate = "2030-02-03";
+    const drafts = new MemoryDraftStore();
+    await drafts.save(createDraft(DATE, "clean A", "clean A", "revision-7", false));
+    const remote = new DelayedLoadRemoteStorageProvider({
+      date: DATE,
+      markdown: "newer A",
+      revisionId: "revision-8",
+      updatedAt: "2030-01-02T00:00:00.000Z"
+    });
+    const harness = createHarness({
+      drafts,
+      remote,
+      state: editorState({ selectedDate: DATE, loadedDate: DATE, markdown: "clean A", cleanMarkdown: "clean A" }),
+      syncStatus: "synced"
+    });
+
+    const refreshing = harness.sync.refreshCleanSelectedDate(DATE);
+    await remote.loadStarted.promise;
+    const saving = harness.sync.saveAndSyncSnapshot({ date: DATE, markdown: "clean A" });
+    harness.setState(editorState({ selectedDate: dateB, loadedDate: dateB, markdown: "note B", cleanMarkdown: "note B" }));
+    remote.finishLoad();
+    await Promise.all([refreshing, saving]);
+
+    expect(remote.savedInputs).toEqual([]);
+    expect(harness.state.markdown).toBe("note B");
+  });
+
+  it("releases an aborted refresh barrier without reviving its held save", async () => {
+    const drafts = new MemoryDraftStore();
+    await drafts.save(createDraft(DATE, "clean", "clean", "revision-7", false));
+    const remote = new DelayedLoadRemoteStorageProvider({
+      date: DATE,
+      markdown: "newer remote",
+      revisionId: "revision-8",
+      updatedAt: "2030-01-02T00:00:00.000Z"
+    });
+    const harness = createHarness({
+      drafts,
+      remote,
+      state: editorState({ selectedDate: DATE, loadedDate: DATE, markdown: "clean", cleanMarkdown: "clean" }),
+      syncStatus: "synced"
+    });
+
+    const refreshing = harness.sync.refreshCleanSelectedDate(DATE);
+    await remote.loadStarted.promise;
+    const heldSave = harness.sync.saveAndSyncSnapshot({ date: DATE, markdown: "clean" });
+    harness.sync.cancelInFlightWork();
+    remote.finishLoad();
+    await Promise.all([refreshing, heldSave]);
+    expect(remote.savedInputs).toEqual([]);
+
+    harness.setState(editorState({
+      selectedDate: DATE,
+      loadedDate: DATE,
+      markdown: "new edit after cancellation",
+      cleanMarkdown: "clean",
+      editorChangeEpoch: 1
+    }));
+    await harness.sync.saveAndSyncSnapshot({ date: DATE, markdown: "new edit after cancellation" });
+    expect(remote.savedInputs).toHaveLength(1);
+    expect(remote.savedInputs[0]?.markdown).toBe("new edit after cancellation");
   });
 
   it("does not apply a remote save result after cancellation", async () => {
@@ -386,6 +584,9 @@ function createHarness(input: {
       return pendingSyncConflict;
     },
     markedExistingDates,
+    setState(nextState: DateBoundEditorState) {
+      state = nextState;
+    },
     sync,
     syncStatuses,
     transitions
@@ -530,6 +731,22 @@ class DelayedLoadRemoteStorageProvider extends RecordingRemoteStorageProvider {
     this.loadStarted.resolve();
     await this.loadCanFinish.promise;
     return this.note?.date === date ? this.note : null;
+  }
+
+  finishLoad(): void {
+    this.loadCanFinish.resolve();
+  }
+}
+
+class DelayedFailingLoadRemoteStorageProvider extends RecordingRemoteStorageProvider {
+  readonly loadStarted = deferred<void>();
+  private readonly loadCanFinish = deferred<void>();
+
+  override async loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null> {
+    this.loadInputs.push(date);
+    this.loadStarted.resolve();
+    await this.loadCanFinish.promise;
+    throw new Error("refresh failed");
   }
 
   finishLoad(): void {

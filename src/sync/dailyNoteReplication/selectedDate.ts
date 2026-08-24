@@ -5,7 +5,7 @@ import type {
   DateBoundEditorTransition,
   VisibleDailyNoteSnapshot
 } from "~/editor/dateBoundEditor";
-import { canEditDailyNoteDate } from "~/editor/dateBoundEditor";
+import { canEditDailyNoteDate, captureVisibleDailyNoteSnapshot } from "~/editor/dateBoundEditor";
 import type { LocalDraftStore, RemoteStorageProvider, SyncStatus } from "~/storage/types";
 import type { DailyNoteConflictResolution, DailyNoteSyncConflict } from "./replicationCore";
 import { isCancelledDailyNoteSyncError, persistLocalDraft, type DailyNoteSyncControl } from "./replicationCore";
@@ -17,7 +17,6 @@ import {
   refreshCleanSelectedDailyNoteSession,
   resolveSelectedDailyNoteConflict,
   replicateDailyNoteSnapshot,
-  saveVisibleDailyNoteSnapshot,
   selectedDailyNoteBlurSaveAction,
   selectedDailyNoteManualSyncAction,
   selectedDailyNotePollingAction,
@@ -58,7 +57,10 @@ export interface DailyNoteReplication {
   readonly persistVisibleLocalDraft: (snapshot: VisibleDailyNoteSnapshot) => Promise<void>;
   readonly saveAndSyncSnapshot: (
     snapshot: VisibleDailyNoteSnapshot,
-    options?: { readonly refreshRemoteBeforeSave?: boolean }
+    options?: {
+      readonly refreshRemoteBeforeSave?: boolean;
+      readonly revalidateVisibleSnapshot?: boolean;
+    }
   ) => Promise<void>;
   readonly saveCurrentEditorSnapshot: () => Promise<void>;
   readonly saveBlurSnapshot: (snapshot: VisibleDailyNoteSnapshot) => Promise<void>;
@@ -80,6 +82,13 @@ export interface DailyNoteReplication {
 
 export function createDailyNoteReplication(input: DailyNoteReplicationInput): DailyNoteReplication {
   let generation = 0;
+  interface CleanRefreshBarrier {
+    readonly promise: Promise<void>;
+    readonly release: () => void;
+  }
+  const cleanRefreshBarriers = new Map<IsoDate, CleanRefreshBarrier>();
+  const postRefreshSaves = new Map<IsoDate, Promise<void>>();
+  const postRefreshLocalPersists = new Map<IsoDate, Promise<void>>();
 
   const cancelInFlightWork = (): void => {
     generation += 1;
@@ -89,6 +98,12 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
   const isCurrentGeneration = (capturedGeneration: number): boolean => capturedGeneration === generation;
   const canContinueInGeneration = (capturedGeneration: number): NonNullable<DailyNoteSyncControl["canContinue"]> =>
     () => isCurrentGeneration(capturedGeneration);
+  const canonicalMarkdown = (markdown: string): string => input.normalizeMarkdown?.(markdown) ?? markdown;
+  const visibleSnapshotNeedsSave = (snapshot: VisibleDailyNoteSnapshot): boolean => {
+    const state = input.getState();
+    if (!canEditDailyNoteDate(snapshot.date, state) || state.cleanMarkdown === null) return true;
+    return canonicalMarkdown(snapshot.markdown) !== canonicalMarkdown(state.cleanMarkdown);
+  };
 
   const loadSelectedDate = async (date: IsoDate): Promise<void> => {
     const startedInGeneration = currentGeneration();
@@ -112,38 +127,101 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
     });
     if (!isCurrentGeneration(startedInGeneration)) return;
 
+    // Establish the refresh barrier before applying a clean cached document. Applying
+    // that transition can synchronously schedule foreground/autosave work.
+    const anticipatedRemoteAction = result.type === "loaded" &&
+      result.transition !== null &&
+      result.transition.state.loadedDate !== null
+      ? selectedDailyNoteRemoteLoadAction(result.transition.state.loadedDate, result.session)
+      : null;
+    const anticipatedRefreshBarrier = anticipatedRemoteAction?.type === "refresh-clean"
+      ? createCleanRefreshBarrier(anticipatedRemoteAction.date)
+      : undefined;
     const remoteAction = applyLocalLoadResult(result);
-    if (remoteAction === null) return;
-    if (!isCurrentGeneration(startedInGeneration)) return;
+    if (remoteAction === null || !isCurrentGeneration(startedInGeneration)) {
+      if (anticipatedRefreshBarrier !== undefined) finishCleanRefreshBarrier(date, anticipatedRefreshBarrier);
+      return;
+    }
 
     if (remoteAction.type === "load-selected") {
       await loadSelectedDate(remoteAction.date);
     } else {
-      await refreshCleanSelectedDate(remoteAction.date);
+      await runCleanRefresh(remoteAction.date, anticipatedRefreshBarrier);
+    }
+  };
+
+  const createCleanRefreshBarrier = (date: IsoDate): CleanRefreshBarrier => {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const barrier = { promise, release };
+    cleanRefreshBarriers.set(date, barrier);
+    return barrier;
+  };
+
+  const finishCleanRefreshBarrier = (date: IsoDate, barrier: CleanRefreshBarrier): void => {
+    if (cleanRefreshBarriers.get(date) === barrier) cleanRefreshBarriers.delete(date);
+    barrier.release();
+  };
+
+  const runCleanRefresh = async (
+    date: IsoDate,
+    anticipatedBarrier?: CleanRefreshBarrier
+  ): Promise<void> => {
+    const existingBarrier = cleanRefreshBarriers.get(date);
+    if (anticipatedBarrier === undefined && existingBarrier !== undefined) {
+      await existingBarrier.promise;
+      return;
+    }
+
+    const barrier = anticipatedBarrier ?? createCleanRefreshBarrier(date);
+    const startedInGeneration = currentGeneration();
+    try {
+      const result = await refreshCleanSelectedDailyNoteSession({
+        date,
+        drafts: input.drafts,
+        remote: input.remote,
+        getState: input.getState,
+        canContinue: canContinueInGeneration(startedInGeneration),
+        ...(input.normalizeMarkdown === undefined
+          ? {}
+          : {
+              isCanonicalEquivalent: (live: string, canonical: string) =>
+                input.normalizeMarkdown!(live) === input.normalizeMarkdown!(canonical)
+            })
+      });
+      if (!isCurrentGeneration(startedInGeneration)) return;
+      applyRefreshResult(result);
+    } finally {
+      finishCleanRefreshBarrier(date, barrier);
     }
   };
 
   const refreshCleanSelectedDate = async (date: IsoDate): Promise<void> => {
-    const startedInGeneration = currentGeneration();
-    const result = await refreshCleanSelectedDailyNoteSession({
-      date,
-      drafts: input.drafts,
-      remote: input.remote,
-      getState: input.getState,
-      canContinue: canContinueInGeneration(startedInGeneration),
-      ...(input.normalizeMarkdown === undefined
-        ? {}
-        : {
-            isCanonicalEquivalent: (live: string, canonical: string) =>
-              input.normalizeMarkdown!(live) === input.normalizeMarkdown!(canonical)
-          })
-    });
-    if (!isCurrentGeneration(startedInGeneration)) return;
-    applyRefreshResult(result);
+    await runCleanRefresh(date);
   };
 
   const persistVisibleLocalDraft = async (snapshot: VisibleDailyNoteSnapshot): Promise<void> => {
     const startedInGeneration = currentGeneration();
+    const barrier = cleanRefreshBarriers.get(snapshot.date);
+    if (barrier !== undefined) {
+      const existingPersist = postRefreshLocalPersists.get(snapshot.date);
+      if (existingPersist !== undefined) return await existingPersist;
+      const pendingPersist = (async () => {
+        await barrier.promise;
+        if (!isCurrentGeneration(startedInGeneration)) return;
+        const currentSnapshot = captureVisibleDailyNoteSnapshot(input.getState());
+        if (currentSnapshot === null || currentSnapshot.date !== snapshot.date) return;
+        await persistVisibleLocalDraft(currentSnapshot);
+      })().finally(() => {
+        if (postRefreshLocalPersists.get(snapshot.date) === pendingPersist) {
+          postRefreshLocalPersists.delete(snapshot.date);
+        }
+      });
+      postRefreshLocalPersists.set(snapshot.date, pendingPersist);
+      return await pendingPersist;
+    }
     try {
       const status = await persistLocalDraft(snapshot.date, snapshot.markdown, input.drafts, {
         canContinue: canContinueInGeneration(startedInGeneration),
@@ -163,10 +241,39 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
   };
 
   const saveAndSyncSnapshot = async (
-    snapshot: VisibleDailyNoteSnapshot,
-    options: { readonly refreshRemoteBeforeSave?: boolean } = {}
+    requestedSnapshot: VisibleDailyNoteSnapshot,
+    options: {
+      readonly refreshRemoteBeforeSave?: boolean;
+      readonly revalidateVisibleSnapshot?: boolean;
+    } = {}
   ): Promise<void> => {
+    const latestVisibleSnapshot = captureVisibleDailyNoteSnapshot(input.getState());
+    const snapshot = options.revalidateVisibleSnapshot === true &&
+      latestVisibleSnapshot?.date === requestedSnapshot.date &&
+      canonicalMarkdown(latestVisibleSnapshot.markdown) !== canonicalMarkdown(requestedSnapshot.markdown)
+      ? latestVisibleSnapshot
+      : requestedSnapshot;
+    if (snapshot !== requestedSnapshot && !visibleSnapshotNeedsSave(snapshot)) return;
     const startedInGeneration = currentGeneration();
+    const barrier = cleanRefreshBarriers.get(snapshot.date);
+    if (barrier !== undefined) {
+      const existingSave = postRefreshSaves.get(snapshot.date);
+      if (existingSave !== undefined) return await existingSave;
+      const pendingSave = (async () => {
+        await barrier.promise;
+        if (!isCurrentGeneration(startedInGeneration)) return;
+        const currentSnapshot = captureVisibleDailyNoteSnapshot(input.getState());
+        if (currentSnapshot === null || currentSnapshot.date !== snapshot.date) return;
+        if (!visibleSnapshotNeedsSave(currentSnapshot)) return;
+        await saveAndSyncSnapshot(currentSnapshot, options);
+      })().finally(() => {
+        if (postRefreshSaves.get(snapshot.date) === pendingSave) {
+          postRefreshSaves.delete(snapshot.date);
+        }
+      });
+      postRefreshSaves.set(snapshot.date, pendingSave);
+      return await pendingSave;
+    }
     if (!input.authReconnectRequired() && canEditDailyNoteDate(snapshot.date, input.getState())) {
       input.setSyncStatus("syncing");
     }
@@ -187,17 +294,8 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
   };
 
   const saveCurrentEditorSnapshot = async (): Promise<void> => {
-    const startedInGeneration = currentGeneration();
-    const result = await saveVisibleDailyNoteSnapshot({
-      authReconnectRequired: input.authReconnectRequired(),
-      drafts: input.drafts,
-      remote: input.remote,
-      getState: input.getState,
-      canContinue: canContinueInGeneration(startedInGeneration),
-      ...(input.normalizeMarkdown === undefined ? {} : { normalizeMarkdown: input.normalizeMarkdown })
-    });
-    if (!isCurrentGeneration(startedInGeneration)) return;
-    if (result !== null) applySaveResult(result);
+    const snapshot = captureVisibleDailyNoteSnapshot(input.getState());
+    if (snapshot !== null) await saveAndSyncSnapshot(snapshot);
   };
 
   const saveBlurSnapshot = async (snapshot: VisibleDailyNoteSnapshot): Promise<void> => {

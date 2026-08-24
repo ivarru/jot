@@ -12,7 +12,7 @@ test("fake image upload inserts a rendered Jot image and saves Markdown", async 
   const imagePath = testInfo.outputPath("smoke.png");
   await writeFile(imagePath, pngBytes);
 
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
   await clickButton(page, "Insert image");
   await page.getByRole("menuitem", { name: "Upload from device" }).click();
   await page.locator("input.hidden-file-input[type=\"file\"][accept=\"image/*\"]").setInputFiles(imagePath);

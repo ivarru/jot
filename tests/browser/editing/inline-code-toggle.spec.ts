@@ -6,7 +6,7 @@ import {
 } from "../helpers/editor";
 
 test.beforeEach(async ({ page }) => {
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
 });
 
 test("typing a space then using the toolbar code button keeps the space outside the code span", async ({ page }) => {

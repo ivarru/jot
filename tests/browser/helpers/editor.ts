@@ -12,7 +12,17 @@ export function wysiwygEditor(page: Page): Locator {
   return page.locator(".milkdown-root [contenteditable=\"true\"]");
 }
 
-export async function openDevelopmentStorage(page: Page, path = "/"): Promise<void> {
+export type BrowserNormalizationProfile = "default" | "enabled" | "disabled";
+
+export async function openDevelopmentStorage(
+  page: Page,
+  path: string,
+  normalization: BrowserNormalizationProfile
+): Promise<void> {
+  await page.addInitScript((profile) => {
+    if (profile === "default") localStorage.removeItem("jot.fakeNormalizationProfile");
+    else localStorage.setItem("jot.fakeNormalizationProfile", profile);
+  }, normalization);
   await page.goto(path);
   await page.getByRole("button", { name: "Use development storage" }).click();
   await expect(wysiwygEditor(page)).toBeVisible();
@@ -55,12 +65,12 @@ export async function replaceRawMarkdownWithKeyboard(page: Page, markdown: strin
 export async function focusRawEditor(page: Page): Promise<void> {
   const editor = rawEditor(page);
   await expect(editor).toBeVisible();
-  await editor.focus();
-  await editor.evaluate((element) => {
+  await expect.poll(async () => await editor.evaluate((element) => {
     if (!(element instanceof HTMLTextAreaElement)) throw new Error("Raw editor is not a textarea.");
+    element.focus();
     element.select();
-  });
-  await expect.poll(async () => await rawSelection(page)).toEqual({
+    return { start: element.selectionStart, end: element.selectionEnd };
+  })).toEqual({
     start: 0,
     end: (await rawMarkdown(page)).length
   });

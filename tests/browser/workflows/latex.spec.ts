@@ -20,7 +20,7 @@ const formulaMarkdown = [
 ].join("\n");
 
 test("fake storage renders LaTeX formulas and preserves Markdown", async ({ page }) => {
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
   await setRawMarkdown(page, formulaMarkdown);
   await switchToWysiwygMode(page);
 

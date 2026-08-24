@@ -23,7 +23,7 @@ import {
 import { readFakeRemoteNote, readLocalDraft, seedLocalDraft } from "../helpers/idb";
 
 test.beforeEach(async ({ page }) => {
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
   await switchToRawMode(page);
 });
 

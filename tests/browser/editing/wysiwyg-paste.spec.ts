@@ -15,7 +15,7 @@ const insertedUrl = "https://example.com/from-keyboard:a?x=1";
 
 test("WYSIWYG URL typing and paste keep raw Markdown link syntax stable", async ({ page }) => {
   await grantClipboardPermissions(page);
-  await openDevelopmentStorage(page);
+  await openDevelopmentStorage(page, "/", "disabled");
 
   await focusWysiwygEditorAtEnd(page);
   await insertWysiwygText(page, insertedUrl);
