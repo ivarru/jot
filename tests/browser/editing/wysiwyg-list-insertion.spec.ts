@@ -67,3 +67,13 @@ test("editing the middle of a compact list keeps it compact", async ({ page }) =
 
   await expectNormalizedRawMarkdown(page, "* first\n* secondX\n* third");
 });
+
+test("Enter between two paragraphs keeps the new empty paragraph through autosave", async ({ page }) => {
+  await setRawMarkdown(page, "foo\n\nbar");
+  await switchToWysiwygMode(page);
+  await focusWysiwygTextOffset(page, "foo", 3);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(2500);
+
+  await expectNormalizedRawMarkdown(page, "foo\n\n<br />\n\nbar");
+});

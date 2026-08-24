@@ -2164,10 +2164,14 @@ function emptyMarkdownLineOffset(markdown: string, targetIndex: number): number 
     if (!isProtected(lineText)) {
       const syntaxKind = syntaxOnlyLineKind(lineText);
       const emptyPlaceholderOffset = emptyTextblockPlaceholderOffset(lineText);
-      if (lineText.trim() === "" || syntaxKind !== null || emptyPlaceholderOffset !== null) {
+      // Blank lines are separators between blocks, not empty textblocks: an
+      // empty paragraph serializes as a "<br />" placeholder line, and a
+      // trailing empty paragraph is handled by the final-top-level-textblock
+      // short-circuit before this function runs.
+      if (syntaxKind !== null || emptyPlaceholderOffset !== null) {
         if (currentIndex === targetIndex) {
           if (emptyPlaceholderOffset !== null) return lineStart + emptyPlaceholderOffset;
-          return syntaxKind === null ? lineStart : lineEnd;
+          return lineEnd;
         }
         currentIndex += 1;
       }
