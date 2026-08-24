@@ -121,6 +121,63 @@ function normalizeEmptyEditorPlaceholders(markdown: string, preserveLineAt?: num
   return collapseBlankLines(normalized).map((line) => line.value).join("\n");
 }
 
+export type MarkdownProtectedLineScanner = (line: string) => boolean;
+
+/**
+ * Returns a per-line classifier that reports whether a line is literal fenced
+ * code, indented code, or raw HTML content. The scanner must be called once per
+ * Markdown line, in order. It mirrors the protected-region tracking used by
+ * placeholder normalization so editor-generated placeholder lines inside those
+ * regions are never mistaken for empty editor blocks.
+ */
+export function createMarkdownProtectedLineScanner(): MarkdownProtectedLineScanner {
+  let fence: MarkdownFence | null = null;
+  let indentedCode = false;
+  let htmlBlock: HtmlBlock | null = null;
+
+  return (line: string): boolean => {
+    if (fence !== null) {
+      if (isClosingFence(line, fence)) fence = null;
+      return true;
+    }
+
+    if (htmlBlock !== null) {
+      if (htmlBlockEnds(line, htmlBlock)) htmlBlock = null;
+      return true;
+    }
+
+    const openingFence = markdownFence(line);
+    if (openingFence !== null) {
+      fence = openingFence;
+      return true;
+    }
+
+    if (isIndentedCodeLine(line)) {
+      indentedCode = true;
+      return true;
+    }
+
+    if (indentedCode && line === "") {
+      return true;
+    }
+
+    indentedCode = false;
+
+    // Editor-generated placeholder lines are empty blocks, not raw HTML.
+    if (isEmptyListItemPlaceholder(line) || isEmptyParagraphPlaceholder(line)) {
+      return false;
+    }
+
+    const openingHtmlBlock = htmlBlockStart(line);
+    if (openingHtmlBlock !== null) {
+      if (!htmlBlockEnds(line, openingHtmlBlock)) htmlBlock = openingHtmlBlock;
+      return true;
+    }
+
+    return false;
+  };
+}
+
 interface MarkdownLine {
   readonly value: string;
   readonly protected: boolean;

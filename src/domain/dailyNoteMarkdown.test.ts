@@ -1,4 +1,8 @@
-import { normalizeDailyNoteMarkdown, normalizeDailyNoteMarkdownAtCaret } from "./dailyNoteMarkdown";
+import {
+  createMarkdownProtectedLineScanner,
+  normalizeDailyNoteMarkdown,
+  normalizeDailyNoteMarkdownAtCaret
+} from "./dailyNoteMarkdown";
 
 describe("daily note Markdown normalization", () => {
   it("keeps whitespace-only notes empty", () => {
@@ -147,3 +151,22 @@ describe("daily note Markdown normalization", () => {
     ].join("\n"));
   });
 });
+
+describe("Markdown protected line scanner", () => {
+  it("protects placeholder-looking lines inside fenced code", () => {
+    expect(lines(["```html", "* <br />", "```", "* <br />"])).toEqual([true, true, true, false]);
+  });
+
+  it("protects placeholder-looking lines inside indented code", () => {
+    expect(lines(["    * <br />", "", "* <br />"])).toEqual([true, true, false]);
+  });
+
+  it("protects placeholder-looking lines inside raw HTML blocks", () => {
+    expect(lines(["<pre>", "* <br />", "</pre>", "* <br />"])).toEqual([true, true, true, false]);
+  });
+});
+
+function lines(markdownLines: readonly string[]): readonly boolean[] {
+  const isProtected = createMarkdownProtectedLineScanner();
+  return markdownLines.map((line) => isProtected(line));
+}

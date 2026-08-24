@@ -1,12 +1,15 @@
 import { expect, test } from "@playwright/test";
 import {
   clickButton,
+  expectNormalizedRawMarkdown,
   expectRawMarkdown,
   expectRawSelection,
+  focusWysiwygEditorAtEnd,
   openDevelopmentStorage,
   rawEditor,
   setRawMarkdown,
-  switchToRawMode
+  switchToRawMode,
+  switchToWysiwygMode
 } from "../helpers/editor";
 import { readFakeRemoteNote, readLocalDraft, seedLocalDraft } from "../helpers/idb";
 
@@ -55,6 +58,23 @@ test("sync keeps the current empty list item editable while saving the canonical
   await expectRawMarkdown(page, "before\n* <br />");
   await expectRawSelection(page, "before\n* ".length);
   await expect(rawEditor(page)).toBeEditable();
+});
+
+test("a literal placeholder inside a raw HTML block does not move the caret line", async ({ page }) => {
+  await openDevelopmentStorage(page, "/", "enabled");
+  const date = "2030-02-06";
+  await page.goto(`/#/date/${date}`);
+  await setRawMarkdown(page, "<pre>\n* <br />\n</pre>");
+  await switchToWysiwygMode(page);
+
+  await focusWysiwygEditorAtEnd(page);
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await page.waitForTimeout(2500);
+
+  await expect(page.locator(".milkdown-root ul li")).toHaveCount(1);
+  await expect(page.locator(".milkdown-root ul li span[data-type='html']")).toHaveCount(0);
+  await expectNormalizedRawMarkdown(page, "<pre>\n* <br />\n</pre>\n\n* <br />");
 });
 
 test("disabled normalization preserves all empty placeholders locally and remotely", async ({ page }) => {

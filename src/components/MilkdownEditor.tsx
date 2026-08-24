@@ -16,6 +16,7 @@ import { createMilkdownTableEnterKeymap } from "./milkdownTableEnter";
 import { applyTextAreaStructuralTab, shouldHandleTextAreaStructuralTab } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 import { markdownLinkAtOffset } from "~/domain/dailyNoteLinks";
+import { createMarkdownProtectedLineScanner } from "~/domain/dailyNoteMarkdown";
 import {
   inactiveBlockFormatState,
   toggleMarkdownBlockQuote,
@@ -2155,18 +2156,21 @@ function emptyTextblockPositionAtIndex(doc: ProseNode, targetIndex: number): num
 function emptyMarkdownLineOffset(markdown: string, targetIndex: number): number | null {
   let currentIndex = 0;
   let lineStart = 0;
+  const isProtected = createMarkdownProtectedLineScanner();
   while (lineStart <= markdown.length) {
     const nextLineBreak = markdown.indexOf("\n", lineStart);
     const lineEnd = nextLineBreak === -1 ? markdown.length : nextLineBreak;
     const lineText = markdown.slice(lineStart, lineEnd);
-    const syntaxKind = syntaxOnlyLineKind(lineText);
-    const emptyPlaceholderOffset = emptyTextblockPlaceholderOffset(lineText);
-    if (lineText.trim() === "" || syntaxKind !== null || emptyPlaceholderOffset !== null) {
-      if (currentIndex === targetIndex) {
-        if (emptyPlaceholderOffset !== null) return lineStart + emptyPlaceholderOffset;
-        return syntaxKind === null ? lineStart : lineEnd;
+    if (!isProtected(lineText)) {
+      const syntaxKind = syntaxOnlyLineKind(lineText);
+      const emptyPlaceholderOffset = emptyTextblockPlaceholderOffset(lineText);
+      if (lineText.trim() === "" || syntaxKind !== null || emptyPlaceholderOffset !== null) {
+        if (currentIndex === targetIndex) {
+          if (emptyPlaceholderOffset !== null) return lineStart + emptyPlaceholderOffset;
+          return syntaxKind === null ? lineStart : lineEnd;
+        }
+        currentIndex += 1;
       }
-      currentIndex += 1;
     }
     if (nextLineBreak === -1) break;
     lineStart = nextLineBreak + 1;
