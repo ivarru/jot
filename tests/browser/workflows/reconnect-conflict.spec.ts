@@ -5,6 +5,7 @@ import {
   expectRawMarkdown,
   openDevelopmentStorage,
   rawModeToggle,
+  setRawMarkdown,
   setTextareaValue
 } from "../helpers/editor";
 import {
@@ -120,6 +121,39 @@ test("a clean stale phone cache refreshes to the longer remote note before remai
     revisionMatches: true,
     dirty: false
   });
+});
+
+test("a queued phone autosave cannot remove a Mac hyperlink after the clean refresh", async ({ page }) => {
+  const phoneCache = "* Mac item\n";
+  const macNote = "* [Mac item](https://example.com)\n";
+  const phoneEdit = `${macNote}* Test\n`;
+  await openDevelopmentStorage(page, "/", "disabled");
+  await seedDailyNoteState(page, {
+    draft: {
+      date,
+      markdown: phoneCache,
+      baselineMarkdown: phoneCache,
+      baselineRevisionId: "revision-7",
+      dirty: false,
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    },
+    remote: {
+      date,
+      markdown: macNote,
+      revisionId: "revision-8",
+      updatedAt: "2030-01-02T00:00:00.000Z"
+    }
+  });
+
+  await page.goto(`/#/date/${date}`);
+  await expectRawMarkdown(page, macNote);
+  // Let the autosave that was scheduled from the cached note become due.
+  await page.waitForTimeout(2_500);
+  await expect(readFakeRemoteNote(page, date)).resolves.toMatchObject({ markdown: macNote });
+
+  await setRawMarkdown(page, phoneEdit);
+  await expect(waitForFakeRemoteNote(page, date, phoneEdit)).resolves.toMatchObject({ markdown: phoneEdit });
+  await expect(page.getByText("Sync conflict")).not.toBeVisible();
 });
 
 test("a dirty stale phone edit cannot replace a newer PC revision", async ({ page }) => {

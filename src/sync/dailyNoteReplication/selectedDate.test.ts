@@ -231,12 +231,46 @@ describe("Daily Note Replication lifecycle", () => {
     remote.finishLoad();
     await refreshing;
     // The timer carrying the old snapshot becomes due only after the refresh closes.
-    await harness.sync.saveAndSyncSnapshot(scheduledSnapshot, { revalidateVisibleSnapshot: true });
+    await harness.sync.saveAndSyncSnapshot(scheduledSnapshot);
 
     expect(remote.savedInputs).toEqual([]);
     expect(harness.state.markdown).toBe("a newer and longer remote note");
     await expect(drafts.load(DATE)).resolves.toMatchObject({
       markdown: "a newer and longer remote note",
+      baselineRevisionId: "revision-8",
+      dirty: false
+    });
+  });
+
+  it("does not save a queued stale snapshot after a clean remote refresh", async () => {
+    const drafts = new MemoryDraftStore();
+    await drafts.save(createDraft(DATE, "* plain item", "* plain item", "revision-7", false));
+    const remote = new RecordingRemoteStorageProvider();
+    remote.note = {
+      date: DATE,
+      markdown: "* [linked item](https://example.com)",
+      revisionId: "revision-8",
+      updatedAt: "2030-01-02T00:00:00.000Z"
+    };
+    const harness = createHarness({
+      drafts,
+      remote,
+      state: editorState({
+        selectedDate: DATE,
+        loadedDate: DATE,
+        markdown: "* plain item",
+        cleanMarkdown: "* plain item"
+      }),
+      syncStatus: "synced"
+    });
+
+    await harness.sync.refreshCleanSelectedDate(DATE);
+    await harness.sync.saveAndSyncSnapshot({ date: DATE, markdown: "* plain item" });
+
+    expect(remote.savedInputs).toEqual([]);
+    expect(harness.state.markdown).toBe("* [linked item](https://example.com)");
+    await expect(drafts.load(DATE)).resolves.toMatchObject({
+      markdown: "* [linked item](https://example.com)",
       baselineRevisionId: "revision-8",
       dirty: false
     });

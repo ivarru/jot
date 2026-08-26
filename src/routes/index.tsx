@@ -1254,8 +1254,14 @@ export default function Home() {
 
         const timeout = window.setTimeout(() => {
           if (!canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) return;
-          recordSyncRequest("autosave", snapshot);
-          void dailyNoteReplication.saveAndSyncSnapshot(snapshot, { revalidateVisibleSnapshot: true });
+          // The editor can have received a clean remote refresh, or Milkdown can
+          // have caught up with application state, while this debounce timer was
+          // pending. Capture the document that is actually visible now instead
+          // of allowing the scheduled snapshot to resurrect stale Markdown.
+          const current = flushCurrentVisibleEditorSnapshot();
+          if (current === null || current.snapshot.date !== snapshot.date) return;
+          recordSyncRequest("autosave", current.snapshot);
+          void dailyNoteReplication.saveAndSyncSnapshot(current.snapshot);
         }, settings().autosaveDebounceMs);
 
         onCleanup(() => window.clearTimeout(timeout));

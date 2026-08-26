@@ -59,7 +59,6 @@ export interface DailyNoteReplication {
     snapshot: VisibleDailyNoteSnapshot,
     options?: {
       readonly refreshRemoteBeforeSave?: boolean;
-      readonly revalidateVisibleSnapshot?: boolean;
     }
   ) => Promise<void>;
   readonly saveCurrentEditorSnapshot: () => Promise<void>;
@@ -244,11 +243,14 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
     requestedSnapshot: VisibleDailyNoteSnapshot,
     options: {
       readonly refreshRemoteBeforeSave?: boolean;
-      readonly revalidateVisibleSnapshot?: boolean;
     } = {}
   ): Promise<void> => {
     const latestVisibleSnapshot = captureVisibleDailyNoteSnapshot(input.getState());
-    const snapshot = options.revalidateVisibleSnapshot === true &&
+    // Every queued save is allowed to run only against the document that is
+    // visible when it executes. A cached snapshot can predate a clean Drive
+    // refresh, in which case persisting it would turn remote content into a
+    // local deletion before the conditional Drive save can protect it.
+    const snapshot =
       latestVisibleSnapshot?.date === requestedSnapshot.date &&
       canonicalMarkdown(latestVisibleSnapshot.markdown) !== canonicalMarkdown(requestedSnapshot.markdown)
       ? latestVisibleSnapshot
