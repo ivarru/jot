@@ -78,12 +78,12 @@ stateDiagram-v2
 
   Synced --> Synced: clean polling refresh
   Synced --> SavedLocally: an edit reaches the Local Draft first
-  Synced --> Syncing: blur, foreground, manual, or autosave starts
+  Synced --> Syncing: an eligible save starts with current edits
 
   SavedLocally --> SavedLocally: more edits persist locally
-  SavedLocally --> Syncing: autosave, polling, retry, or manual sync
+  SavedLocally --> Syncing: an eligible save starts
 
-  Syncing --> Synced: Drive accepts the current snapshot
+  Syncing --> Synced: Drive accepts the current canonical snapshot
   Syncing --> SavedLocally: a newer edit remains after the request
   Syncing --> Conflict: local and remote edits cannot merge automatically
   Syncing --> Error: a non-authentication operation fails
@@ -106,6 +106,31 @@ stateDiagram-v2
   end note
 ```
 
+Eligible save triggers include autosave, dirty polling, blur, page backgrounding or foregrounding, manual sync, retry,
+reconnect, and the pre-renewal flush performed before a Google access token expires. A trigger does not necessarily
+produce a `syncing` transition: Jot first flushes and revalidates the selected editor, and skips queued work when its
+snapshot is stale and the currently visible content is already clean.
+
+## Clean Refreshes and Queued Work
+
+Jot may display a clean cached Local Draft immediately while it reads the corresponding Daily Note from Drive. This
+follow-up clean refresh does not pulse the disk or leave `synced`; if Drive has a newer revision, Jot replaces the clean
+visible note and advances the Local Draft baseline to that revision.
+
+Local persistence and save work that becomes due during a clean refresh waits for the refresh to finish. When queued
+autosave, blur, foreground, or other selected-note save work eventually executes, Jot checks it against the note that is
+currently visible:
+
+- If the queued snapshot is older than a completed clean refresh and the visible note is still clean, the save is a
+  no-op. It does not enter `syncing` or write the stale snapshot back to Drive.
+- If the user edited the refreshed note, Jot saves the current visible edit rather than the older queued snapshot.
+- If the selected date changed while the work was pending, the old date's result cannot update the new visible note or
+  its sync status. Independently dirty Local Drafts can still be synchronized by the background-draft workflow.
+
+These lifecycle checks happen before the atomic replication operation described by the sync model. They complement
+Drive's revision preconditions: the revision check prevents an outdated write from replacing a newer remote revision,
+while revalidation prevents an outdated local snapshot from being mistaken for a new edit in the first place.
+
 The status disk maps the selected note's `SyncStatus` as follows:
 
 | Disk | Sync statuses | Meaning |
@@ -113,6 +138,10 @@ The status disk maps the selected note's `SyncStatus` as follows:
 | Green | `synced` | The current canonical content and revision have been acknowledged remotely. |
 | Yellow | `local-only`, `saved-locally`, `syncing`, `offline` | No immediate conflict is known, but the state is not currently acknowledged as synced. `syncing` pulses. |
 | Red | `auth-required`, `conflict`, `error`, or **Reconnect required** | User action or recovery is required. Reconnect required takes precedence even if a later local persistence operation reports `saved-locally`. |
+
+`synced` refers to canonical persisted Markdown. The live WYSIWYG document may temporarily retain an equivalent empty
+paragraph or list-item placeholder at the caret so editing can continue without a document replacement. That retained
+editor-only line does not make the note unsynced; moving away from it or reloading may remove it normally.
 
 ## Coupling Between the Two State Machines
 
