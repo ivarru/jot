@@ -22,6 +22,56 @@ const local = "before\nlocal\nsame\nafter\n";
 const remote = "before\nremote\nsame\nafter\n";
 const resolved = "resolved note\n";
 
+test.describe("mobile remote-note loading", () => {
+  test.use({
+    viewport: { width: 432, height: 800 },
+    hasTouch: true,
+    isMobile: true
+  });
+
+  test("resuming a phone tab preserves a compact list written while it was backgrounded", async ({ page }) => {
+    const before = "Earlier phone content";
+    const compact = [
+      "* AWS Kiro",
+      "* [Agent Skills](https://agentskills.io/home) (standard)."
+    ].join("\n");
+    await openDevelopmentStorage(page, "/", "disabled");
+    await seedDailyNoteState(page, {
+      remote: {
+        date,
+        markdown: before,
+        revisionId: "phone-revision",
+        updatedAt: "2030-01-01T00:00:00.000Z"
+      }
+    });
+    await page.goto(`/#/date/${date}`);
+    await expect(page.locator(".milkdown-root")).toContainText(before);
+
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await seedDailyNoteState(page, {
+      remote: {
+        date,
+        markdown: compact,
+        revisionId: "mac-revision",
+        updatedAt: "2030-01-02T00:00:00.000Z"
+      }
+    });
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("pageshow"));
+    });
+
+    await expect(page.locator(".milkdown-root ul")).toHaveAttribute("data-spread", "false");
+    await page.waitForTimeout(2_500);
+    await expect(readFakeRemoteNote(page, date)).resolves.toMatchObject({ markdown: compact });
+    await expect(readLocalDraft(page, date)).resolves.toMatchObject({ markdown: compact });
+  });
+});
+
 test("fake reconnect conflict can be resolved manually and synced", async ({ page }) => {
   await openDevelopmentStorage(page, "/", "disabled");
   await expect(page.locator(".sync-status[aria-label*=\"Local only\"], .sync-status[aria-label*=\"Synced\"]")).toBeVisible();

@@ -254,7 +254,18 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         root.replaceChildren();
 
         const [
-          { Editor, rootCtx, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, serializerCtx },
+          {
+            Editor,
+            rootCtx,
+            defaultValueCtx,
+            editorStateOptionsCtx,
+            editorViewCtx,
+            editorViewOptionsCtx,
+            parserCtx,
+            prosePluginsCtx,
+            schemaCtx,
+            serializerCtx
+          },
           {
             blockquoteSchema,
             bulletListSchema,
@@ -560,7 +571,20 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               let replacedMarkdown = markdown;
               let updatedView: EditorView | null = null;
               editor.action((ctx) => {
-                replaceAll(markdown, !undoable)(ctx);
+                if (undoable) {
+                  replaceAll(markdown, false)(ctx);
+                } else {
+                  const parsed = ctx.get(parserCtx)(markdown);
+                  if (parsed !== null) {
+                    const doc = normalizeMilkdownListTightness(parsed, EditorStateConstructor);
+                    const options = ctx.get(editorStateOptionsCtx)({
+                      schema: ctx.get(schemaCtx),
+                      doc,
+                      plugins: ctx.get(prosePluginsCtx)
+                    });
+                    ctx.get(editorViewCtx).updateState(EditorStateConstructor.create(options));
+                  }
+                }
                 const view = ctx.get(editorViewCtx);
                 updatedView = view;
                 replacedMarkdown = serializeMilkdownMarkdown(ctx.get(serializerCtx), view.state.doc);
