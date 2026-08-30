@@ -1,54 +1,61 @@
 # Code Walkthrough Notes
 
-Private working notes for the documentation-and-architecture walkthrough begun on 2026-08-30. This file is deliberately separate from the app documentation. It records conclusions reached together in this chat, rather than the assistant's unconfirmed impressions.
+Private, non-authoritative working notes for the documentation and architecture walkthrough begun on 2026-08-30. The
+primary aim is to improve the owner's understanding of Jot. Durable behavior belongs in current documentation; settled
+architectural rationale belongs in ADRs; actionable but unresolved work belongs in `docs/notes.md` or a focused change.
 
-- The walkthrough's primary aim is to improve the user's understanding of this project. Explanations may be more detailed than the existing documentation without implying that those documents should change.
-- The notes should be short, link to relevant source documents, and record agreed improvement ideas for code or documentation when they arise.
-- Documentation primarily serves the user and future AI agents; usefulness to other readers is secondary.
+## Completed during the walkthrough
 
-## [README.md](../README.md)
+- Clarified that `CONTEXT.md` is the high-level domain context and shared vocabulary in the domain-driven-design sense,
+  and removed its repetitive example dialogue. The file originated in an earlier Matt Pocock skill-guided workflow and
+  remains at the repository root for convention and agent-skill discoverability.
+- Added a user-facing README limitations section covering interactive Google reconnects, Local Draft protection, and
+  conflict-based whole-file synchronization.
+- Reorganized local development around the consequential choice between browser-local fake storage and Google-backed
+  storage, and explained the distinct value of Playwright browser regressions.
+- Added `docs/README.md` as the comprehensive documentation index, with each document's subject, authority, and purpose.
+- Routed agents and contributors to that index from `AGENTS.md`, with explicit guidance for when to consult
+  `CONTEXT.md`.
+- Moved the temporary project parking lot from root-level `NOTES.md` to `docs/notes.md`, and kept the root README's
+  `Working on Jot` section concise by delegating the detailed document map to `docs/README.md`.
 
-- The "Experimental software" warning is user-authored; the rest was agent-written.
-- Agreed improvement: add a short, user-facing limitations note. Google access may require an interactive reconnect around token expiry; local drafts continue, but remote sync is blocked until then. Whole-file Markdown synchronization is not real-time collaboration: concurrent edits can create conflicts needing resolution. Link to [sync-and-connection-statuses.md](sync-and-connection-statuses.md) for detail.
-- Improvement candidate: reorganize the current "Local Development" and "Environment" material around the consequential storage choice. State plainly that `npm run dev` uses browser-local fake storage by default; a `VITE_GOOGLE_CLIENT_ID` in `.env.local` opts development into real Google storage; `VITE_ENABLE_FAKE_AUTH=true` forces fake storage. The present section split is conventional in name, but less clear than a task-oriented local-start guide.
-- Agreed improvement: say that browser workflow regressions use Playwright and explain their distinct value: they exercise actual browser behavior such as editing, clipboard/camera/file-input flows, layout, OAuth-like flows, and synchronization interactions. Link to [testing.md](testing.md) for the command matrix and policy. These tests are important but relatively slow, so focused commands are useful during development and the full suite remains a completion check.
-- Testing improvement: replace Playwright's fixed-duration waits where feasible with waits for an observable condition (UI, local draft, or fake remote state). Fixed waits make the already slow suite slower and can still become flaky. Prefer accessible role/label locators and shared helpers; add a stable test hook only when a meaningful user-facing locator is not possible.
+## Remaining documentation and testing opinions
 
-## Possible sync direction
+- Prefer Playwright waits for observable UI, Local Draft, or fake-remote state over fixed-duration sleeps. This policy is
+  already in `testing.md`; future work should be a concrete inventory and cleanup rather than more policy text.
+- Keep the detailed SemVer policy in repository-owned `AGENTS.md`. A commit skill may reinforce it, and the guidance may
+  say that the bump normally happens near the end of development, but correctness should not depend on a skill being
+  installed or invoked.
+- Keep stable browser-suite aliases such as editing, workflows, and smoke. Review the numerous individual-file aliases
+  using actual maintenance value and usage; use Playwright paths directly for exceptional one-off files.
+- Dependency observations are timestamped leads, not durable guidance. As checked on 2026-08-30, installed TypeScript is
+  5.9.3 under the `^5.8.3` declaration. A TypeScript major upgrade affects framework, build-tool, test, and third-party
+  type compatibility even though the direct script is `tsc --noEmit`. Assess Milkdown core and its exactly pinned AutoMD
+  plugin together; treat other major toolchain upgrades as separate migration work.
 
-- The history of conflict work motivates considering an intermediate server so Milkdown/ProseMirror can use Yjs collaboration support. This is an open architectural option, not a decision.
-- A Yjs server could merge concurrent edits continuously, but would make it the live document authority. It would add persistent server operation, authentication/access control, backups, deployment, and security responsibilities; Drive Markdown would likely become export, backup, or interchange rather than the live source of truth.
+## Architecture opinions
 
-## Dependencies
+- `src/routes/index.tsx` is the legitimate composition root, but at roughly 5,275 lines it is an architectural pressure
+  point. Preserve a small top-level composition root while extracting coherent workflows according to state ownership
+  and asynchronous lifetime.
+- Daily Note Upload is a good first vertical extraction. Its route-owned UI and cancellation state, upload session,
+  domain rules, and components form a coherent feature boundary; the session correctly receives cancellation through a
+  `canContinue` callback rather than owning UI lifecycle.
+- Prefer incremental vertical feature modules over a wholesale folder reshuffle. Move feature-local UI, orchestration,
+  and rules together where that clarifies ownership, while keeping genuinely shared infrastructure and Google provider
+  adapters visibly separate.
+- The owner confirms that image attachments are rarely used and that the owner is currently the only known user. That
+  lowers the feature's near-term product priority and does not by itself justify spending time reorganizing it. If route
+  decomposition reaches the feature, its fragmented ownership across `attachments`, `photos`, `domain`, and the route
+  makes co-location reasonable, while low usage may reduce migration risk.
+- Reconsider the broad `domain` folder incrementally as features are extracted. Keep genuinely cross-cutting concepts in
+  a small shared/core area, and avoid recreating horizontal layers inside every feature.
 
-- As checked on 2026-08-30, the installed TypeScript is 5.9.3 (allowed by the `^5.8.3` declaration); TypeScript 7.0.2 is current and uses a faster native implementation. Jot appears to use TypeScript only through `tsc --noEmit`, so it is a plausible upgrade candidate, but it is a major-version/toolchain migration that requires full verification. [TypeScript 7 announcement](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/)
-- Routine candidates: update DOMPurify (the HTML sanitizer), Playwright, Solid, Milkdown, and test utilities. Assess Milkdown core and its exactly pinned AutoMD plugin together.
-- Treat upgrades to SolidStart 2, Vite 8, Vitest 4, jsdom 30, and other major versions as distinct migration work.
+## Open sync direction
 
-## [AGENTS.md](../AGENTS.md)
-
-- Improvement candidate: retain a short, human-visible pre-commit rule for shipped behavior changes, explicitly saying that the SemVer bump occurs near the end of development. Put the detailed choice and update checklist in a commit skill or release procedure. This avoids premature bumps while keeping the policy visible to humans who do not invoke a skill.
-
-## Repository guidance files
-
-- Agreed README improvement: add a small "Working on Jot" group that briefly links [AGENTS.md](../AGENTS.md), [CONTEXT.md](../CONTEXT.md), [NOTES.md](../NOTES.md), and [the ADR index](adr/README.md), explaining their separate roles for contributors and agents.
-- `CONTEXT.md` is the stable vocabulary and invariant glossary; `NOTES.md` is a temporary parking lot for issues, prospective work, and unresolved questions; ADRs retain settled architectural rationale.
-- Accuracy review needed: the `Active Unit` / `Rendered Unit` concepts in `CONTEXT.md` have no other current use in the repository and may describe an earlier editor design.
-- `CONTEXT.md` likely originated with early Matt Pocock skills. To make it useful beyond that original workflow, route relevant work to it explicitly from `AGENTS.md` and/or repository-committed skills; otherwise agents will not reliably consult it.
-
-## Documentation map
-
-- Agreed improvement: add a `docs/README.md` that gives each document a clear description of its subject, authority, and purpose—not merely a vague “read this when” suggestion—and use it as the comprehensive documentation index.
-- Reorganize files if that makes their role clearer. Historical investigations/postmortems should live in a clearly named historical subdirectory rather than alongside current guidance.
-- Reduce redundant `testing.md` links in the root README: retain the local-development link where readers need test commands, and replace the duplicate architecture-list link with the future documentation index. Its single links from `AGENTS.md`, `deployment.md`, and `sync-model.md` each serve a distinct contextual purpose.
-
-## [package.json](../package.json)
-
-- Review the Playwright command menu. Named full-suite and stable group commands (for example, editing, workflows, and smoke) help because browser tests are slow; numerous individual-file shortcuts may become stale or arbitrary. Use Playwright directly for exceptional one-off files.
-
-## Source structure
-
-- Consider moving feature- or workflow-specific orchestration out of `src/routes/index.tsx`. It is the legitimate composition root that ties modular services and UI together, but at over 4,500 lines it is an architectural pressure point. Preserve a small top-level composition root while extracting coherent workflows.
-- Prefer deep, vertical feature modules over broad horizontal layer folders. The current `components` folder is especially unhelpful as a catch-all, and the rarely used image-attachment feature is split across `attachments`, `photos`, `domain`, and the route. Future refactoring should co-locate feature UI, workflow, and feature rules where practical, reserving separate folders for genuinely shared infrastructure or external-provider adapters.
-- Consider replacing the broad `domain` folder with feature-local domain rules. A restrained filename convention (for example `*.types.ts`, `*.schema.ts`, or a feature-specific name that states the concept) can make a file's role visible within its logical module. Keep only truly cross-cutting concepts in a small shared/core area; do not recreate horizontal layers inside every feature.
-- `dailyNoteUploadGeneration` in `index.tsx` is route-owned cancellation state for the complete upload interaction, not replication state. The upload session correctly receives cancellation through a `canContinue` callback rather than owning UI lifecycle. In a vertical refactor, co-locate that lifecycle/UI state, the upload session, its domain rules, and upload components in a `daily-note-upload` feature module.
+- A Yjs collaboration server remains an architectural option, not a decision or an incremental sync upgrade. It could
+  merge concurrent edits continuously, but would become the live document authority and add persistent operation,
+  authentication and access control, backups, deployment, and security responsibilities. Drive Markdown would likely
+  become export, backup, or interchange rather than the live source of truth.
+- Promote this to a design question only if real-time or continuously merged multi-device editing becomes an explicit
+  product goal.

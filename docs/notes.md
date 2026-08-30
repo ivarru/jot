@@ -8,7 +8,7 @@ Use:
 - `Future Work` for useful improvements that are not part of the current implementation pass.
 - `Design Questions` for unresolved product or architecture decisions.
 
-Move stable decisions to `CONTEXT.md` or `docs/adr/`. Remove items when they are implemented, rejected, or superseded.
+Move stable decisions to [`CONTEXT.md`](../CONTEXT.md) or [`docs/adr/`](adr/README.md). Remove items when they are implemented, rejected, or superseded.
 
 ## Known Issues
 

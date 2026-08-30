@@ -12,6 +12,13 @@ Choose the SemVer part pragmatically:
 
 Pure repository documentation changes that do not affect shipped app behavior do not require a version bump.
 
+## Documentation
+
+Use [docs/README.md](docs/README.md) as the index of project documents and their authority. Consult
+[CONTEXT.md](CONTEXT.md) when work introduces or renames domain concepts, changes product invariants, or needs the
+project's shared language. Keep implementation details and unsettled work in the more specific documents identified by
+the index.
+
 ## Date-Bound Notes
 
 Daily Note content must never be read from or written to a date inferred after an async boundary. When changing editor, sync, autosave, local draft, or date navigation behavior, carry the explicit `IsoDate` and markdown snapshot through timers, promises, and editor callbacks.

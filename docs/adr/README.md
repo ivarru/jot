@@ -4,9 +4,9 @@ This directory records durable architecture decisions for Jot. ADRs explain why 
 
 ## Relationship To Other Docs
 
-- `CONTEXT.md` is the current domain language and invariant glossary. Update it when the app gains or sharpens a domain concept.
+- [`CONTEXT.md`](../../CONTEXT.md) is the current domain language and invariant glossary. Update it when the app gains or sharpens a domain concept.
 - `docs/adr/` records durable decisions and trade-offs. Add an ADR when future maintainers need to know why an alternative was rejected or when a decision should not be rediscovered in each review.
-- `NOTES.md` is the volatile parking lot for known issues, future work, and open questions. Move task-like follow-ups there instead of keeping them in ADRs.
+- [`docs/notes.md`](../notes.md) is the volatile parking lot for known issues, future work, and open questions. Move task-like follow-ups there instead of keeping them in ADRs.
 
 ## Index
 
@@ -24,4 +24,4 @@ This directory records durable architecture decisions for Jot. ADRs explain why 
 
 ## Maintenance
 
-Keep ADRs stable after acceptance. If an implementation follow-up is completed, update `CONTEXT.md` for changed domain truth and prune `NOTES.md`; do not rewrite ADR history unless the decision itself has changed. If a decision is replaced, add a new ADR and mark the old one superseded in this index.
+Keep ADRs stable after acceptance. If an implementation follow-up is completed, update `CONTEXT.md` for changed domain truth and prune `docs/notes.md`; do not rewrite ADR history unless the decision itself has changed. If a decision is replaced, add a new ADR and mark the old one superseded in this index.

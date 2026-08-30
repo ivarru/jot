@@ -6,6 +6,15 @@ The app is built with SolidStart's static output path and is intended to run on 
 
 **NB:** Experimental software and development process. Use at your own risk.
 
+## Limitations
+
+Google access may occasionally require an interactive reconnect when authorization expires. Jot continues protecting
+edits in Local Drafts on the device, but cannot synchronize them with Google Drive until access is restored.
+
+Drive synchronization operates on whole Markdown files; it is not real-time collaborative editing. If the same Daily
+Note changes independently on multiple devices, Jot may require the user to resolve a Sync Conflict that preserves both
+versions. See [Sync and Connection Statuses](docs/sync-and-connection-statuses.md) for the detailed behavior.
+
 ## Features
 
 - Date-based navigation with ISO dates, weekday display, and a jump-to-today indicator.
@@ -29,51 +38,55 @@ Install dependencies:
 npm install
 ```
 
-Run routine verification:
+### Choose storage
 
-```sh
-npm run verify
-```
-
-Run the complete fake-storage browser suite:
-
-```sh
-npm run test:browser
-```
-
-Use `npm run verify:full` for routine verification plus all browser regressions. Focused browser commands, test-layer
-guidance, environment setup, and the CI coverage matrix are documented in
-[docs/testing.md](docs/testing.md).
-
-Start a local development server:
+`npm run dev` uses browser-local fake storage by default, so ordinary local development does not need Google credentials:
 
 ```sh
 npm run dev
 ```
 
-## Environment
-
-For Google-backed local preview, put the development OAuth client in `.env.local`:
+To develop against real Google storage, put a development OAuth client in `.env.local`:
 
 ```sh
 VITE_GOOGLE_CLIENT_ID=your-dev-client-id.apps.googleusercontent.com
 ```
 
-Then build and preview with the non-production OAuth client:
+With that variable present, `npm run dev` uses Google-backed storage. For a built local preview with the same
+non-production OAuth client, run:
 
 ```sh
 npm run preview:test:oauth
 ```
 
-For a local fake-storage preview:
+Set `VITE_ENABLE_FAKE_AUTH=true` to force fake storage and fake image providers even when a Google client ID is present.
+The explicit fake-provider preview used by browser tests is also available directly:
 
 ```sh
 npm run preview:test:fake
 ```
 
-Both preview commands serve the app at `http://127.0.0.1:4173`.
+Both preview commands serve the app at `http://127.0.0.1:4173`. Normal production builds do not expose fake storage.
 
-`VITE_ENABLE_FAKE_AUTH=true` forces fake storage and fake image providers even when a Google client id is present. Normal production builds do not expose fake storage.
+### Verify changes
+
+Run routine unit, integration, type, and build verification:
+
+```sh
+npm run verify
+```
+
+Playwright browser regressions complement those checks by exercising native editing and selection, clipboard, camera,
+file-input and layout behavior, OAuth-like flows, and synchronization interactions against fake providers. Run the
+complete browser suite with:
+
+```sh
+npm run test:browser
+```
+
+Use `npm run verify:full` for routine verification plus all browser regressions. Because browser tests are relatively
+slow, focused commands are useful during development. See [Testing](docs/testing.md) for the test layers, focused
+commands, environment, and CI coverage matrix.
 
 ## GitHub Pages
 
@@ -95,16 +108,11 @@ Jot copies selected images into a Jot-created Google Photos album named `jot` at
 Manual Google OAuth, Drive, and Photos validation is tracked in
 [docs/manual-google-provider-retest.md](docs/manual-google-provider-retest.md).
 
-## Architecture Notes
+## Working on Jot
 
-Project terminology and decisions are documented in:
+Repository guidance is divided by purpose:
 
-- [CONTEXT.md](CONTEXT.md)
-- [Tag syntax and usage](docs/tags.md)
-- [NOTES.md](NOTES.md) for known issues, future work, and unsettled design questions
-- [docs/testing.md](docs/testing.md)
-- [Sync and connection statuses](docs/sync-and-connection-statuses.md)
-- [docs/sync-model.md](docs/sync-model.md)
-- [docs/adr/README.md](docs/adr/README.md)
+- [AGENTS.md](AGENTS.md) contains repository rules for contributors and coding agents.
+- [Documentation index](docs/README.md) describes the subject, authority, and purpose of every project document.
 
 The current deployment decision is captured in [docs/adr/0005-github-pages-hosting.md](docs/adr/0005-github-pages-hosting.md).
