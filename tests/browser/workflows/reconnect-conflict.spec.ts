@@ -29,8 +29,10 @@ test.describe("mobile remote-note loading", () => {
     isMobile: true
   });
 
-  test("resuming a phone tab preserves a compact list written while it was backgrounded", async ({ page }) => {
-    const before = "Earlier phone content";
+  // See docs/editor-focus-investigation.md: restoring focus after a document
+  // replacement is insufficient when the replacement has already reset the caret.
+  test("resuming a phone tab preserves focus and the WYSIWYG caret after syncing a compact list", async ({ page }) => {
+    const before = "* AWS Kiro";
     const compact = [
       "* AWS Kiro",
       "* [Agent Skills](https://agentskills.io/home) (standard)."
@@ -45,7 +47,12 @@ test.describe("mobile remote-note loading", () => {
       }
     });
     await page.goto(`/#/date/${date}`);
-    await expect(page.locator(".milkdown-root")).toContainText(before);
+    await expect(page.locator(".milkdown-root")).toContainText("AWS Kiro");
+    const editor = page.locator(".milkdown-root [contenteditable='true']");
+    await editor.focus();
+    await page.keyboard.press("End");
+    await expect(editor).toBeFocused();
+    await expectEditorCaretAtEndOfFirstListItem(editor);
 
     await page.evaluate(() => {
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
@@ -66,11 +73,23 @@ test.describe("mobile remote-note loading", () => {
     });
 
     await expect(page.locator(".milkdown-root ul")).toHaveAttribute("data-spread", "false");
-    await page.waitForTimeout(2_500);
+    await expect(editor).toBeFocused();
+    await expectEditorCaretAtEndOfFirstListItem(editor);
     await expect(readFakeRemoteNote(page, date)).resolves.toMatchObject({ markdown: compact });
     await expect(readLocalDraft(page, date)).resolves.toMatchObject({ markdown: compact });
   });
 });
+
+async function expectEditorCaretAtEndOfFirstListItem(editor: import("@playwright/test").Locator): Promise<void> {
+  await expect.poll(async () => await editor.evaluate((element) => {
+    const item = element.querySelector("li");
+    const selection = getSelection();
+    const text = item === null ? null : document.createTreeWalker(item, NodeFilter.SHOW_TEXT).nextNode();
+    return selection?.isCollapsed === true
+      && selection.anchorNode === text
+      && selection.anchorOffset === text?.textContent?.length;
+  })).toBe(true);
+}
 
 test("fake reconnect conflict can be resolved manually and synced", async ({ page }) => {
   await openDevelopmentStorage(page, "/", "disabled");
