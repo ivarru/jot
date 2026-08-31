@@ -175,6 +175,14 @@ describe("Home date picker focus behavior", () => {
     expect(dateInput!.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).not.toBe(dateInput);
 
+    focusElement(dateInput!);
+    await settle();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Esc", bubbles: true, cancelable: true }));
+    await settle();
+
+    expect(datePicker(host)).toBeNull();
+    expect(dateInput!.getAttribute("aria-expanded")).toBe("false");
+
     dispose();
   });
 });

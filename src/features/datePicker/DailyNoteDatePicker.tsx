@@ -6,6 +6,7 @@ import {
   monthLabel
 } from "~/domain/calendarMonth";
 import { parseIsoDate, type IsoDate } from "~/domain/dates";
+import { isEscapeKey } from "~/components/keyboard";
 import type { DailyNoteDatePicker as DailyNoteDatePickerController } from "./createDailyNoteDatePicker";
 import type { ExistingNoteDates } from "./createExistingNoteDates";
 
@@ -21,7 +22,7 @@ export function DailyNoteDatePicker(props: DailyNoteDatePickerProps) {
 
   createEffect(() => {
     const onEscapeKey = (event: KeyboardEvent) => {
-      if (!props.controller.open() || event.key !== "Escape") return;
+      if (!props.controller.open() || !isEscapeKey(event)) return;
       event.preventDefault();
       props.existingNoteDates.cancel();
       props.controller.close({ blurFocus: true });
@@ -50,9 +51,10 @@ export function DailyNoteDatePicker(props: DailyNoteDatePickerProps) {
       onFocusIn={props.controller.show}
       onFocusOut={(event) => {
         const root = event.currentTarget;
-        props.controller.handleFocusOut(event);
         window.setTimeout(() => {
-          if (!root.contains(document.activeElement)) props.existingNoteDates.cancel();
+          if (root.contains(document.activeElement)) return;
+          props.existingNoteDates.cancel();
+          props.controller.close();
         }, 0);
       }}
     >
@@ -86,7 +88,7 @@ export function DailyNoteDatePicker(props: DailyNoteDatePickerProps) {
           role="dialog"
           aria-label="Date picker"
           onKeyDown={(event) => {
-            if (event.key === "Escape") close();
+            if (isEscapeKey(event)) close();
           }}
         >
           <div class="date-picker-header">

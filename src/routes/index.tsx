@@ -18,6 +18,7 @@ import { MilkdownEditor, type EditorHistoryAvailability, type MilkdownEditorCont
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
 import { applyTextAreaStructuralTab } from "~/components/textAreaIndent";
+import { isEscapeKey } from "~/components/keyboard";
 import { trackVisualViewportTop } from "~/components/visualViewportToolbar";
 import { findImageAttachmentReferences } from "~/domain/attachmentReferences";
 import {
@@ -4801,10 +4802,6 @@ function CloseIcon() {
       <path d="m6 6 12 12" />
     </svg>
   );
-}
-
-function isEscapeKey(event: KeyboardEvent): boolean {
-  return event.key === "Escape" || event.key === "Esc" || event.key === "ESC" || event.code === "Escape";
 }
 
 function selectedImageSourceLabel(

@@ -9,7 +9,6 @@ export interface DailyNoteDatePicker {
   readonly setRootElement: (element: HTMLDivElement) => void;
   readonly show: () => void;
   readonly close: (options?: { readonly blurFocus?: boolean }) => void;
-  readonly handleFocusOut: (event: FocusEvent & { readonly currentTarget: HTMLDivElement }) => void;
   readonly reset: () => void;
 }
 
@@ -39,14 +38,12 @@ export function createDailyNoteDatePicker(input: {
     setRootElement: (element) => {
       rootElement = element;
     },
-    show: () => setOpen(true),
-    close,
-    handleFocusOut: (event) => {
-      const root = event.currentTarget;
-      window.setTimeout(() => {
-        if (!root.contains(document.activeElement)) close();
-      }, 0);
+    show: () => {
+      if (open()) return;
+      setMonth(monthOfIsoDate(input.selectedDate() ?? input.today()));
+      setOpen(true);
     },
+    close,
     reset: () => {
       close();
       setMonth(monthOfIsoDate(input.selectedDate() ?? input.today()));

@@ -45,3 +45,18 @@ test("editor shortcuts move to the next and previous Daily Note", async ({ page 
   await page.keyboard.press(useMac ? "Meta+Alt+P" : "Control+Alt+P");
   await expect(dateInput).toHaveValue("2030-02-02");
 });
+
+test("reopening the date picker returns to the selected month", async ({ page }) => {
+  await openDevelopmentStorage(page, "/#/date/2030-02-02", "disabled");
+  const dateInput = page.getByRole("textbox", { name: "Selected date", exact: true });
+
+  await dateInput.click();
+  await page.getByRole("button", { name: "Next month", exact: true }).click();
+  await expect(page.getByRole("button", { name: "2030-02-02", exact: true })).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Date picker" })).toBeHidden();
+  await dateInput.click();
+
+  await expect(page.getByRole("button", { name: "2030-02-02", exact: true })).toBeVisible();
+});
