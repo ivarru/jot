@@ -21,6 +21,8 @@ architectural rationale belongs in ADRs; actionable but unresolved work belongs 
 - Extracted Daily Note Upload from the route into `src/features/dailyNoteUpload`, colocating its domain rules, storage
   session, Solid workflow state, cancellation lifetime, UI surfaces, and tests while keeping application-owned auth,
   editor snapshot, replication result, and date-picker refresh decisions explicit at the composition root.
+- Extracted the Daily Note date picker into `src/features/datePicker`, including its focus and month state, calendar UI,
+  and the asynchronous existing-note-date loader shared with the section-link picker.
 
 ## Remaining documentation and testing opinions
 
@@ -38,7 +40,7 @@ architectural rationale belongs in ADRs; actionable but unresolved work belongs 
 
 ## Architecture opinions
 
-- `src/routes/index.tsx` is the legitimate composition root, but at roughly 5,100 lines it remains an architectural pressure
+- `src/routes/index.tsx` is the legitimate composition root, but at roughly 4,900 lines it remains an architectural pressure
   point. Preserve a small top-level composition root while extracting coherent workflows according to state ownership
   and asynchronous lifetime.
 - Daily Note Upload established the first vertical feature boundary. Its workflow owns UI state and cancellation, while

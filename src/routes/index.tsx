@@ -124,6 +124,9 @@ import {
   type LinkEditDraft
 } from "~/editor/linkEditing";
 import type { MarkdownSelection } from "~/editor/markdownSelection";
+import { DailyNoteDatePicker } from "~/features/datePicker/DailyNoteDatePicker";
+import { createDailyNoteDatePicker } from "~/features/datePicker/createDailyNoteDatePicker";
+import { createExistingNoteDates } from "~/features/datePicker/createExistingNoteDates";
 import { DailyNoteUploadSurfaces } from "~/features/dailyNoteUpload/DailyNoteUploadSurfaces";
 import { createDailyNoteUploadWorkflow } from "~/features/dailyNoteUpload/createDailyNoteUploadWorkflow";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
@@ -372,14 +375,8 @@ export default function Home() {
   const [imageAttachmentDisplays, setImageAttachmentDisplays] = createSignal<Readonly<Record<string, ImageAttachmentDisplay>>>({});
   const [imageAttachmentRefreshTick, setImageAttachmentRefreshTick] = createSignal(0);
   const [today, setToday] = createSignal(todayIsoDate());
-  const [datePickerOpen, setDatePickerOpen] = createSignal(false);
-  const [datePickerMonth, setDatePickerMonth] = createSignal<YearMonth>(monthOfIsoDate(selectedDate() ?? today()));
-  const [existingNoteDates, setExistingNoteDates] = createSignal<ReadonlySet<IsoDate>>(new Set());
-  const [existingNoteDatesLoading, setExistingNoteDatesLoading] = createSignal(false);
-  const [existingNoteDatesError, setExistingNoteDatesError] = createSignal<string | null>(null);
   const [suppressLocalPersist, setSuppressLocalPersist] = createSignal(false);
   const [editorChangeEpoch, setEditorChangeEpoch] = createSignal(0);
-  let datePickerRoot: HTMLDivElement | undefined;
   let insertImageMenuElement: HTMLDivElement | undefined;
   let milkdownController: MilkdownEditorController | null = null;
   let plainTextEditorElement: HTMLTextAreaElement | null = null;
@@ -427,8 +424,6 @@ export default function Home() {
     return date !== null && date === today();
   });
   const todayWeekday = createMemo(() => dayOfWeek(today(), undefined, "long"));
-  const datePickerCalendar = createMemo(() => calendarMonth(datePickerMonth()));
-  const datePickerMonthLabel = createMemo(() => monthLabel(datePickerMonth()));
   const sectionLinkDatePickerCalendar = createMemo(() => calendarMonth(sectionLinkDatePickerMonth()));
   const sectionLinkDatePickerMonthLabel = createMemo(() => monthLabel(sectionLinkDatePickerMonth()));
   const selectedDateCanEdit = createMemo(() => canEditSelectedDate(dateBoundEditorState()));
@@ -486,7 +481,6 @@ export default function Home() {
   };
 
   let todayRefreshTimeout: number | undefined;
-  let datePickerRefreshGeneration = 0;
 
   const refreshAndScheduleToday = () => {
     if (todayRefreshTimeout !== undefined) {
@@ -520,83 +514,15 @@ export default function Home() {
     return true;
   };
 
-  const invalidateDatePickerRefresh = (): number => {
-    datePickerRefreshGeneration += 1;
-    return datePickerRefreshGeneration;
-  };
-
-  const canApplyDatePickerRefresh = (generation: number): boolean => {
-    return generation === datePickerRefreshGeneration && authenticated() && (datePickerOpen() || sectionLinkPickerOpen());
-  };
-
-  const refreshExistingNoteDates = async () => {
-    const refreshGeneration = invalidateDatePickerRefresh();
-    setExistingNoteDatesLoading(true);
-    setExistingNoteDatesError(null);
-
-    try {
-      const localDates = await (drafts.listExistingDailyNoteDates?.() ?? Promise.resolve([]));
-      if (!canApplyDatePickerRefresh(refreshGeneration)) return;
-      setExistingNoteDates(new Set(localDates));
-
-      if (authReconnectRequired()) return;
-
-      try {
-        const remoteDates = await (runtime.remote.listDailyNoteDates?.() ?? Promise.resolve([]));
-        if (!canApplyDatePickerRefresh(refreshGeneration)) return;
-        setExistingNoteDates(new Set([...localDates, ...remoteDates]));
-      } catch (error: unknown) {
-        if (!canApplyDatePickerRefresh(refreshGeneration)) return;
-        if (handleRemoteError(error)) {
-          setExistingNoteDatesError("Reconnect to load remote note dates.");
-        } else {
-          setExistingNoteDatesError(errorMessage(error));
-        }
-      }
-    } catch (error: unknown) {
-      if (!canApplyDatePickerRefresh(refreshGeneration)) return;
-      setExistingNoteDatesError(errorMessage(error));
-    } finally {
-      if (refreshGeneration === datePickerRefreshGeneration) setExistingNoteDatesLoading(false);
-    }
-  };
-
-  const openDatePicker = () => {
-    if (!datePickerOpen()) setDatePickerOpen(true);
-  };
-
-  const closeDatePicker = (options: { blurFocus?: boolean } = {}) => {
-    invalidateDatePickerRefresh();
-    setDatePickerOpen(false);
-    setExistingNoteDatesLoading(false);
-    if (options.blurFocus && datePickerRoot?.contains(document.activeElement)) {
-      (document.activeElement as HTMLElement).blur();
-    }
-  };
-
-  const handleDatePickerFocusOut = (event: FocusEvent & { currentTarget: HTMLDivElement }) => {
-    const root = event.currentTarget;
-    window.setTimeout(() => {
-      if (!root.contains(document.activeElement)) closeDatePicker();
-    }, 0);
-  };
-
-  const resetDatePickerState = () => {
-    closeDatePicker();
-    setDatePickerMonth(monthOfIsoDate(selectedDate() ?? today()));
-    setExistingNoteDates(new Set<IsoDate>());
-    setExistingNoteDatesError(null);
-    setExistingNoteDatesLoading(false);
-  };
-
-  const setExistingNoteDate = (date: IsoDate, exists: boolean) => {
-    setExistingNoteDates((dates) => {
-      const next = new Set(dates);
-      if (exists) next.add(date);
-      else next.delete(date);
-      return next;
-    });
-  };
+  const datePicker = createDailyNoteDatePicker({ selectedDate, today });
+  const existingNoteDates = createExistingNoteDates({
+    active: () => authenticated() && (datePicker.open() || sectionLinkPickerOpen()),
+    authReconnectRequired,
+    drafts,
+    remote: runtime.remote,
+    handleRemoteError,
+    errorMessage
+  });
 
   const cancelBackgroundSyncWork = () => {
     backgroundSyncGeneration += 1;
@@ -636,7 +562,7 @@ export default function Home() {
     setLastSyncError,
     setPendingSyncConflict: setPendingSyncConflictWithDiagnostics,
     setSyncStatus,
-    setExistingNoteDate,
+    setExistingNoteDate: existingNoteDates.setDateExists,
     handleRemoteError,
     errorMessage,
     normalizeMarkdown: (markdown) => normalizeDailyNoteMarkdown(markdown, {
@@ -653,7 +579,7 @@ export default function Home() {
     errorMessage,
     applySaveResult: dailyNoteReplication.applySaveResult,
     onDailyNotesChanged: () => {
-      if (datePickerOpen()) void refreshExistingNoteDates();
+      if (datePicker.open()) void existingNoteDates.refresh();
     }
   });
 
@@ -1104,13 +1030,6 @@ export default function Home() {
     )
   );
 
-  createEffect(
-    on(selectedDate, (date) => {
-      if (date === null || datePickerOpen()) return;
-      setDatePickerMonth(monthOfIsoDate(date));
-    })
-  );
-
   createEffect(() => {
     const sharedLink = pendingShareTargetLink();
     const date = selectedDate();
@@ -1164,41 +1083,18 @@ export default function Home() {
 
   createEffect(
     on(
-      () => [authenticated(), datePickerOpen(), sectionLinkPickerOpen()] as const,
+      () => [authenticated(), datePicker.open(), sectionLinkPickerOpen()] as const,
       ([isAuthenticated, pickerOpen, linkPickerOpen]) => {
         if (!isAuthenticated || (!pickerOpen && !linkPickerOpen)) return;
 
-        if (pickerOpen) {
-          const date = selectedDate();
-          if (date !== null) setDatePickerMonth(monthOfIsoDate(date));
-        }
         if (linkPickerOpen) {
           const date = sectionLinkTargetDate();
           if (date !== null) setSectionLinkDatePickerMonth(monthOfIsoDate(date));
         }
-        void refreshExistingNoteDates();
+        void existingNoteDates.refresh();
       }
     )
   );
-
-  createEffect(() => {
-    const onEscapeKey = (event: KeyboardEvent) => {
-      if (!datePickerOpen() || !isEscapeKey(event)) return;
-      event.preventDefault();
-      closeDatePicker({ blurFocus: true });
-    };
-
-    window.addEventListener("keydown", onEscapeKey, true);
-    window.addEventListener("keyup", onEscapeKey, true);
-    document.addEventListener("keydown", onEscapeKey, true);
-    document.addEventListener("keyup", onEscapeKey, true);
-    onCleanup(() => {
-      window.removeEventListener("keydown", onEscapeKey, true);
-      window.removeEventListener("keyup", onEscapeKey, true);
-      document.removeEventListener("keydown", onEscapeKey, true);
-      document.removeEventListener("keyup", onEscapeKey, true);
-    });
-  });
 
   createEffect(
     on(markdown, (value) => {
@@ -1650,7 +1546,8 @@ export default function Home() {
   );
 
   const navigateToDate = async (date: IsoDate, headingSlug: string | null = null) => {
-    closeDatePicker();
+    datePicker.close();
+    existingNoteDates.cancel();
     void dailyNoteReplication.saveCurrentEditorSnapshot();
     const nextHash = dailyNoteRouteHash(date, headingSlug);
     if (window.location.hash === nextHash) {
@@ -3119,7 +3016,8 @@ export default function Home() {
       if (!confirmed) return;
     }
 
-    resetDatePickerState();
+    datePicker.reset();
+    existingNoteDates.reset();
     cancelBackgroundSyncWork();
     dailyNoteUpload.cancelAndReset();
     dailyNoteReplication.cancelInFlightWork();
@@ -3213,101 +3111,12 @@ export default function Home() {
                 >
                   ‹
                 </button>
-                <div
-                  class="date-picker"
-                  ref={datePickerRoot}
-                  onFocusIn={openDatePicker}
-                  onFocusOut={handleDatePickerFocusOut}
-                >
-                  <input
-                    class="iso-date-input"
-                    type="text"
-                    inputmode="numeric"
-                    pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}"
-                    value={selectedDate() ?? ""}
-                    onFocus={openDatePicker}
-                    onClick={openDatePicker}
-                    onChange={(event) => {
-                      const date = parseIsoDate(event.currentTarget.value);
-                      if (date !== null) {
-                        void navigateToDate(date);
-                      } else {
-                        event.currentTarget.value = selectedDate() ?? "";
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter") return;
-                      const date = parseIsoDate(event.currentTarget.value);
-                      if (date !== null) void navigateToDate(date);
-                    }}
-                    aria-label="Selected date"
-                    aria-haspopup="dialog"
-                    aria-expanded={datePickerOpen()}
-                    aria-controls={datePickerOpen() ? "date-picker-popover" : undefined}
-                  />
-                  <Show when={datePickerOpen()}>
-                    <div
-                      id="date-picker-popover"
-                      class="date-picker-popover"
-                      role="dialog"
-                      aria-label="Date picker"
-                      onKeyDown={(event) => {
-                        if (isEscapeKey(event)) closeDatePicker();
-                      }}
-                    >
-                      <div class="date-picker-header">
-                        <button
-                          type="button"
-                          aria-label="Previous month"
-                          data-tooltip="Previous month"
-                          onClick={() => setDatePickerMonth((month) => addMonths(month, -1))}
-                        >
-                          ‹
-                        </button>
-                        <span class="date-picker-month-label">{datePickerMonthLabel()}</span>
-                        <button
-                          type="button"
-                          aria-label="Next month"
-                          data-tooltip="Next month"
-                          onClick={() => setDatePickerMonth((month) => addMonths(month, 1))}
-                        >
-                          ›
-                        </button>
-                      </div>
-                      <div class="date-picker-weekdays" aria-hidden="true">
-                        {CALENDAR_WEEKDAY_LABELS.map((label) => <span>{label}</span>)}
-                      </div>
-                      <div class="date-picker-grid">
-                        {datePickerCalendar().weeks.flatMap((week) =>
-                          week.map((day) => day === null
-                            ? <span class="date-picker-empty" aria-hidden="true" />
-                            : (
-                              <button
-                                type="button"
-                                class="date-picker-day"
-                                classList={{
-                                  "has-note": existingNoteDates().has(day.date),
-                                  "is-selected": day.date === selectedDate()
-                                }}
-                                aria-label={`${day.date}${existingNoteDates().has(day.date) ? ", has note" : ""}`}
-                                aria-current={day.date === selectedDate() ? "date" : undefined}
-                                onClick={() => void navigateToDate(day.date)}
-                              >
-                                <span>{day.dayOfMonth}</span>
-                                <span class="date-note-dot" aria-hidden="true" />
-                              </button>
-                            ))
-                        )}
-                      </div>
-                      <Show when={existingNoteDatesLoading()}>
-                        <p class="date-picker-status">Loading note dates...</p>
-                      </Show>
-                      <Show when={existingNoteDatesError()}>
-                        {(message) => <p class="date-picker-error">{message()}</p>}
-                      </Show>
-                    </div>
-                  </Show>
-                </div>
+                <DailyNoteDatePicker
+                  controller={datePicker}
+                  selectedDate={selectedDate()!}
+                  existingNoteDates={existingNoteDates}
+                  onNavigate={(date) => void navigateToDate(date)}
+                />
                 <button
                   type="button"
                   aria-label="Next day"
@@ -4025,10 +3834,10 @@ export default function Home() {
                               type="button"
                               class="date-picker-day"
                               classList={{
-                                "has-note": existingNoteDates().has(day.date),
+                                "has-note": existingNoteDates.dates().has(day.date),
                                 "is-selected": day.date === sectionLinkTargetDate()
                               }}
-                              aria-label={`${day.date}${existingNoteDates().has(day.date) ? ", has note" : ""}`}
+                              aria-label={`${day.date}${existingNoteDates.dates().has(day.date) ? ", has note" : ""}`}
                               aria-current={day.date === sectionLinkTargetDate() ? "date" : undefined}
                               onClick={() => selectSectionLinkTargetDate(day.date)}
                             >
@@ -4038,10 +3847,10 @@ export default function Home() {
                           ))
                       )}
                     </div>
-                    <Show when={existingNoteDatesLoading()}>
+                    <Show when={existingNoteDates.loading()}>
                       <p class="date-picker-status">Loading note dates...</p>
                     </Show>
-                    <Show when={existingNoteDatesError()}>
+                    <Show when={existingNoteDates.error()}>
                       {(message) => <p class="date-picker-error">{message()}</p>}
                     </Show>
                   </div>
