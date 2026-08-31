@@ -21,6 +21,10 @@ const baseline = "before\nold\nsame\nafter\n";
 const local = "before\nlocal\nsame\nafter\n";
 const remote = "before\nremote\nsame\nafter\n";
 const resolved = "resolved note\n";
+const compactList = [
+  "* AWS Kiro",
+  "* [Agent Skills](https://agentskills.io/home) (standard)."
+].join("\n");
 
 test.describe("mobile remote-note loading", () => {
   test.use({
@@ -29,14 +33,55 @@ test.describe("mobile remote-note loading", () => {
     isMobile: true
   });
 
+  test("resuming a phone tab keeps a remotely written compact list compact through autosave", async ({ page }) => {
+    await page.clock.install({ time: "2030-02-01T12:00:00.000Z" });
+    await openDevelopmentStorage(page, "/", "disabled");
+    await seedDailyNoteState(page, {
+      remote: {
+        date,
+        markdown: "Earlier phone content",
+        revisionId: "phone-revision",
+        updatedAt: "2030-01-01T00:00:00.000Z"
+      }
+    });
+    await page.goto(`/#/date/${date}`);
+    await expect(page.locator(".milkdown-root")).toContainText("Earlier phone content");
+
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await seedDailyNoteState(page, {
+      remote: {
+        date,
+        markdown: compactList,
+        revisionId: "mac-revision",
+        updatedAt: "2030-01-02T00:00:00.000Z"
+      }
+    });
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("pageshow"));
+    });
+
+    await expect(page.locator(".milkdown-root ul")).toHaveAttribute("data-spread", "false");
+    await expect.poll(async () => (await readLocalDraft(page, date))?.markdown).toBe(compactList);
+    const refreshedAt = (await readLocalDraft(page, date))!.updatedAt;
+
+    await page.clock.fastForward(2_001);
+
+    await expect.poll(async () => {
+      const draft = await readLocalDraft(page, date);
+      return draft?.updatedAt === refreshedAt ? null : draft;
+    }).toMatchObject({ markdown: compactList });
+    await expect(readFakeRemoteNote(page, date)).resolves.toMatchObject({ markdown: compactList });
+  });
+
   // See docs/editor-focus-investigation.md: restoring focus after a document
   // replacement is insufficient when the replacement has already reset the caret.
   test("resuming a phone tab preserves focus and the WYSIWYG caret after syncing a compact list", async ({ page }) => {
     const before = "* AWS Kiro";
-    const compact = [
-      "* AWS Kiro",
-      "* [Agent Skills](https://agentskills.io/home) (standard)."
-    ].join("\n");
     await openDevelopmentStorage(page, "/", "disabled");
     await seedDailyNoteState(page, {
       remote: {
@@ -61,7 +106,7 @@ test.describe("mobile remote-note loading", () => {
     await seedDailyNoteState(page, {
       remote: {
         date,
-        markdown: compact,
+        markdown: compactList,
         revisionId: "mac-revision",
         updatedAt: "2030-01-02T00:00:00.000Z"
       }
@@ -75,8 +120,6 @@ test.describe("mobile remote-note loading", () => {
     await expect(page.locator(".milkdown-root ul")).toHaveAttribute("data-spread", "false");
     await expect(editor).toBeFocused();
     await expectEditorCaretAtEndOfFirstListItem(editor);
-    await expect(readFakeRemoteNote(page, date)).resolves.toMatchObject({ markdown: compact });
-    await expect(readLocalDraft(page, date)).resolves.toMatchObject({ markdown: compact });
   });
 });
 
