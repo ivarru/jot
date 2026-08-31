@@ -14,21 +14,12 @@ import {
   LOCAL_DRAFT_DEBOUNCE_MS,
   MILKDOWN_VERSION
 } from "~/config";
-import { DailyNoteUploadConflictDialog } from "~/components/DailyNoteUploadConflictDialog";
-import { DailyNoteUploadStatusAlert } from "~/components/DailyNoteUploadStatusAlert";
 import { MilkdownEditor, type EditorHistoryAvailability, type MilkdownEditorController } from "~/components/MilkdownEditor";
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
 import { applyTextAreaStructuralTab } from "~/components/textAreaIndent";
 import { trackVisualViewportTop } from "~/components/visualViewportToolbar";
 import { findImageAttachmentReferences } from "~/domain/attachmentReferences";
-import {
-  buildDailyNoteUploadCandidates,
-  createPendingDailyNoteUpload,
-  type DailyNoteUploadConflictResolution,
-  type PendingDailyNoteUpload,
-  type UploadedDailyNoteFile
-} from "~/domain/dailyNoteUpload";
 import {
   dailyNoteSectionLinkHref,
   dailyNoteSectionHref,
@@ -133,6 +124,8 @@ import {
   type LinkEditDraft
 } from "~/editor/linkEditing";
 import type { MarkdownSelection } from "~/editor/markdownSelection";
+import { DailyNoteUploadSurfaces } from "~/features/dailyNoteUpload/DailyNoteUploadSurfaces";
+import { createDailyNoteUploadWorkflow } from "~/features/dailyNoteUpload/createDailyNoteUploadWorkflow";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
 import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
@@ -147,10 +140,6 @@ import {
   type DailyNoteSyncConflict,
   type DailyNoteSyncControl
 } from "~/sync/dailyNoteReplication";
-import {
-  buildDailyNoteUploadPlan,
-  saveDailyNoteUploadPlan
-} from "~/sync/dailyNoteUploadSession";
 import type { SyncErrorState } from "~/sync/syncErrorRetry";
 import {
   nextSyncRetryDelayMs,
@@ -252,7 +241,6 @@ export default function Home() {
     ? runtime.tokenProvider.consumeRedirectAccessToken()
     : { type: "none" as const };
   let uploadImageInput: HTMLInputElement | undefined;
-  let dailyNoteUploadInput: HTMLInputElement | undefined;
   let cameraVideo: HTMLVideoElement | undefined;
   let imageAltTextInput: HTMLInputElement | undefined;
   let linkTextInput: HTMLInputElement | undefined;
@@ -331,10 +319,6 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [topMenuOpen, setTopMenuOpen] = createSignal(false);
   const [aboutOpen, setAboutOpen] = createSignal(false);
-  const [dailyNoteUploadInProgress, setDailyNoteUploadInProgress] = createSignal(false);
-  const [dailyNoteUploadError, setDailyNoteUploadError] = createSignal<string | null>(null);
-  const [dailyNoteUploadMessage, setDailyNoteUploadMessage] = createSignal<string | null>(null);
-  const [pendingDailyNoteUpload, setPendingDailyNoteUpload] = createSignal<PendingDailyNoteUpload | null>(null);
   const [editorMode, setEditorMode] = createSignal<EditorMode>("wysiwyg");
   const [insertImageMenuOpen, setInsertImageMenuOpen] = createSignal(false);
   const [linkModalSession, setLinkModalSession] = createSignal<LinkModalSession | null>(null);
@@ -415,7 +399,6 @@ export default function Home() {
   let rawHistoryPast: EditorHistoryEntry[] = [];
   let rawHistoryFuture: EditorHistoryEntry[] = [];
   let backgroundSyncGeneration = 0;
-  let dailyNoteUploadGeneration = 0;
   let sectionLinkTargetLoadGeneration = 0;
   let lastBackgroundSaveSnapshotKey: string | null = null;
   type FocusedEditorIdentity = {
@@ -625,30 +608,6 @@ export default function Home() {
     return () => generation === backgroundSyncGeneration;
   };
 
-  const startDailyNoteUploadWork = (): number => {
-    dailyNoteUploadGeneration += 1;
-    return dailyNoteUploadGeneration;
-  };
-
-  const cancelDailyNoteUploadWork = () => {
-    dailyNoteUploadGeneration += 1;
-  };
-
-  const isCurrentDailyNoteUploadGeneration = (generation: number): boolean => generation === dailyNoteUploadGeneration;
-
-  const canContinueDailyNoteUpload = (
-    generation: number
-  ): NonNullable<DailyNoteSyncControl["canContinue"]> => {
-    return () => isCurrentDailyNoteUploadGeneration(generation);
-  };
-
-  const resetDailyNoteUploadState = () => {
-    setDailyNoteUploadInProgress(false);
-    setDailyNoteUploadError(null);
-    setDailyNoteUploadMessage(null);
-    setPendingDailyNoteUpload(null);
-  };
-
   const syncDirtyDraftsExceptSelected = async (skipDate: IsoDate | null = untrack(selectedDate)): Promise<void> => {
     const generation = backgroundSyncGeneration;
     try {
@@ -683,6 +642,19 @@ export default function Home() {
     normalizeMarkdown: (markdown) => normalizeDailyNoteMarkdown(markdown, {
       normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
     })
+  });
+
+  const dailyNoteUpload = createDailyNoteUploadWorkflow({
+    drafts,
+    remote: runtime.remote,
+    getState: dateBoundEditorState,
+    authReconnectRequired,
+    handleRemoteError,
+    errorMessage,
+    applySaveResult: dailyNoteReplication.applySaveResult,
+    onDailyNotesChanged: () => {
+      if (datePickerOpen()) void refreshExistingNoteDates();
+    }
   });
 
   const currentEditorMarkdown = (): string =>
@@ -1701,110 +1673,6 @@ export default function Home() {
     window.addEventListener("keydown", onDailyNoteNavigationShortcut);
     onCleanup(() => window.removeEventListener("keydown", onDailyNoteNavigationShortcut));
   });
-
-  const startDailyNoteUpload = () => {
-    setTopMenuOpen(false);
-    setDailyNoteUploadError(null);
-    setDailyNoteUploadMessage(null);
-    if (authReconnectRequired()) {
-      setDailyNoteUploadError("Reconnect before uploading daily notes.");
-      return;
-    }
-    dailyNoteUploadInput?.click();
-  };
-
-  const handleDailyNoteUploadFiles = async (files: readonly File[]) => {
-    if (files.length === 0) return;
-
-    const generation = startDailyNoteUploadWork();
-    setDailyNoteUploadInProgress(true);
-    setDailyNoteUploadError(null);
-    setDailyNoteUploadMessage(null);
-    setPendingDailyNoteUpload(null);
-    try {
-      const uploadedFiles = await readDailyNoteUploadFiles(files);
-      const candidates = buildDailyNoteUploadCandidates(uploadedFiles);
-      const pending = createPendingDailyNoteUpload(await buildDailyNoteUploadPlan({
-        candidates,
-        drafts,
-        remote: runtime.remote,
-        getState: dateBoundEditorState,
-        canContinue: canContinueDailyNoteUpload(generation)
-      }));
-      if (!isCurrentDailyNoteUploadGeneration(generation)) return;
-      if (pending.conflictCount > 0) {
-        setPendingDailyNoteUpload(pending);
-        return;
-      }
-      await savePendingDailyNoteUpload(pending, "replace", generation);
-    } catch (error: unknown) {
-      if (!isCurrentDailyNoteUploadGeneration(generation) || isCancelledDailyNoteSyncError(error)) return;
-      if (handleRemoteError(error)) {
-        setDailyNoteUploadError("Reconnect before uploading daily notes.");
-      } else {
-        setDailyNoteUploadError(errorMessage(error));
-      }
-    } finally {
-      if (isCurrentDailyNoteUploadGeneration(generation)) setDailyNoteUploadInProgress(false);
-    }
-  };
-
-  const readDailyNoteUploadFiles = async (files: readonly File[]): Promise<UploadedDailyNoteFile[]> => {
-    return await Promise.all(files.map(async (file) => ({
-      filename: file.name,
-      markdown: await file.text()
-    })));
-  };
-
-  const applyPendingDailyNoteUpload = (resolution: DailyNoteUploadConflictResolution) => {
-    const pending = pendingDailyNoteUpload();
-    if (pending === null) return;
-    void savePendingDailyNoteUpload(pending, resolution);
-  };
-
-  const cancelPendingDailyNoteUpload = () => {
-    cancelDailyNoteUploadWork();
-    setPendingDailyNoteUpload(null);
-    setDailyNoteUploadInProgress(false);
-  };
-
-  const savePendingDailyNoteUpload = async (
-    pending: PendingDailyNoteUpload,
-    resolution: DailyNoteUploadConflictResolution,
-    generation = dailyNoteUploadGeneration
-  ) => {
-    setDailyNoteUploadInProgress(true);
-    setDailyNoteUploadError(null);
-    setDailyNoteUploadMessage(null);
-    setPendingDailyNoteUpload(null);
-    try {
-      const result = await saveDailyNoteUploadPlan({
-        pending,
-        resolution,
-        authReconnectRequired,
-        drafts,
-        remote: runtime.remote,
-        getState: dateBoundEditorState,
-        canContinue: canContinueDailyNoteUpload(generation)
-      });
-      if (!isCurrentDailyNoteUploadGeneration(generation)) return;
-      for (const saveResult of result.saveResults) {
-        dailyNoteReplication.applySaveResult(saveResult);
-      }
-      if (result.type === "failed") throw result.error;
-      setDailyNoteUploadMessage(`Uploaded ${result.count} daily note${result.count === 1 ? "" : "s"}.`);
-      if (datePickerOpen()) void refreshExistingNoteDates();
-    } catch (error: unknown) {
-      if (!isCurrentDailyNoteUploadGeneration(generation) || isCancelledDailyNoteSyncError(error)) return;
-      if (handleRemoteError(error)) {
-        setDailyNoteUploadError("Reconnect before uploading daily notes.");
-      } else {
-        setDailyNoteUploadError(errorMessage(error));
-      }
-    } finally {
-      if (isCurrentDailyNoteUploadGeneration(generation)) setDailyNoteUploadInProgress(false);
-    }
-  };
 
   const resolvePendingSyncConflict = async (resolution: DailyNoteConflictResolution) => {
     const conflict = pendingSyncConflict();
@@ -3253,8 +3121,7 @@ export default function Home() {
 
     resetDatePickerState();
     cancelBackgroundSyncWork();
-    cancelDailyNoteUploadWork();
-    resetDailyNoteUploadState();
+    dailyNoteUpload.cancelAndReset();
     dailyNoteReplication.cancelInFlightWork();
     await drafts.clearAll();
     tagSuggestionCatalog.clear();
@@ -3536,18 +3403,6 @@ export default function Home() {
               </div>
             </div>
             <div class="toolbar-column toolbar-editor-column">
-              <input
-                ref={dailyNoteUploadInput}
-                class="hidden-file-input"
-                type="file"
-                accept=".md,text/markdown"
-                multiple
-                onChange={(event) => {
-                  const files = Array.from(event.currentTarget.files ?? []);
-                  event.currentTarget.value = "";
-                  void handleDailyNoteUploadFiles(files);
-                }}
-              />
               <button
                 type="button"
                 class="icon-button"
@@ -3776,10 +3631,13 @@ export default function Home() {
                     <button
                       type="button"
                       role="menuitem"
-                      disabled={dailyNoteUploadInProgress()}
-                      onClick={startDailyNoteUpload}
+                      disabled={dailyNoteUpload.inProgress()}
+                      onClick={() => {
+                        setTopMenuOpen(false);
+                        dailyNoteUpload.openFilePicker();
+                      }}
                     >
-                      {dailyNoteUploadInProgress() ? "Uploading daily notes..." : "Upload daily notes"}
+                      {dailyNoteUpload.inProgress() ? "Uploading daily notes..." : "Upload daily notes"}
                     </button>
                     <button
                       type="button"
@@ -4249,20 +4107,7 @@ export default function Home() {
             </aside>
           </Show>
 
-          <Show when={dailyNoteUploadError()}>
-            {(message) => (
-              <aside class="sync-alert sync-alert-error" aria-live="polite">
-                <strong>Daily note upload failed</strong>
-                <pre>{message()}</pre>
-              </aside>
-            )}
-          </Show>
-
-          <DailyNoteUploadStatusAlert
-            inProgress={dailyNoteUploadInProgress()}
-            message={dailyNoteUploadMessage()}
-            onDismissMessage={() => setDailyNoteUploadMessage(null)}
-          />
+          <DailyNoteUploadSurfaces workflow={dailyNoteUpload} />
 
           <Show when={settingsOpen()}>
             <SettingsPanel settings={settings()} onChange={updateSettings} onClose={() => setSettingsOpen(false)} />
@@ -4318,17 +4163,6 @@ export default function Home() {
                 <p class="about-copyright">{APP_COPYRIGHT}</p>
               </div>
             </div>
-          </Show>
-
-          <Show when={pendingDailyNoteUpload()}>
-            {(pending) => (
-              <DailyNoteUploadConflictDialog
-                pending={pending()}
-                inProgress={dailyNoteUploadInProgress()}
-                onResolve={applyPendingDailyNoteUpload}
-                onCancel={cancelPendingDailyNoteUpload}
-              />
-            )}
           </Show>
 
           <Show

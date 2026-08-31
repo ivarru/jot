@@ -1,6 +1,6 @@
 import { Show } from "solid-js";
 
-interface DailyNoteUploadStatusAlertProps {
+export interface DailyNoteUploadStatusAlertProps {
   readonly inProgress: boolean;
   readonly message: string | null;
   readonly onDismissMessage: () => void;

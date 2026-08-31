@@ -1,4 +1,4 @@
-import { createPendingDailyNoteUpload } from "~/domain/dailyNoteUpload";
+import { createPendingDailyNoteUpload } from "./dailyNoteUpload";
 import type { IsoDate } from "~/domain/dates";
 import type { DateBoundEditorState } from "~/editor/dateBoundEditor";
 import { createDraft } from "~/storage/localDraftStore";
@@ -14,7 +14,7 @@ import {
   buildDailyNoteUploadPlan,
   saveDailyNoteUploadPlan
 } from "./dailyNoteUploadSession";
-import { CancelledDailyNoteSyncError } from "./dailyNoteReplication";
+import { CancelledDailyNoteSyncError } from "~/sync/dailyNoteReplication";
 
 describe("daily note upload session", () => {
   it("uses the visible selected Daily Note as existing upload content", async () => {

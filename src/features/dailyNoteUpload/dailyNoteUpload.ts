@@ -1,4 +1,4 @@
-import { dateToFilename, parseIsoDate, type IsoDate } from "./dates";
+import { dateToFilename, parseIsoDate, type IsoDate } from "~/domain/dates";
 
 export type DailyNoteUploadConflictResolution = "prepend" | "append" | "replace";
 

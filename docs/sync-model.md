@@ -66,13 +66,14 @@ The strongest practical rule is: a local edit may only sync against a baseline r
 The route lifecycle has additional invariants that sit outside the deterministic sync model: async work that is bound to a date, local draft store, or visible editor lifecycle must carry explicit identity across read, write, and apply boundaries. Sign-out, date teardown, upload cancellation, or any other lifecycle reset must advance the relevant generation before clearing IndexedDB-backed drafts, so delayed local loads, remote refreshes, local draft persists, saves, upload saves, or conflict resolutions cannot repopulate draft state or update the visible editor after the reset.
 
 The Daily Note Replication module expresses this as `DailyNoteReplication.cancelInFlightWork()` plus
-`DailyNoteSyncControl.canContinue`. Route-owned work that is not yet part of the module lifecycle, such as background
-dirty-draft sync and Daily Note Upload, owns its own route generation and passes `canContinue` into module operations
-where storage can be mutated. Image preparation and camera flows carry the explicit `IsoDate` through their async
-boundaries before applying visible UI results.
+`DailyNoteSyncControl.canContinue`. Work outside the module lifecycle owns its own generation and passes `canContinue`
+into module operations where storage can be mutated. The route owns background dirty-draft sync cancellation, while the
+Daily Note Upload feature owns upload cancellation and exposes an explicit reset for the route's sign-out lifecycle.
+Image preparation and camera flows carry the explicit `IsoDate` through their async boundaries before applying visible
+UI results.
 
 Focused coverage lives in `src/sync/dailyNoteReplication/selectedDate.test.ts` for the module lifecycle,
-`src/sync/dailyNoteUploadSession.test.ts` for upload-session cancellation handoffs, and
+`src/features/dailyNoteUpload/dailyNoteUploadSession.test.ts` for upload-session cancellation handoffs, and
 `src/routes/reconnectConflict.test.tsx` for route sign-out, image, and camera wiring. The sign-out route tests intentionally
 exercise delayed storage or remote operations across `clearAll()`, which catches regressions where cancellation is moved
 after the IndexedDB clear.

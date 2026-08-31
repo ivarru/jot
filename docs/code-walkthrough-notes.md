@@ -18,6 +18,9 @@ architectural rationale belongs in ADRs; actionable but unresolved work belongs 
   `CONTEXT.md`.
 - Moved the temporary project parking lot from root-level `NOTES.md` to `docs/notes.md`, and kept the root README's
   `Working on Jot` section concise by delegating the detailed document map to `docs/README.md`.
+- Extracted Daily Note Upload from the route into `src/features/dailyNoteUpload`, colocating its domain rules, storage
+  session, Solid workflow state, cancellation lifetime, UI surfaces, and tests while keeping application-owned auth,
+  editor snapshot, replication result, and date-picker refresh decisions explicit at the composition root.
 
 ## Remaining documentation and testing opinions
 
@@ -35,12 +38,11 @@ architectural rationale belongs in ADRs; actionable but unresolved work belongs 
 
 ## Architecture opinions
 
-- `src/routes/index.tsx` is the legitimate composition root, but at roughly 5,275 lines it is an architectural pressure
+- `src/routes/index.tsx` is the legitimate composition root, but at roughly 5,100 lines it remains an architectural pressure
   point. Preserve a small top-level composition root while extracting coherent workflows according to state ownership
   and asynchronous lifetime.
-- Daily Note Upload is a good first vertical extraction. Its route-owned UI and cancellation state, upload session,
-  domain rules, and components form a coherent feature boundary; the session correctly receives cancellation through a
-  `canContinue` callback rather than owning UI lifecycle.
+- Daily Note Upload established the first vertical feature boundary. Its workflow owns UI state and cancellation, while
+  the session receives cancellation through a `canContinue` callback rather than owning UI lifecycle.
 - Prefer incremental vertical feature modules over a wholesale folder reshuffle. Move feature-local UI, orchestration,
   and rules together where that clarifies ownership, while keeping genuinely shared infrastructure and Google provider
   adapters visibly separate.

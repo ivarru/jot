@@ -2,9 +2,9 @@ import { For } from "solid-js";
 import type {
   DailyNoteUploadConflictResolution,
   PendingDailyNoteUpload
-} from "~/domain/dailyNoteUpload";
+} from "./dailyNoteUpload";
 
-interface DailyNoteUploadConflictDialogProps {
+export interface DailyNoteUploadConflictDialogProps {
   readonly pending: PendingDailyNoteUpload;
   readonly inProgress: boolean;
   readonly onResolve: (resolution: DailyNoteUploadConflictResolution) => void;

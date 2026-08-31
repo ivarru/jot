@@ -4,7 +4,7 @@ import {
   type DailyNoteUploadConflictResolution,
   type DailyNoteUploadPlanItem,
   type PendingDailyNoteUpload
-} from "~/domain/dailyNoteUpload";
+} from "./dailyNoteUpload";
 import type { IsoDate } from "~/domain/dates";
 import { hasDailyNoteContent } from "~/domain/dailyNoteMarkdown";
 import { captureVisibleDailyNoteSnapshot, type DateBoundEditorState } from "~/editor/dateBoundEditor";
@@ -12,11 +12,11 @@ import type { LocalDraftStore, RemoteStorageProvider } from "~/storage/types";
 import {
   replicateDailyNoteSnapshot,
   type ReplicateDailyNoteSnapshotResult
-} from "./dailyNoteReplication";
+} from "~/sync/dailyNoteReplication";
 import {
   CancelledDailyNoteSyncError,
   type DailyNoteSyncControl
-} from "./dailyNoteReplication";
+} from "~/sync/dailyNoteReplication";
 
 export interface BuildDailyNoteUploadPlanInput {
   readonly candidates: readonly DailyNoteUploadCandidate[];
