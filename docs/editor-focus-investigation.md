@@ -12,6 +12,14 @@ Version `0.21.32` fixes both return-focus failures without capturing or replayin
 
 Pointer, keyboard, selection, or input activity cancels a pending foreground focus. Date, mode, editor-generation, modal, and read-only checks prevent a stale foreground event from focusing a different editor session.
 
+## Follow-up fix in 0.25.8
+
+The compact-list normalization added later rebuilt the complete ProseMirror `EditorState` for a genuinely newer remote document. That preserved the list representation but discarded the live DOM focus and reset the ProseMirror selection. Focusing after the rebuild was not a safe remedy because the caret had already moved.
+
+External refreshes now normalize the parsed document first, compute the smallest ProseMirror document difference, and dispatch that difference through the existing live editor state as a non-history transaction. ProseMirror therefore maps its current selection while applying the remote change and retains the focused view. Jot still does not capture, dispatch, or asynchronously replay a selection, and synchronization completion still does not call `focus()`.
+
+The regression starts with the caret at the end of the first compact-list item, backgrounds the phone tab, adds a second item remotely, and requires the editor to remain focused with the caret still at the original item after foreground synchronization.
+
 ## Distinct problems observed
 
 These symptoms should not be treated as one bug.

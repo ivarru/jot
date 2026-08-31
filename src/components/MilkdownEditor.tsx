@@ -258,12 +258,9 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             Editor,
             rootCtx,
             defaultValueCtx,
-            editorStateOptionsCtx,
             editorViewCtx,
             editorViewOptionsCtx,
             parserCtx,
-            prosePluginsCtx,
-            schemaCtx,
             serializerCtx
           },
           {
@@ -283,7 +280,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { gfm, tableCellSchema, tableRowSchema },
           { automd, inlineSyncConfig },
           { clipboard },
-          { history },
+          { history, historyProviderPlugin },
           { listener, listenerCtx },
           { listItemBlockComponent, listItemBlockConfig },
           { Plugin, TextSelection, EditorState: EditorStateConstructor },
@@ -577,12 +574,18 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                   const parsed = ctx.get(parserCtx)(markdown);
                   if (parsed !== null) {
                     const doc = normalizeMilkdownListTightness(parsed, EditorStateConstructor);
-                    const options = ctx.get(editorStateOptionsCtx)({
-                      schema: ctx.get(schemaCtx),
-                      doc,
-                      plugins: ctx.get(prosePluginsCtx)
-                    });
-                    ctx.get(editorViewCtx).updateState(EditorStateConstructor.create(options));
+                    const view = ctx.get(editorViewCtx);
+                    // Keep the live view and let ProseMirror map its current selection.
+                    // Recreating EditorState resets both the DOM focus and caret.
+                    const transaction = replaceMilkdownDocumentTransaction(view.state, doc);
+                    if (transaction !== null) {
+                      const historyPlugin = historyProviderPlugin.plugin();
+                      const emptyHistoryState = historyPlugin.getState(EditorStateConstructor.create({
+                        doc: transaction.doc,
+                        plugins: [historyPlugin]
+                      }));
+                      view.dispatch(transaction.setMeta(historyPlugin, { historyState: emptyHistoryState }));
+                    }
                   }
                 }
                 const view = ctx.get(editorViewCtx);
@@ -1072,6 +1075,24 @@ function normalizeMilkdownListTightness(
   const state = EditorStateConstructor.create({ doc });
   const transaction = state.tr;
   return applyListTightnessUpdates(doc, transaction) ? transaction.doc : doc;
+}
+
+function replaceMilkdownDocumentTransaction(state: EditorState, doc: ProseNode): Transaction | null {
+  const start = state.doc.content.findDiffStart(doc.content);
+  if (start === null) return null;
+
+  const end = state.doc.content.findDiffEnd(doc.content);
+  if (end === null) return null;
+
+  let endBefore = end.a;
+  let endAfter = end.b;
+  const overlap = start - Math.min(endBefore, endAfter);
+  if (overlap > 0) {
+    endBefore += overlap;
+    endAfter += overlap;
+  }
+
+  return state.tr.replace(start, endBefore, doc.slice(start, endAfter));
 }
 
 function linkHrefFromEvent(event: Event, root: HTMLElement): string | null {
