@@ -1081,6 +1081,7 @@ function replaceMilkdownDocumentTransaction(state: EditorState, doc: ProseNode):
   // Parsed Markdown has no generated heading IDs. Ignore those derived attrs
   // when locating the content change, or an append below several headings
   // replaces everything from the first heading and maps the caret to the end.
+  // Verify that parsed heading IDs remain empty when upgrading Milkdown.
   // This comparison transaction is never dispatched; the live heading plugin
   // retains/regenerates IDs (including duplicate-heading suffixes) as usual.
   const comparison = state.tr;
