@@ -20,6 +20,24 @@ External refreshes now normalize the parsed document first, compute the smallest
 
 The regression starts with the caret at the end of the first compact-list item, backgrounds the phone tab, adds a second item remotely, and requires the editor to remain focused with the caret still at the original item after foreground synchronization.
 
+## Follow-up fix in 0.25.10
+
+A later phone save could still move the desktop caret down a note containing several headings. This was reproduced in
+Brave with fake remote storage: open a remote note, type in its first bullet, and merge a later remote append at the
+bottom. Subsequent typing landed in the last bullet. Settled remote notes with compact lists, loose lists, and empty
+placeholders did not reproduce the jump in the same investigation.
+
+The live heading plugin assigns generated IDs, while headings freshly parsed from Markdown have empty IDs. Comparing
+these documents directly treated the first heading as changed, even when only the final list had new content. The
+replacement therefore spanned the caret and mapped it to the end. The external-update comparison now clears generated
+heading IDs in a temporary comparison document only. The live transaction still applies the actual content difference;
+Milkdown retains or regenerates heading IDs itself, including duplicate-heading suffixes.
+
+Component regressions cover caret preservation, duplicate headings, real heading renames, and switching to date B while
+date A still has delayed editor callbacks. A browser regression types across autosave and a remote merge, checks native
+focus and selection, and verifies the local draft, remote Markdown, and reloaded content. This belongs outside the sync
+model because that model does not represent ProseMirror attributes or browser selection.
+
 ## Distinct problems observed
 
 These symptoms should not be treated as one bug.

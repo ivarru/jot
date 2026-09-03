@@ -1078,10 +1078,21 @@ function normalizeMilkdownListTightness(
 }
 
 function replaceMilkdownDocumentTransaction(state: EditorState, doc: ProseNode): Transaction | null {
-  const start = state.doc.content.findDiffStart(doc.content);
+  // Parsed Markdown has no generated heading IDs. Ignore those derived attrs
+  // when locating the content change, or an append below several headings
+  // replaces everything from the first heading and maps the caret to the end.
+  // This comparison transaction is never dispatched; the live heading plugin
+  // retains/regenerates IDs (including duplicate-heading suffixes) as usual.
+  const comparison = state.tr;
+  state.doc.descendants((node, pos) => {
+    if (node.type.name === "heading" && node.attrs.id !== "") {
+      comparison.setNodeAttribute(pos, "id", "");
+    }
+  });
+  const start = comparison.doc.content.findDiffStart(doc.content);
   if (start === null) return null;
 
-  const end = state.doc.content.findDiffEnd(doc.content);
+  const end = comparison.doc.content.findDiffEnd(doc.content);
   if (end === null) return null;
 
   let endBefore = end.a;

@@ -115,6 +115,49 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it.each(["Afternoon", "Morning"])("keeps the caret above a remote append with heading %s", async (secondHeading) => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const before = `# Morning\n\n* First item\n* Second item\n\n# ${secondHeading}\n\n* Third item\n`;
+    const cursor = before.indexOf("First") + "First".length;
+    let setMarkdown!: (markdown: string) => void;
+    let controller!: MilkdownEditorController;
+    const dispose = render(() => {
+      const [markdown, updateMarkdown] = createSignal(before);
+      setMarkdown = updateMarkdown;
+      return (
+        <MilkdownEditor
+          documentKey="2030-02-02"
+          value={markdown()}
+          focusSelection={{ start: cursor, end: cursor }}
+          onChange={() => undefined}
+          onBlur={() => undefined}
+          onController={(next) => { if (next !== null) controller = next; }}
+        />
+      );
+    }, host);
+
+    try {
+      await waitForEditable(host);
+      await animationFrame();
+      const selection = controller.getSelection();
+      expect(selection?.start).toBe(cursor);
+      setMarkdown(`${before}* Last phone edit\n`);
+      await delay(300);
+      expect(controller.getLiveMarkdown()).toContain("Last phone edit");
+      expect(controller.getSelection()).toEqual(selection);
+      expect(Array.from(host.querySelectorAll("h1"), (heading) => heading.id)).toEqual(
+        secondHeading === "Morning" ? ["morning", "morning-#2"] : ["morning", "afternoon"]
+      );
+      setMarkdown(`${before}* Last phone edit\n`.replace(`# ${secondHeading}\n\n* Third`, "# Updated\n\n* Third"));
+      await delay(300);
+      expect(host.querySelectorAll("h1")[1]?.id).toBe("updated");
+      expect(controller.getSelection()).toEqual(selection);
+    } finally {
+      dispose();
+    }
+  });
+
   it("does not replace the live editor when a canonical saved value is equivalent", async () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -195,13 +238,14 @@ describe("MilkdownEditor", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const blurs: Array<readonly [string, string]> = [];
+    const changes: Array<readonly [string, string]> = [];
     let setDocument!: (document: { readonly documentKey: string; readonly markdown: string }) => void;
 
     const dispose = render(
       () => {
         const [document, innerSetDocument] = createSignal({
           documentKey: "2030-02-01",
-          markdown: "A old"
+          markdown: "# Morning\n\n* A old\n\n# Evening\n\n* A last"
         });
         setDocument = innerSetDocument;
 
@@ -209,7 +253,7 @@ describe("MilkdownEditor", () => {
           <MilkdownEditor
             documentKey={document().documentKey}
             value={document().markdown}
-            onChange={() => undefined}
+            onChange={(documentKey, markdown) => changes.push([documentKey, markdown])}
             onBlur={(documentKey, markdown) => blurs.push([documentKey, markdown])}
           />
         );
@@ -222,7 +266,7 @@ describe("MilkdownEditor", () => {
 
       setDocument({
         documentKey: "2030-02-01",
-        markdown: "A remote"
+        markdown: "# Morning\n\n* A old\n\n# Evening\n\n* A last\n* A remote"
       });
       await animationFrame();
       setDocument({
@@ -235,6 +279,8 @@ describe("MilkdownEditor", () => {
 
       editor.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
       expect(blurs.at(-1)).toEqual(["2030-02-02", "B current"]);
+      expect(editor.textContent).toBe("B current");
+      expect(changes).toEqual([]);
 
     } finally {
       dispose();

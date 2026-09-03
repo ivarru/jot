@@ -94,6 +94,8 @@ test.describe("mobile remote-note loading", () => {
     await page.goto(`/#/date/${date}`);
     await expect(page.locator(".milkdown-root")).toContainText("AWS Kiro");
     const editor = page.locator(".milkdown-root [contenteditable='true']");
+    // Finish the queued initial focus before placing the caret for this test.
+    await editor.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
     await editor.focus();
     await page.keyboard.press("End");
     await expect(editor).toBeFocused();
