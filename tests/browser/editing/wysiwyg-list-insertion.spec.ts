@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   expectNormalizedRawMarkdown,
+  focusRawEditorRange,
   focusWysiwygEditor,
   focusWysiwygTextOffset,
   openDevelopmentStorage,
@@ -106,10 +107,8 @@ test("an empty paragraph inserted before existing text remains available briefly
 
 test("an empty bullet inserted before an existing bullet remains available briefly", async ({ page }) => {
   await setRawMarkdown(page, "* existing");
+  await focusRawEditorRange(page, 2, 2);
   await switchToWysiwygMode(page);
-  await page.waitForTimeout(250);
-  await page.locator(".milkdown-root ul li p").click();
-  await page.keyboard.press("Home");
   await page.keyboard.press("Enter");
 
   const firstItem = page.locator(".milkdown-root ul li").first();
