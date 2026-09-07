@@ -2487,6 +2487,9 @@ export default function Home() {
     }
   ) => {
     const previousMarkdown = markdown();
+    if (previousMarkdown !== nextMarkdown) {
+      scheduleLivePlaceholderNormalization(date, nextMarkdown);
+    }
     if (options.recordHistory && previousMarkdown !== nextMarkdown) {
       recordRawHistorySnapshot(date, previousMarkdown);
     }
@@ -2579,7 +2582,6 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
-    scheduleLivePlaceholderNormalization(date, value);
     syncDiagnostics.record({ event: "editor-change", date, markdown: value });
 
     applyRawEditorChange(date, value, {

@@ -2421,6 +2421,46 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("restarts delayed placeholder normalization after raw undo and redo", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "before",
+      revisionId: "remote-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("before");
+      });
+      rawModeButton(host).click();
+      await settle();
+
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Markdown text editor']")!;
+      const pending = "before\n* <br />";
+      editor.value = pending;
+      editor.setSelectionRange(0, 0);
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: pending }));
+      await settle();
+      await new Promise((resolve) => window.setTimeout(resolve, 70));
+
+      expect(pressUndo(editor)).toBe(true);
+      await settle();
+      expect(pressRedo(editor)).toBe(true);
+      await settle();
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+      expect(editor.value).toBe(pending);
+
+      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      expect(editor.value).toBe("before");
+    } finally {
+      dispose();
+    }
+  });
+
   it("applies structural indent and dedent at the WYSIWYG editor selection from heading buttons", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
