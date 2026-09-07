@@ -77,3 +77,70 @@ test("Enter between two paragraphs keeps the new empty paragraph through autosav
 
   await expectNormalizedRawMarkdown(page, "foo\n\n<br />\n\nbar");
 });
+
+test("an empty paragraph inserted before existing text remains available briefly", async ({ page }) => {
+  await setRawMarkdown(page, "first\n\nexisting");
+  await switchToWysiwygMode(page);
+  await page.waitForTimeout(250);
+  await focusWysiwygTextOffset(page, "first", "first".length);
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".milkdown-root p")).toHaveCount(3);
+  await focusWysiwygTextOffset(page, "existing", "existing".length);
+
+  const emptyParagraph = page.locator(".milkdown-root p").nth(1);
+  await expect(emptyParagraph).toBeEmpty();
+  await page.waitForTimeout(500);
+  await emptyParagraph.evaluate((element) => {
+    const selection = getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await page.keyboard.type("before");
+
+  await expectNormalizedRawMarkdown(page, "first\n\nbefore\n\nexisting");
+});
+
+test("an empty bullet inserted before an existing bullet remains available briefly", async ({ page }) => {
+  await setRawMarkdown(page, "* existing");
+  await switchToWysiwygMode(page);
+  await page.waitForTimeout(250);
+  await page.locator(".milkdown-root ul li p").click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Enter");
+
+  const firstItem = page.locator(".milkdown-root ul li").first();
+  await expect(firstItem.locator("p")).toBeEmpty();
+  await page.waitForTimeout(500);
+  await firstItem.evaluate((element) => {
+    const selection = getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await page.keyboard.type("before");
+
+  await expectNormalizedRawMarkdown(page, "* before\n* existing");
+});
+
+test("normalizing a preceding empty paragraph does not remove a trailing typed space", async ({ page }) => {
+  await setRawMarkdown(page, "first\n\nexisting");
+  await switchToWysiwygMode(page);
+  await page.waitForTimeout(250);
+  await focusWysiwygTextOffset(page, "first", "first".length);
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".milkdown-root p")).toHaveCount(3);
+  await focusWysiwygTextOffset(page, "existing", "existing".length);
+  await page.keyboard.type(" ");
+  await page.waitForTimeout(200);
+  await page.keyboard.type("world");
+  await page.waitForTimeout(3200);
+
+  await expectNormalizedRawMarkdown(page, "first\n\nexisting world");
+});

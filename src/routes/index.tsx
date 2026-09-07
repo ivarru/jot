@@ -12,6 +12,7 @@ import {
   FORCE_FAKE_STORAGE,
   GOOGLE_CLIENT_ID,
   LOCAL_DRAFT_DEBOUNCE_MS,
+  LIVE_PLACEHOLDER_NORMALIZATION_DELAY_MS,
   MILKDOWN_VERSION
 } from "~/config";
 import { MilkdownEditor, type EditorHistoryAvailability, type MilkdownEditorController } from "~/components/MilkdownEditor";
@@ -593,11 +594,29 @@ export default function Home() {
     normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
   });
 
+  type PendingLivePlaceholderNormalization = {
+    readonly date: IsoDate;
+    readonly markdown: string;
+    readonly dueAtMs: number;
+  };
+  let pendingLivePlaceholderNormalization: PendingLivePlaceholderNormalization | null = null;
+  let livePlaceholderNormalizationTimeout: number | undefined;
+
+  const livePlaceholderNormalizationIsPending = (): boolean => {
+    const pending = pendingLivePlaceholderNormalization;
+    return pending !== null &&
+      pending.date === selectedDate() &&
+      Date.now() < pending.dueAtMs;
+  };
+
   const selectivelyNormalizedLiveMarkdown = (value: string): {
     readonly markdown: string;
     readonly selection: MarkdownSelection | null;
   } => {
     const selection = currentOrRememberedEditorSelection(value);
+    if (livePlaceholderNormalizationIsPending()) {
+      return { markdown: value, selection };
+    }
     if (selection !== null && selection.start === selection.end) {
       const normalized = normalizeDailyNoteMarkdownAtCaret(value, selection.start, markdownNormalizationOptions());
       return {
@@ -701,6 +720,36 @@ export default function Home() {
       snapshot: captureDocumentSnapshot(date, persistedMarkdown)
     };
   };
+
+  const scheduleLivePlaceholderNormalization = (date: IsoDate, markdownSnapshot: string) => {
+    if (livePlaceholderNormalizationTimeout !== undefined) {
+      window.clearTimeout(livePlaceholderNormalizationTimeout);
+    }
+
+    const pending = {
+      date,
+      markdown: markdownSnapshot,
+      dueAtMs: Date.now() + LIVE_PLACEHOLDER_NORMALIZATION_DELAY_MS
+    } satisfies PendingLivePlaceholderNormalization;
+    pendingLivePlaceholderNormalization = pending;
+    livePlaceholderNormalizationTimeout = window.setTimeout(() => {
+      livePlaceholderNormalizationTimeout = undefined;
+      if (pendingLivePlaceholderNormalization !== pending) return;
+      pendingLivePlaceholderNormalization = null;
+      if (
+        selectedDate() !== pending.date ||
+        loadedDate() !== pending.date ||
+        markdown() !== pending.markdown
+      ) return;
+      flushCurrentVisibleEditorSnapshot();
+    }, LIVE_PLACEHOLDER_NORMALIZATION_DELAY_MS);
+  };
+
+  onCleanup(() => {
+    if (livePlaceholderNormalizationTimeout !== undefined) {
+      window.clearTimeout(livePlaceholderNormalizationTimeout);
+    }
+  });
 
   const backgroundSaveSnapshotKey = (snapshot: VisibleDailyNoteSnapshot): string => `${snapshot.date}\n${snapshot.markdown}`;
 
@@ -2504,6 +2553,7 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
+    scheduleLivePlaceholderNormalization(date, value);
     syncDiagnostics.record({ event: "editor-change", date, markdown: value });
     if (editorMode() === "wysiwyg") {
       clearRawHistory();
@@ -2529,6 +2579,7 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
+    scheduleLivePlaceholderNormalization(date, value);
     syncDiagnostics.record({ event: "editor-change", date, markdown: value });
 
     applyRawEditorChange(date, value, {

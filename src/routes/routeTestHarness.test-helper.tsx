@@ -102,6 +102,7 @@ vi.mock("~/config", () => ({
   },
   GOOGLE_CLIENT_ID: "test-google-client-id",
   LOCAL_DRAFT_DEBOUNCE_MS: 250,
+  LIVE_PLACEHOLDER_NORMALIZATION_DELAY_MS: 100,
   MILKDOWN_VERSION: "7.21.1"
 }));
 

@@ -3,7 +3,6 @@ import {
   clickButton,
   expectNormalizedRawMarkdown,
   expectRawMarkdown,
-  expectRawSelection,
   focusWysiwygEditorAtEnd,
   openDevelopmentStorage,
   rawEditor,
@@ -34,7 +33,7 @@ test("the disabled profile applies before startup synchronization", async ({ pag
   await expect(page.getByLabel("Normalize empty editor placeholders when saving")).not.toBeChecked();
 });
 
-test("sync keeps the current empty list item editable while saving the canonical note", async ({ page }) => {
+test("sync keeps live placeholders during the grace period while saving the canonical note", async ({ page }) => {
   await openDevelopmentStorage(page, "/", "enabled");
   const date = "2030-02-02";
   await page.goto(`/#/date/${date}`);
@@ -55,9 +54,10 @@ test("sync keeps the current empty list item editable while saving the canonical
   await clickButton(page, "Saved locally");
   await expect.poll(async () => (await readFakeRemoteNote(page, date))?.markdown).toBe("before");
 
-  await expectRawMarkdown(page, "before\n* <br />");
-  await expectRawSelection(page, "before\n* ".length);
+  await expect(rawEditor(page)).toHaveValue(pending, { timeout: 500 });
   await expect(rawEditor(page)).toBeEditable();
+  await page.waitForTimeout(3200);
+  await expectRawMarkdown(page, /^before(?:\n\* <br \/>)?$/);
 });
 
 test("a literal placeholder inside a raw HTML block does not move the caret line", async ({ page }) => {

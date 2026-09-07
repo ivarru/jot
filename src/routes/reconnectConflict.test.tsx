@@ -490,12 +490,12 @@ describe("Home reconnect and conflict handling", () => {
       window.dispatchEvent(new PageTransitionEvent("pagehide"));
       testState.delayedRemoteSave.finish.resolve();
       await waitFor(() => expect(testState.remoteNote?.markdown).toBe("before"));
-      expect(editor.value).toBe("before\n* <br />");
+      expect(editor.value).toBe(pending);
+      expect(testState.drafts.get("2030-02-02")).toMatchObject({ markdown: "before", dirty: false });
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+      await waitFor(() => expect(editor.value).toBe("before\n* <br />"));
       expect(editor.selectionStart).toBe("before\n* ".length);
       expect(editor.selectionEnd).toBe("before\n* ".length);
-      expect(testState.drafts.get("2030-02-02")).toMatchObject({ markdown: "before", dirty: false });
-      expect(editor.value).toBe("before\n* <br />");
-      expect(editor.selectionStart).toBe("before\n* ".length);
     } finally {
       testState.delayedRemoteSave?.finish.resolve();
       dispose();
@@ -1157,6 +1157,43 @@ describe("Home reconnect and conflict handling", () => {
       await new Promise((resolve) => window.setTimeout(resolve, 750));
 
       expect(testState.remoteSaveInputs).toEqual(["2030-02-02"]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("does not let date A's delayed live normalization rewrite date B", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "A original",
+      revisionId: "a-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "B original"));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("A original");
+      });
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editor.value = "A changed\n* <br />";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " changed" }));
+      await settle();
+
+      clickButton(host, "Next day");
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+      await waitFor(() => {
+        expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")?.value).toBe("2030-02-03");
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("B original");
+      });
+      testState.setWysiwygInternalMarkdown?.("B original\n* <br />");
+
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value)
+        .toBe("B original\n* <br />");
     } finally {
       dispose();
     }
