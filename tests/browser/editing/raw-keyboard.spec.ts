@@ -29,9 +29,23 @@ test.beforeEach(async ({ page }) => {
 
 test("raw Tab indentation participates in undo", async ({ page }) => {
   await assertRawTabUndo(page, "plain line", "* plain line");
-  await assertRawTabUndo(page, "abc\ndef\\\nghi", "* abc\n  def\\\n  ghi");
+  await assertRawTabUndo(page, "abc\ndef\\\nghi", "abc\ndef\\\n* ghi");
   await assertRawTabNoop(page, "| A | B |\n| --- | --- |\n| one | two |");
   await assertRawTabUndo(page, "# Heading", "Heading");
+});
+
+test("raw Tab listifies only the current textual line and Shift-Tab reverses it", async ({ page }) => {
+  const markdown = "foo\nbar\nbaz";
+  await setRawMarkdown(page, markdown);
+  await focusRawEditorRange(page, "foo\nba".length, "foo\nba".length);
+
+  await page.keyboard.press("Tab");
+
+  await expectRawMarkdown(page, "foo\n* bar\nbaz");
+
+  await page.keyboard.press("Shift+Tab");
+
+  await expectRawMarkdown(page, markdown);
 });
 
 test("raw undo survives mode switches and stays out of WYSIWYG history", async ({ page }) => {

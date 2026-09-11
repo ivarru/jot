@@ -1,24 +1,24 @@
 import { textAreaStructuralTabAction } from "./textAreaIndent";
 
 describe("text area structural tab editing", () => {
-  it("turns a hard-break paragraph into a list item with indented continuation lines", () => {
-    const markdown = "abc\ndef\\\nghi";
+  it("listifies only the current textual line in a multiline paragraph", () => {
+    const markdown = "foo\nbar\nbaz";
 
-    const action = textAreaStructuralTabAction(markdown, "abc".length, "abc".length, false);
+    const action = textAreaStructuralTabAction(markdown, "foo\nba".length, "foo\nba".length, false);
 
-    expect(applyAction(markdown, action)).toBe("* abc\n  def\\\n  ghi");
+    expect(applyAction(markdown, action)).toBe("foo\n* bar\nbaz");
   });
 
-  it("keeps the raw cursor with the same paragraph text when listifying from a continuation line", () => {
-    const markdown = "abc\ndef\\\nghi";
+  it("keeps the raw cursor with the current line when listifying a multiline paragraph", () => {
+    const markdown = "foo\nbar\nbaz";
 
-    const action = textAreaStructuralTabAction(markdown, "abc\ndef".length, "abc\ndef".length, false);
+    const action = textAreaStructuralTabAction(markdown, "foo\nba".length, "foo\nba".length, false);
 
-    expect(applyAction(markdown, action)).toBe("* abc\n  def\\\n  ghi");
+    expect(applyAction(markdown, action)).toBe("foo\n* bar\nbaz");
     expect(action.type).toBe("edit");
     if (action.type === "edit") {
-      expect(action.edit.selectionStart).toBe("* abc\n  def".length);
-      expect(action.edit.selectionEnd).toBe("* abc\n  def".length);
+      expect(action.edit.selectionStart).toBe("foo\n* ba".length);
+      expect(action.edit.selectionEnd).toBe("foo\n* ba".length);
     }
   });
 
