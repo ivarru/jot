@@ -4,6 +4,7 @@ import {
   structuralHeadingTarget,
   type StructuralTabAvailability
 } from "../editor/structuralHeading";
+import { createMarkdownProtectedLineScanner } from "../domain/dailyNoteMarkdown";
 
 const STRUCTURAL_INDENT = "  ";
 
@@ -229,21 +230,34 @@ function listItemPrefix(lineText: string): ListItemPrefix | null {
 
 function previousHeadingDepth(markdown: string, lineStart: number): number | null {
   let headingDepth: number | null = null;
-  let fence: FenceState | null = null;
+  let previousLineText: string | null = null;
+  const isProtected = createMarkdownProtectedLineScanner();
   for (const lineText of markdown.slice(0, lineStart).split("\n")) {
-    if (fence === null) {
-      const opening = openingFence(lineText);
-      if (opening !== null) {
-        fence = opening;
-        continue;
-      }
-      const heading = headingPrefix(lineText);
-      if (heading !== null) headingDepth = heading.depth;
-    } else if (isClosingFenceLine(lineText, fence)) {
-      fence = null;
+    if (isProtected(lineText)) {
+      previousLineText = null;
+      continue;
     }
+    const setextDepth = setextHeadingDepth(lineText, previousLineText);
+    if (setextDepth !== null) headingDepth = setextDepth;
+    const heading = headingPrefix(lineText);
+    if (heading !== null) headingDepth = heading.depth;
+    previousLineText = lineText;
   }
   return headingDepth;
+}
+
+function setextHeadingDepth(underline: string, content: string | null): number | null {
+  if (content === null || !isSetextHeadingContentLine(content)) return null;
+  const match = underline.match(/^ {0,3}(=+|-+)[ \t]*$/);
+  if (match === null) return null;
+  return match[1]?.startsWith("=") ? 1 : 2;
+}
+
+function isSetextHeadingContentLine(lineText: string): boolean {
+  if (/^[ \t]*$/.test(lineText) || /^ {4}/.test(lineText) || /^ {0,3}>/.test(lineText)) return false;
+  if (listItemPrefix(lineText) !== null || headingPrefix(lineText) !== null) return false;
+  if (openingFence(lineText) !== null || isThematicBreakLine(lineText)) return false;
+  return true;
 }
 
 function previousLine(markdown: string, lineStart: number): CurrentLine | null {

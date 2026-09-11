@@ -66,6 +66,38 @@ test("raw heading indent and dedent follow the enclosing heading chain", async (
   }
 });
 
+test("raw and WYSIWYG dedent agree after a Setext heading", async ({ page }) => {
+  const markdown = "Parent\n------\nParagraph";
+  const rawExpected = "Parent\n------\n### Paragraph";
+  await setRawMarkdown(page, markdown);
+  await focusRawEditorAtEnd(page);
+
+  await page.keyboard.press("Shift+Tab");
+
+  await expectRawMarkdown(page, rawExpected);
+
+  await setRawMarkdown(page, markdown);
+  await switchToWysiwygMode(page);
+  await focusWysiwygTextOffset(page, "Paragraph", "Paragraph".length);
+  await page.keyboard.press("Shift+Tab");
+
+  await expectRawMarkdown(page, "## Parent\n\n### Paragraph\n");
+});
+
+test("raw heading discovery ignores protected blocks", async ({ page }) => {
+  for (const markdown of [
+    "<div>\n###### example\n</div>\n\nParagraph",
+    "\t###### example\n\nParagraph"
+  ]) {
+    await setRawMarkdown(page, markdown);
+    await focusRawEditorAtEnd(page);
+
+    await page.keyboard.press("Shift+Tab");
+
+    await expectRawMarkdown(page, `${markdown.slice(0, -"Paragraph".length)}# Paragraph`);
+  }
+});
+
 test("raw undo survives mode switches and stays out of WYSIWYG history", async ({ page }) => {
   await assertRawUndoSurvivesModeSwitch(page);
   await assertRawEditDoesNotEnterWysiwygUndo(page);

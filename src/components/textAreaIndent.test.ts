@@ -49,6 +49,21 @@ describe("text area structural tab editing", () => {
     expect(applyAtEnd(markdown, true)).toBe("```\n###### code\n```\n# Paragraph");
   });
 
+  it.each([
+    ["<div>\n###### example\n</div>\n\nParagraph"],
+    ["    ###### example\n\nParagraph"],
+    ["\t###### example\n\nParagraph"]
+  ])("does not treat headings inside protected blocks as context in %s", (markdown) => {
+    expect(applyAtEnd(markdown, true)).toBe(`${markdown.slice(0, -"Paragraph".length)}# Paragraph`);
+  });
+
+  it.each([
+    ["Parent\n======\nParagraph", "Parent\n======\n## Paragraph"],
+    ["Parent\n------\nParagraph", "Parent\n------\n### Paragraph"]
+  ])("recognizes a preceding Setext heading in %s", (markdown, expected) => {
+    expect(applyAtEnd(markdown, true)).toBe(expected);
+  });
+
   it("reports unavailable heading boundaries", () => {
     expect(textAreaStructuralTabAvailability("# Heading", 3)).toEqual({ canIndent: true, canDedent: false });
     expect(textAreaStructuralTabAvailability("###### Parent\nParagraph", 20)).toEqual({
