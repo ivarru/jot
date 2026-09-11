@@ -60,14 +60,38 @@ test("task checkbox keeps the WYSIWYG caret on a freshly entered empty paragraph
   await expectRawMarkdown(page, /^abc\n\n\* \[ \] x/);
 });
 
-test("toolbar dedent keeps the WYSIWYG caret on an empty heading", async ({ page }) => {
+test("toolbar disables dedent on an h1 in both editor modes", async ({ page }) => {
   await setRawMarkdown(page, "before\n#");
   await switchToWysiwygMode(page);
   await page.locator(".milkdown-root h1").last().click();
 
-  await clickToolbarButtonAndType(page, "Dedent", "x");
+  await expect(page.getByRole("button", { name: "Dedent" })).toBeDisabled();
 
-  await expectRawMarkdown(page, /^before\s*\n## x/);
+  await switchToRawMode(page);
+  await page.getByLabel("Markdown text editor").click();
+  await expect(page.getByRole("button", { name: "Dedent" })).toBeDisabled();
+});
+
+test("toolbar heading buttons follow the enclosing heading chain", async ({ page }) => {
+  await setRawMarkdown(page, "## Parent\n\nParagraph");
+  await switchToWysiwygMode(page);
+  await page.locator(".milkdown-root p").last().click();
+
+  const indent = page.getByRole("button", { name: "Indent" });
+  const dedent = page.getByRole("button", { name: "Dedent" });
+
+  await dedent.click();
+  await expect(page.locator(".milkdown-root h3", { hasText: "Paragraph" })).toBeVisible();
+  await dedent.click();
+  await expect(page.locator(".milkdown-root h2", { hasText: "Paragraph" })).toBeVisible();
+  await dedent.click();
+  await expect(page.locator(".milkdown-root h1", { hasText: "Paragraph" })).toBeVisible();
+  await expect(dedent).toBeDisabled();
+
+  await indent.click();
+  await indent.click();
+  await indent.click();
+  await expect(page.locator(".milkdown-root p", { hasText: "Paragraph" })).toBeVisible();
 });
 
 async function typeFreshEmptyParagraph(page: Page, text: string): Promise<void> {

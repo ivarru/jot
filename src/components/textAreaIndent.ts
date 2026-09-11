@@ -1,3 +1,10 @@
+import {
+  availableStructuralTabs,
+  structuralHeadingAvailability,
+  structuralHeadingTarget,
+  type StructuralTabAvailability
+} from "../editor/structuralHeading";
+
 const STRUCTURAL_INDENT = "  ";
 
 export interface TextAreaStructuralTabEdit {
@@ -77,31 +84,36 @@ export function textAreaStructuralTabAction(
 
   const heading = headingPrefix(lineText);
   if (heading !== null) {
-    if (shiftKey) {
-      if (heading.depth >= 6) return { type: "noop" };
-      return replace(line.start + heading.markerStart, line.start + heading.markerStart, "#", selectionStart, selectionEnd);
-    }
-
-    if (heading.depth === 1) {
+    const target = structuralHeadingTarget(heading.depth, previousHeadingDepth(markdown, line.start), shiftKey);
+    if (target.type === "noop") return { type: "noop" };
+    if (target.type === "paragraph") {
       const end = heading.markerStart + heading.markers.length + heading.separator.length;
       return replace(line.start + heading.markerStart, line.start + end, "", selectionStart, selectionEnd);
     }
-
-    return replace(
-      line.start + heading.markerStart,
-      line.start + heading.markerStart + 1,
-      "",
-      selectionStart,
-      selectionEnd
-    );
+    if (target.type !== "heading") return { type: "noop" };
+    return replaceHeadingMarkers(line, heading, target.level, selectionStart, selectionEnd);
   }
 
   if (isGfmTableLine(markdown, line)) return { type: "noop" };
 
   const insertionOffset = line.start + Math.min(leadingSpaceCount(lineText), 3);
-  if (shiftKey) return replace(insertionOffset, insertionOffset, "# ", selectionStart, selectionEnd);
+  if (shiftKey) {
+    const target = structuralHeadingTarget(null, previousHeadingDepth(markdown, line.start), true);
+    if (target.type !== "heading") return { type: "noop" };
+    return replace(insertionOffset, insertionOffset, `${"#".repeat(target.level)} `, selectionStart, selectionEnd);
+  }
 
   return replace(insertionOffset, insertionOffset, "* ", selectionStart, selectionEnd);
+}
+
+export function textAreaStructuralTabAvailability(markdown: string, selectionStart: number): StructuralTabAvailability {
+  const line = currentLine(markdown, selectionStart);
+  const lineText = markdown.slice(line.start, line.end);
+  if (listItemPrefix(lineText) !== null || isCodeBlockContentLine(markdown, line.start, lineText) || isGfmTableLine(markdown, line)) {
+    return availableStructuralTabs;
+  }
+  const heading = headingPrefix(lineText);
+  return structuralHeadingAvailability(heading?.depth ?? null, previousHeadingDepth(markdown, line.start));
 }
 
 interface CurrentLine {
@@ -172,6 +184,22 @@ function replace(
   };
 }
 
+function replaceHeadingMarkers(
+  line: CurrentLine,
+  heading: HeadingPrefix,
+  targetLevel: number,
+  selectionStart: number,
+  selectionEnd: number
+): TextAreaStructuralTabAction {
+  return replace(
+    line.start + heading.markerStart,
+    line.start + heading.markerStart + heading.markers.length,
+    "#".repeat(targetLevel),
+    selectionStart,
+    selectionEnd
+  );
+}
+
 function mapSelectionOffset(offset: number, start: number, end: number, replacementLength: number): number {
   if (start === end) return offset < start ? offset : offset + replacementLength;
   if (offset <= start) return offset;
@@ -197,6 +225,25 @@ function listItemPrefix(lineText: string): ListItemPrefix | null {
     indentationLength: indentation.length,
     markerEnd: match[0].length
   };
+}
+
+function previousHeadingDepth(markdown: string, lineStart: number): number | null {
+  let headingDepth: number | null = null;
+  let fence: FenceState | null = null;
+  for (const lineText of markdown.slice(0, lineStart).split("\n")) {
+    if (fence === null) {
+      const opening = openingFence(lineText);
+      if (opening !== null) {
+        fence = opening;
+        continue;
+      }
+      const heading = headingPrefix(lineText);
+      if (heading !== null) headingDepth = heading.depth;
+    } else if (isClosingFenceLine(lineText, fence)) {
+      fence = null;
+    }
+  }
+  return headingDepth;
 }
 
 function previousLine(markdown: string, lineStart: number): CurrentLine | null {

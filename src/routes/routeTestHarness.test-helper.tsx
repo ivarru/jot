@@ -242,6 +242,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
         readonly getInlineFormatState: () => { readonly italic: boolean; readonly bold: boolean; readonly code: boolean };
         readonly getBlockFormatState: () => { readonly quote: boolean };
         readonly getListItemFormatState: () => { readonly task: boolean };
+        readonly getStructuralTabAvailability: () => { readonly canIndent: boolean; readonly canDedent: boolean };
         readonly getMarkdown: () => string;
         readonly getLiveMarkdown: () => string;
         readonly getSerializedMarkdown: () => string;
@@ -378,6 +379,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
         getHistoryAvailability: historyAvailability,
         getInlineFormatState: () => ({ ...inlineFormatState }),
         getListItemFormatState: () => ({ ...listItemFormatState }),
+        getStructuralTabAvailability: () => ({ canIndent: true, canDedent: true }),
         getMarkdown: () => present,
         getLiveMarkdown: () => textarea?.value ?? present,
         getSerializedMarkdown: () => textarea?.value ?? present,

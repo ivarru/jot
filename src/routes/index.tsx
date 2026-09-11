@@ -18,7 +18,7 @@ import {
 import { MilkdownEditor, type EditorHistoryAvailability, type MilkdownEditorController } from "~/components/MilkdownEditor";
 import { PlainTextEditor } from "~/components/PlainTextEditor";
 import { SettingsPanel } from "~/components/SettingsPanel";
-import { applyTextAreaStructuralTab } from "~/components/textAreaIndent";
+import { applyTextAreaStructuralTab, textAreaStructuralTabAvailability } from "~/components/textAreaIndent";
 import { isEscapeKey } from "~/components/keyboard";
 import { trackVisualViewportTop } from "~/components/visualViewportToolbar";
 import { findImageAttachmentReferences } from "~/domain/attachmentReferences";
@@ -126,6 +126,7 @@ import {
   type LinkEditDraft
 } from "~/editor/linkEditing";
 import type { MarkdownSelection } from "~/editor/markdownSelection";
+import type { StructuralTabAvailability } from "~/editor/structuralHeading";
 import { DailyNoteDatePicker } from "~/features/datePicker/DailyNoteDatePicker";
 import { createDailyNoteDatePicker } from "~/features/datePicker/createDailyNoteDatePicker";
 import { createExistingNoteDates } from "~/features/datePicker/createExistingNoteDates";
@@ -364,6 +365,10 @@ export default function Home() {
   const [inlineFormatState, setInlineFormatState] = createSignal<InlineFormatState>(inactiveInlineFormatState);
   const [blockFormatState, setBlockFormatState] = createSignal<BlockFormatState>(inactiveBlockFormatState);
   const [listItemFormatState, setListItemFormatState] = createSignal<ListItemFormatState>(inactiveListItemFormatState);
+  const [structuralTabAvailability, setStructuralTabAvailability] = createSignal<StructuralTabAvailability>({
+    canIndent: false,
+    canDedent: false
+  });
   const [imageAttachmentStatus, setImageAttachmentStatus] = createSignal<ImageAttachmentStatus>("idle");
   const [imageAttachmentError, setImageAttachmentError] = createSignal<string | null>(null);
   const [imageAttachmentDate, setImageAttachmentDate] = createSignal<IsoDate | null>(null);
@@ -2065,10 +2070,21 @@ export default function Home() {
     return milkdownController?.getListItemFormatState() ?? markdownListItemFormatState(markdown(), selection);
   };
 
+  const currentStructuralTabAvailability = (): StructuralTabAvailability => {
+    if (editorMode() === "wysiwyg") {
+      return milkdownController?.getStructuralTabAvailability?.()
+        ?? { canIndent: false, canDedent: false };
+    }
+    const selection = currentEditorSelection();
+    if (selection === null) return { canIndent: false, canDedent: false };
+    return textAreaStructuralTabAvailability(plainTextEditorElement?.value ?? markdown(), selection.start);
+  };
+
   const refreshEditorFormatState = () => {
     setInlineFormatState(currentInlineFormatState());
     setBlockFormatState(currentBlockFormatState());
     setListItemFormatState(currentListItemFormatState());
+    setStructuralTabAvailability(currentStructuralTabAvailability());
     setSectionLinkInsertionBlocked(currentSectionLinkInsertionBlocked());
   };
 
@@ -2128,6 +2144,7 @@ export default function Home() {
     if (editorMode() === "wysiwyg") {
       setBlockFormatState(state);
       setListItemFormatState(currentListItemFormatState());
+      setStructuralTabAvailability(currentStructuralTabAvailability());
       setSectionLinkInsertionBlocked(currentSectionLinkInsertionBlocked());
     }
   };
@@ -2135,6 +2152,7 @@ export default function Home() {
   const handleMilkdownListItemFormatStateChange = (state: ListItemFormatState) => {
     if (editorMode() === "wysiwyg") {
       setListItemFormatState(state);
+      setStructuralTabAvailability(currentStructuralTabAvailability());
       setSectionLinkInsertionBlocked(currentSectionLinkInsertionBlocked());
     }
   };
@@ -2528,6 +2546,7 @@ export default function Home() {
         start: plainTextEditorElement.selectionStart,
         end: plainTextEditorElement.selectionEnd
       });
+      refreshEditorFormatState();
       return;
     }
 
@@ -2540,6 +2559,7 @@ export default function Home() {
       : commandSelection;
     pendingStructuralTabSelection = nextSelection;
     milkdownController.focusCurrentSelection();
+    refreshEditorFormatState();
   };
 
   const applyEditorHistoryShortcut = (direction: "undo" | "redo") => {
@@ -3294,7 +3314,7 @@ export default function Home() {
                 aria-label="Dedent"
                 aria-keyshortcuts="Shift+Tab"
                 data-tooltip="Dedent (Shift+Tab)"
-                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent() || !structuralTabAvailability().canDedent}
                 onPointerDown={(event) => applyStructuralToolbarPointerShortcut(event, true)}
                 onMouseDown={preserveStructuralToolbarMouseSelection}
                 onClick={() => applyStructuralToolbarClickShortcut(true)}
@@ -3320,7 +3340,7 @@ export default function Home() {
                 aria-label="Indent"
                 aria-keyshortcuts="Tab"
                 data-tooltip="Indent (Tab)"
-                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent() || !structuralTabAvailability().canIndent}
                 onPointerDown={(event) => applyStructuralToolbarPointerShortcut(event, false)}
                 onMouseDown={preserveStructuralToolbarMouseSelection}
                 onClick={() => applyStructuralToolbarClickShortcut(false)}

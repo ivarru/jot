@@ -82,21 +82,27 @@ describe("milkdown structural tab editing", () => {
     }
   });
 
-  it("decreases and increases heading depth with tab and shift-tab", async () => {
-    const editor = await createEditor("# Heading\n");
+  it("moves through the reversible heading chain below the preceding heading", async () => {
+    const editor = await createEditor("## Parent\n\n### Heading\n");
 
     try {
       const view = editor.ctx.get(editorViewCtx);
       selectTextEnd(view, "Heading");
 
+      expect(pressTab(view, true)).toBe(true);
+      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("## Parent\n\n## Heading\n");
+
+      expect(pressTab(view, true)).toBe(true);
+      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("## Parent\n\n# Heading\n");
+
       expect(pressTab(view)).toBe(true);
-      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("Heading\n");
+      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("## Parent\n\n## Heading\n");
 
-      expect(pressTab(view, true)).toBe(true);
-      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("# Heading\n");
+      expect(pressTab(view)).toBe(true);
+      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("## Parent\n\n### Heading\n");
 
-      expect(pressTab(view, true)).toBe(true);
-      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("## Heading\n");
+      expect(pressTab(view)).toBe(true);
+      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("## Parent\n\nHeading\n");
     } finally {
       await editor.destroy();
     }

@@ -10,10 +10,13 @@ import { shouldSyncMilkdownInlineMarkdown } from "./milkdownInlineSync";
 import { applyListTightnessUpdates, createListTightnessPlugin } from "./milkdownListTightness";
 import { renderMilkdownListItemLabel } from "./milkdownListItems";
 import { createPlainUrlLinkBoundaryPlugin } from "./milkdownPlainUrl";
-import { createMilkdownStructuralTabKeymap } from "./milkdownStructuralTab";
+import { createMilkdownStructuralTabKeymap, milkdownStructuralTabAvailability } from "./milkdownStructuralTab";
 import { createMilkdownTableBoundaryNavigation } from "./milkdownTableBoundaryNavigation";
 import { createMilkdownTableEnterKeymap } from "./milkdownTableEnter";
-import { applyTextAreaStructuralTab, shouldHandleTextAreaStructuralTab } from "./textAreaIndent";
+import {
+  applyTextAreaStructuralTab,
+  shouldHandleTextAreaStructuralTab
+} from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 import { markdownLinkAtOffset } from "~/domain/dailyNoteLinks";
 import { createMarkdownProtectedLineScanner } from "~/domain/dailyNoteMarkdown";
@@ -47,6 +50,7 @@ import {
   renderedOffsetToMarkdownSourceOffset
 } from "~/editor/markdownCursor";
 import type { MarkdownSelection } from "~/editor/markdownSelection";
+import type { StructuralTabAvailability } from "~/editor/structuralHeading";
 import { diffChars } from "diff";
 import type { Ctx } from "@milkdown/kit/ctx";
 import type { Editor as MilkdownEditorInstance } from "@milkdown/kit/core";
@@ -88,6 +92,7 @@ interface MilkdownEditorSession {
   readonly getHistoryAvailability: () => EditorHistoryAvailability;
   readonly getInlineFormatState: () => InlineFormatState;
   readonly getListItemFormatState: () => ListItemFormatState;
+  readonly getStructuralTabAvailability: () => StructuralTabAvailability;
   readonly getSelection: () => MarkdownSelection | null;
   readonly getMarkdown: () => string;
   readonly getLiveMarkdown: () => string;
@@ -135,6 +140,7 @@ export interface MilkdownEditorController {
   readonly getHistoryAvailability: () => EditorHistoryAvailability;
   readonly getInlineFormatState: () => InlineFormatState;
   readonly getListItemFormatState: () => ListItemFormatState;
+  readonly getStructuralTabAvailability: () => StructuralTabAvailability;
   readonly getMarkdown: () => string;
   readonly getLiveMarkdown: () => string;
   readonly getSerializedMarkdown: () => string;
@@ -674,6 +680,17 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               if (disposed || activeSession !== session || editor === null) return inactiveListItemFormatState;
               return listItemFormatState(editor.ctx.get(editorViewCtx));
             },
+            getStructuralTabAvailability: () => {
+              if (disposed || activeSession !== session || editor === null) {
+                return { canIndent: false, canDedent: false };
+              }
+              const view = editor.ctx.get(editorViewCtx);
+              return milkdownStructuralTabAvailability(
+                view.state,
+                headingSchema.type(editor.ctx),
+                paragraphSchema.type(editor.ctx)
+              );
+            },
             getSelection: () => {
               if (disposed || activeSession !== session || editor === null) return null;
               if (lastStructuralTabSelection !== null) {
@@ -892,6 +909,8 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             getHistoryAvailability: () => session?.getHistoryAvailability() ?? { canUndo: false, canRedo: false },
             getInlineFormatState: () => session?.getInlineFormatState() ?? inactiveInlineFormatState,
             getListItemFormatState: () => session?.getListItemFormatState() ?? inactiveListItemFormatState,
+            getStructuralTabAvailability: () => session?.getStructuralTabAvailability()
+              ?? { canIndent: false, canDedent: false },
             getMarkdown: () => session?.getMarkdown() ?? markdownState.currentMarkdown,
             getLiveMarkdown: () => session?.getLiveMarkdown() ?? markdownState.currentMarkdown,
             getSerializedMarkdown: () => session?.getSerializedMarkdown() ?? markdownState.currentMarkdown,

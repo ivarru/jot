@@ -281,7 +281,7 @@ describe("PlainTextEditor", () => {
     dispose();
   });
 
-  it("decreases and increases heading depth with tab and shift-tab", () => {
+  it("moves through the reversible heading chain below the preceding heading", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const changes: Array<readonly [string, string]> = [];
@@ -289,7 +289,7 @@ describe("PlainTextEditor", () => {
     const dispose = render(
       () => PlainTextEditor({
         documentKey: "2030-02-01",
-        value: "# Heading",
+        value: "## Parent\n### Heading",
         onChange: (documentKey, markdown) => changes.push([documentKey, markdown]),
         onBlur: () => undefined
       }),
@@ -298,25 +298,33 @@ describe("PlainTextEditor", () => {
 
     const textarea = host.querySelector("textarea");
     expect(textarea).not.toBeNull();
-    textarea!.setSelectionRange("# Heading".length, "# Heading".length);
+    textarea!.setSelectionRange(textarea!.value.length, textarea!.value.length);
+
+    textarea!.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey: true })
+    );
+    expect(textarea!.value).toBe("## Parent\n## Heading");
+
+    textarea!.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey: true })
+    );
+    expect(textarea!.value).toBe("## Parent\n# Heading");
 
     textarea!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" }));
-    expect(textarea!.value).toBe("Heading");
+    expect(textarea!.value).toBe("## Parent\n## Heading");
 
-    textarea!.dispatchEvent(
-      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey: true })
-    );
-    expect(textarea!.value).toBe("# Heading");
+    textarea!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" }));
+    expect(textarea!.value).toBe("## Parent\n### Heading");
 
-    textarea!.dispatchEvent(
-      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab", shiftKey: true })
-    );
-    expect(textarea!.value).toBe("## Heading");
+    textarea!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" }));
+    expect(textarea!.value).toBe("## Parent\nHeading");
 
     expect(changes).toEqual([
-      ["2030-02-01", "Heading"],
-      ["2030-02-01", "# Heading"],
-      ["2030-02-01", "## Heading"]
+      ["2030-02-01", "## Parent\n## Heading"],
+      ["2030-02-01", "## Parent\n# Heading"],
+      ["2030-02-01", "## Parent\n## Heading"],
+      ["2030-02-01", "## Parent\n### Heading"],
+      ["2030-02-01", "## Parent\nHeading"]
     ]);
 
     dispose();

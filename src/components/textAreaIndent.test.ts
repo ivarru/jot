@@ -1,4 +1,4 @@
-import { textAreaStructuralTabAction } from "./textAreaIndent";
+import { textAreaStructuralTabAction, textAreaStructuralTabAvailability } from "./textAreaIndent";
 
 describe("text area structural tab editing", () => {
   it("listifies only the current textual line in a multiline paragraph", () => {
@@ -33,7 +33,34 @@ describe("text area structural tab editing", () => {
 
     expect(textAreaStructuralTabAction(markdown, cursor, cursor, shiftKey)).toEqual({ type: "noop" });
   });
+
+  it("moves through the reversible heading chain below the preceding heading", () => {
+    const parent = "## Parent\n";
+    expect(applyAtEnd(`${parent}Paragraph`, true)).toBe(`${parent}### Paragraph`);
+    expect(applyAtEnd(`${parent}### Heading`, true)).toBe(`${parent}## Heading`);
+    expect(applyAtEnd(`${parent}## Heading`, true)).toBe(`${parent}# Heading`);
+    expect(applyAtEnd(`${parent}# Heading`, false)).toBe(`${parent}## Heading`);
+    expect(applyAtEnd(`${parent}## Heading`, false)).toBe(`${parent}### Heading`);
+    expect(applyAtEnd(`${parent}### Heading`, false)).toBe(`${parent}Heading`);
+  });
+
+  it("does not treat headings inside fences as preceding headings", () => {
+    const markdown = "```\n###### code\n```\nParagraph";
+    expect(applyAtEnd(markdown, true)).toBe("```\n###### code\n```\n# Paragraph");
+  });
+
+  it("reports unavailable heading boundaries", () => {
+    expect(textAreaStructuralTabAvailability("# Heading", 3)).toEqual({ canIndent: true, canDedent: false });
+    expect(textAreaStructuralTabAvailability("###### Parent\nParagraph", 20)).toEqual({
+      canIndent: true,
+      canDedent: false
+    });
+  });
 });
+
+function applyAtEnd(markdown: string, shiftKey: boolean): string {
+  return applyAction(markdown, textAreaStructuralTabAction(markdown, markdown.length, markdown.length, shiftKey));
+}
 
 function applyAction(
   markdown: string,

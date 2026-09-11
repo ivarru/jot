@@ -1,6 +1,12 @@
 import type { Ctx } from "@milkdown/kit/ctx";
 import type { NodeType, ResolvedPos } from "@milkdown/kit/prose/model";
-import type { Command, Transaction } from "@milkdown/kit/prose/state";
+import type { Command, EditorState, Transaction } from "@milkdown/kit/prose/state";
+import {
+  availableStructuralTabs,
+  structuralHeadingAvailability,
+  structuralHeadingTarget,
+  type StructuralTabAvailability
+} from "../editor/structuralHeading";
 
 type UseKeymap = typeof import("@milkdown/kit/utils").$useKeymap;
 type IsInTable = typeof import("@milkdown/kit/prose/tables").isInTable;
@@ -65,6 +71,22 @@ export function createMilkdownStructuralTabKeymap(deps: MilkdownStructuralTabKey
   });
 }
 
+export function milkdownStructuralTabAvailability(
+  state: EditorState,
+  headingType: NodeType,
+  paragraphType: NodeType
+): StructuralTabAvailability {
+  const currentBlock = state.selection.$from.parent;
+  const previousLevel = previousHeadingDepth(state.selection.$from, headingType);
+  if (currentBlock.type === headingType) {
+    return structuralHeadingAvailability(Number(currentBlock.attrs.level ?? 1), previousLevel);
+  }
+  if (currentBlock.type === paragraphType) {
+    return structuralHeadingAvailability(null, previousLevel);
+  }
+  return availableStructuralTabs;
+}
+
 function nodeTypes(ctx: Ctx, deps: MilkdownStructuralTabKeymapDependencies) {
   return {
     listItemType: deps.listItemSchema.type(ctx),
@@ -91,7 +113,7 @@ function createStructuralTabCommand(deps: StructuralTabCommandDependencies): Com
     }
 
     if (currentBlock.type === deps.headingType) {
-      return updateHeadingDepth(deps, state, dispatch);
+      return updateHeadingDepth(deps, state, dispatch, previousHeadingDepth(state.selection.$from, deps.headingType));
     }
 
     if (!deps.shiftKey && currentBlock.type === deps.paragraphType) {
@@ -100,9 +122,15 @@ function createStructuralTabCommand(deps: StructuralTabCommandDependencies): Com
     }
 
     if (deps.shiftKey && currentBlock.type === deps.paragraphType) {
+      const target = structuralHeadingTarget(
+        null,
+        previousHeadingDepth(state.selection.$from, deps.headingType),
+        true
+      );
+      if (target.type !== "heading") return true;
       dispatch?.(
         state.tr
-          .setBlockType(state.selection.from, state.selection.to, deps.headingType, { level: 1 })
+          .setBlockType(state.selection.from, state.selection.to, deps.headingType, { level: target.level })
           .scrollIntoView()
       );
       return true;
@@ -144,26 +172,15 @@ function updateCodeBlockLineIndent(
 function updateHeadingDepth(
   deps: StructuralTabCommandDependencies,
   state: Parameters<Command>[0],
-  dispatch: Parameters<Command>[1]
+  dispatch: Parameters<Command>[1],
+  previousLevel: number | null
 ): boolean {
   const heading = state.selection.$from.parent;
   const level = Number(heading.attrs.level ?? 1);
+  const target = structuralHeadingTarget(level, previousLevel, deps.shiftKey);
 
-  if (deps.shiftKey) {
-    const nextLevel = Math.min(6, level + 1);
-    if (nextLevel === level) return true;
-    dispatch?.(
-      state.tr
-        .setNodeMarkup(state.selection.$from.before(), undefined, {
-          ...heading.attrs,
-          level: nextLevel
-        })
-        .scrollIntoView()
-    );
-    return true;
-  }
-
-  if (level <= 1) {
+  if (target.type === "noop") return true;
+  if (target.type === "paragraph") {
     if (dispatch !== undefined) {
       const tr = state.tr.setBlockType(state.selection.from, state.selection.to, deps.paragraphType);
       if (heading.textContent === "") {
@@ -173,16 +190,26 @@ function updateHeadingDepth(
     }
     return true;
   }
+  if (target.type !== "heading") return true;
 
   dispatch?.(
     state.tr
       .setNodeMarkup(state.selection.$from.before(), undefined, {
         ...heading.attrs,
-        level: level - 1
+        level: target.level
       })
       .scrollIntoView()
   );
   return true;
+}
+
+function previousHeadingDepth($from: ResolvedPos, headingType: NodeType): number | null {
+  const topLevelIndex = $from.index(0);
+  for (let index = topLevelIndex - 1; index >= 0; index -= 1) {
+    const node = $from.doc.child(index);
+    if (node.type === headingType) return Number(node.attrs.level ?? 1);
+  }
+  return null;
 }
 
 function setMappedTextSelection(

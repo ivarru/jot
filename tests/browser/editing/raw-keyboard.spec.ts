@@ -48,6 +48,24 @@ test("raw Tab listifies only the current textual line and Shift-Tab reverses it"
   await expectRawMarkdown(page, markdown);
 });
 
+test("raw heading indent and dedent follow the enclosing heading chain", async ({ page }) => {
+  const parent = "## Parent\n";
+  await setRawMarkdown(page, `${parent}Paragraph`);
+  await focusRawEditorAtEnd(page);
+
+  for (const [key, expected] of [
+    ["Shift+Tab", `${parent}### Paragraph`],
+    ["Shift+Tab", `${parent}## Paragraph`],
+    ["Shift+Tab", `${parent}# Paragraph`],
+    ["Tab", `${parent}## Paragraph`],
+    ["Tab", `${parent}### Paragraph`],
+    ["Tab", `${parent}Paragraph`]
+  ] as const) {
+    await page.keyboard.press(key);
+    await expectRawMarkdown(page, expected);
+  }
+});
+
 test("raw undo survives mode switches and stays out of WYSIWYG history", async ({ page }) => {
   await assertRawUndoSurvivesModeSwitch(page);
   await assertRawEditDoesNotEnterWysiwygUndo(page);
