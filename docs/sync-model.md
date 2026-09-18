@@ -83,3 +83,37 @@ after the IndexedDB clear.
 The current model covers Daily Note text sync once a storage provider has returned a remote revision or save result. It does not model provider-transport failures, such as stale HTTP metadata or another device changing a Google Drive file between the provider's revision check and media upload; those require focused mocked-fetch provider tests because the bounded model treats `saveDailyNote` as one atomic event. It also does not model Daily Note Upload, image attachment imports, Google Photos album behavior, OAuth expiry, Drive folder setup, or route/editor lifecycle events such as a previous date's editor blur firing after date navigation. Those flows should have focused tests of their own, and may later be incorporated into the model if their state interactions become sync-critical.
 
 Queued editor snapshots that outlive a clean refresh are likewise covered by the focused selected-date lifecycle tests and browser workflow tests rather than this model. The model's `save` event deliberately represents the snapshot chosen by the lifecycle layer; deciding whether a queued snapshot is still current is a route/editor concern that must happen before the atomic replication operation begins.
+
+## Generated Two-Date Lifecycle Harness
+
+`src/sync/dailyNoteReplication/selectedDate.property.test.ts` complements the bounded sync model with generated
+one-client traces over two dates. It drives the production `createDailyNoteReplication` lifecycle and date-bound editor
+transitions rather than duplicating their decisions in a test implementation. Its independent specification is limited
+to allowed outcomes: selected and loaded dates remain consistent, visible edit markers survive stale completions, work
+owned by one date cannot change the other date's editor or draft, fair completion drains all work, and every date ends
+cleanly synchronized or with an explicit conflict.
+
+Generated commands cover edits, local persistence, saves, blur saves, clean refreshes, navigation, cancellation,
+remote failure and mutation, and explicit scheduler releases. The test checks that every meaningful command category
+and every gate category actually executes, so successful runs cannot consist only of skipped preconditions.
+
+The scheduled fakes divide effects at real boundaries:
+
+- Draft and remote reads wait before observing storage.
+- A normal draft write mutates at its commit gate.
+- Compare-and-swap performs its comparison and mutation together at one atomic commit gate.
+- A remote save mutates or reports conflict at its commit gate, then waits separately before delivering the response.
+
+This distinction matters: delaying a response does not pretend that the accepted remote mutation has not happened.
+Cancellation tests pause before mutation begins; already-started IndexedDB transactions retain their real ordering with
+later clears rather than being modeled as freely reorderable map writes.
+
+Routine verification uses the shared property seed `20260918` for 200 traces of 12–30 commands and supports exact
+`FC_SEED`/`FC_PATH` replay as documented in [Testing](testing.md#property-test-replay). The measured focused runtime was
+about 114 ms; an exploratory 1,000-trace run completed in about 472 ms. Named cases retain the historical stale
+autosave, stale response versus newer committed edit, unpersisted edit before navigation, old-date response after
+navigation, cancellation, and remote-failure recovery traces.
+
+Deliberate exclusions remain multiple clients, account switching, arbitrary merge-content preservation, provider HTTP
+transport behavior, and native editor selection. The bounded sync model, provider tests, and browser suites continue to
+own those concerns.

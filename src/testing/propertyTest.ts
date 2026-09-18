@@ -18,6 +18,10 @@ export function propertyTestParameters(): Parameters<unknown> {
   };
 }
 
+export function isPropertyTestReplay(): boolean {
+  return environment.FC_PATH !== undefined && environment.FC_PATH !== "";
+}
+
 function integerEnvironmentValue(name: string): number | undefined {
   const value = environment[name];
   if (value === undefined || value === "") return undefined;
