@@ -31,6 +31,7 @@ take precedence over historical investigations and private working notes.
 | --- | --- |
 | [Milkdown focus and caret investigation](editor-focus-investigation.md) | Historical postmortem for the editor focus regression resolved in version 0.21.32. Useful evidence and testing lessons, but not a current behavior specification. |
 | [Code walkthrough notes](code-walkthrough-notes.md) | Private, non-authoritative working record of the 2026-08-30 documentation and architecture walkthrough. It tracks completed improvements and remaining opinions. |
+| [Improvement assessment](improvement-assessment.md) | Advisory 2026-09-18 assessment of reliability, property-based testing, recovery, and a staged path toward a second brain. Recommendations are not accepted product or architecture decisions. |
 
 The historical and working documents remain alongside current references for now. If that group grows, move it into a
 clearly named historical or working-notes directory and update this index.
