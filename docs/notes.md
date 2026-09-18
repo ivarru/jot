@@ -10,6 +10,9 @@ Use:
 
 Move stable decisions to [`CONTEXT.md`](../CONTEXT.md) or [`docs/adr/`](adr/README.md). Remove items when they are implemented, rejected, or superseded.
 
+Promote scoped actionable work to [local issues](../issues/README.md), then replace its entry here with a link or remove
+it. Issue files own status and acceptance criteria; avoid maintaining the same task in both places.
+
 ## Known Issues
 
 - No known issues are currently recorded here.

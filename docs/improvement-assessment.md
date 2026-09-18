@@ -7,6 +7,9 @@ should become small implementation tasks; decisions that change product invarian
 [CONTEXT.md](../CONTEXT.md). Existing [testing rules](testing.md) and [replication safety requirements](sync-safety.md)
 remain authoritative.
 
+The first six scoped follow-ups now live in [local issues](../issues/README.md). Those files own implementation scope,
+status, and completion evidence; this assessment remains the dated rationale and broader direction.
+
 ## Recommendation
 
 Invest first in the boundaries between durable storage, editor state, and asynchronous lifecycle work. Add property-based

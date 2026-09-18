@@ -11,6 +11,7 @@ take precedence over historical investigations and private working notes.
 | [AGENTS.md](../AGENTS.md) | Normative repository rules for implementation, regression coverage, versioning, and verification. |
 | [CONTEXT.md](../CONTEXT.md) | High-level domain context, shared vocabulary, and stable invariants in the domain-driven-design sense. It remains at the repository root so conventions and agent skills can discover it. Consult it when naming concepts or changing the implemented domain model. |
 | [Project notes](notes.md) | Non-authoritative parking lot for known issues, future work, and unresolved design questions. Remove or promote entries when they are resolved. |
+| [Local issues](../issues/README.md) | Authoritative backlog and workflow for scoped work, with stable Markdown issue files, acceptance criteria, and completion evidence. Open issues are proposals, not current behavior specifications. |
 
 ## Current product and engineering references
 

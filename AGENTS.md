@@ -19,6 +19,12 @@ Use [docs/README.md](docs/README.md) as the index of project documents and their
 project's shared language. Keep implementation details and unsettled work in the more specific documents identified by
 the index.
 
+## Issues
+
+Use [issues/README.md](issues/README.md) for the repository-local issue workflow and template. When working on an issue,
+keep its status, acceptance criteria, and verification evidence current in the same change as the implementation.
+Keep issue IDs and filenames stable; do not duplicate the backlog in GitHub Issues.
+
 ## Date-Bound Notes
 
 Daily Note content must never be read from or written to a date inferred after an async boundary. When changing editor, sync, autosave, local draft, or date navigation behavior, carry the explicit `IsoDate` and markdown snapshot through timers, promises, and editor callbacks.
