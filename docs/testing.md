@@ -34,6 +34,18 @@ npm run typecheck
 npm run build
 ```
 
+### Property-test replay
+
+Routine Markdown property tests use 200 cases with the fixed seed `20260918`. Fast-check reports the seed, shrink path,
+and minimized counterexample when a property fails. Replay that exact minimized case by passing the reported values:
+
+```sh
+FC_SEED=20260918 FC_PATH="reported:shrink:path" npm test -- --run src/domain/merge.property.test.ts
+```
+
+Set `FC_NUM_RUNS` to change the bounded case budget during local exploration. Keep important discovered failures as named
+example regressions before fixing production code; the generated property remains the broader guard.
+
 Real-browser verification:
 
 ```sh
