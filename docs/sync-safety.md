@@ -61,19 +61,30 @@ loss, device storage being cleared before an unsynced Local Draft reaches anothe
 client with the user's credentials. Recovery from an implementation defect is a separate proposed defense described
 below.
 
-## Conflict Diagnostics
+## Sync Diagnostics
 
 Sync diagnostics are opt-in and disabled by default. When enabled in Settings, Jot keeps a rolling in-memory record of
 the preceding minute of editor and sync lifecycle events. The record includes event times, ISO dates, save sources,
-sync states, Markdown lengths with diagnostic hashes, and hashes of expected and observed revisions. It never records
-note contents, OAuth data, Drive URLs or file IDs, or raw revision IDs.
+sync states, Markdown lengths with diagnostic hashes, and hashes of expected and observed revisions. Reports add the app
+version, editor mode, placeholder-normalization setting, selected and loaded Daily Note dates, editor change epoch,
+viewport dimensions, online and visibility state, browser language and user agent, a random page-session identifier, and
+monotonic event sequence numbers. Full ISO dates are retained because date ownership is essential to stale-callback
+investigation. Content and revision hashes use a random per-page salt and are useful only for equality within that page
+session. Jot never records note contents, OAuth data, Drive URLs or file IDs, raw revision IDs, or browser URLs. URL-like
+text in browser context is replaced before capture.
 
 When Jot opens a Sync Conflict, it records the conflict boundary and then pauses diagnostics collection along with
 editing. That pause freezes the preceding one-minute snapshot, so it remains available if the dialog stays open longer.
 Jot loads this opt-in before starting initial background synchronization. The conflict dialog can copy the retained
-report to the clipboard. Its first line identifies the running Jot version, so reports can be compared with the
-corresponding behavior. Diagnostics are never uploaded or persisted and are cleared when collection is disabled or the
-page reloads.
+report to the clipboard. Settings also provides **Capture and copy sync diagnostics**, so the current buffer can be
+captured without provoking a conflict. Capture creates a stable string before requesting clipboard access; later events
+cannot alter that report. Copy success or failure is shown beside the action. Its first line identifies the running Jot
+version, so reports can be compared with the corresponding behavior. Diagnostics are never uploaded or persisted and
+are cleared when collection is disabled or the page reloads.
+
+When attaching a report to a repository-local issue, include the copied report plus the observed symptom, approximate
+time, editor mode, action in progress, and whether the tab had recently navigated, resumed, or changed connectivity. Do
+not add note text, account details, provider identifiers, or URLs to that reproduction context.
 
 ## Empty Editor Placeholders
 

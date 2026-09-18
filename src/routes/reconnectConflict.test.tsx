@@ -437,6 +437,82 @@ describe("Home reconnect and conflict handling", () => {
     }
   });
 
+  it("captures diagnostics from settings without opening a conflict", async () => {
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: (value: string) => Promise.resolve(copied = value) }
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await settle();
+      clickButton(host, "Open menu");
+      clickButton(host, "Settings");
+      const diagnosticsEnabled = host.querySelector<HTMLInputElement>(
+        "input[aria-label='Collect sync diagnostics for conflict reports']"
+      )!;
+      diagnosticsEnabled.checked = true;
+      diagnosticsEnabled.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editor.value = "private diagnostic note";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      await settle();
+
+      clickButton(host, "Capture and copy sync diagnostics");
+      await settle();
+
+      expect(dialog(host, "Sync conflict")).toBeNull();
+      expect(copied).toContain("Jot test sync diagnostics");
+      expect(copied).toContain('"editorMode":"wysiwyg"');
+      expect(copied).toContain('"normalizeEmptyEditorPlaceholders":true');
+      expect(copied).not.toContain("private diagnostic note");
+      expect(host.textContent).toContain("Sync diagnostics copied.");
+    } finally {
+      dispose();
+      if (originalClipboard === undefined) Reflect.deleteProperty(navigator, "clipboard");
+      else Object.defineProperty(navigator, "clipboard", originalClipboard);
+    }
+  });
+
+  it("reports a diagnostics clipboard failure without claiming success", async () => {
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("clipboard denied")) }
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await settle();
+      clickButton(host, "Open menu");
+      clickButton(host, "Settings");
+      const diagnosticsEnabled = host.querySelector<HTMLInputElement>(
+        "input[aria-label='Collect sync diagnostics for conflict reports']"
+      )!;
+      diagnosticsEnabled.checked = true;
+      diagnosticsEnabled.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+
+      clickButton(host, "Capture and copy sync diagnostics");
+      await settle();
+
+      expect(host.textContent).toContain("Could not copy sync diagnostics.");
+      expect(host.textContent).not.toContain("Sync diagnostics copied.");
+    } finally {
+      dispose();
+      if (originalClipboard === undefined) Reflect.deleteProperty(navigator, "clipboard");
+      else Object.defineProperty(navigator, "clipboard", originalClipboard);
+    }
+  });
+
   it("offers placeholder normalization by default and closes settings with its close button", async () => {
     const host = document.createElement("div");
     document.body.append(host);

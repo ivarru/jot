@@ -30,6 +30,7 @@ export interface SyncDiagnosticEventInput {
 }
 
 export interface SyncDiagnosticEvent {
+  readonly sequence: number;
   readonly at: number;
   readonly event: string;
   readonly date?: IsoDate;
@@ -46,21 +47,54 @@ export interface MarkdownFingerprint {
   readonly hash: string;
 }
 
+export interface SyncDiagnosticCaptureContext {
+  readonly editorMode: "text" | "wysiwyg";
+  readonly normalizeEmptyEditorPlaceholders: boolean;
+  readonly selectedDate: IsoDate | null;
+  readonly loadedDate: IsoDate | null;
+  readonly editorChangeEpoch: number;
+  readonly browser: {
+    readonly userAgent: string;
+    readonly language: string;
+    readonly online: boolean;
+    readonly visibility: string;
+    readonly viewportWidth: number;
+    readonly viewportHeight: number;
+  };
+}
+
+interface SyncDiagnosticReportContext extends SyncDiagnosticCaptureContext {
+  readonly capturedAt: number;
+  readonly sessionId: string;
+}
+
 export class SyncDiagnosticsBuffer {
   private enabled = false;
   private paused = false;
+  private pausedCapture: string | null = null;
   private events: SyncDiagnosticEvent[] = [];
   private readonly salt = createDiagnosticSalt();
+  private readonly sessionId: string;
+  private nextSequence = 1;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    createSessionId: () => string = createDiagnosticSessionId
+  ) {
+    this.sessionId = createSessionId();
+  }
 
   setEnabled(enabled: boolean): void {
-    if (this.enabled && !enabled) this.events = [];
+    if (this.enabled && !enabled) {
+      this.events = [];
+      this.pausedCapture = null;
+    }
     this.enabled = enabled;
   }
 
   setPaused(paused: boolean): void {
     if (paused && !this.paused) this.prune(this.now());
+    if (!paused) this.pausedCapture = null;
     this.paused = paused;
   }
 
@@ -70,6 +104,7 @@ export class SyncDiagnosticsBuffer {
     const at = this.now();
     this.prune(at);
     this.events.push({
+      sequence: this.nextSequence++,
       at,
       event: input.event,
       ...(input.date === undefined ? {} : { date: input.date }),
@@ -94,6 +129,25 @@ export class SyncDiagnosticsBuffer {
     return this.snapshot().length > 0;
   }
 
+  capture(appVersion: string, context: SyncDiagnosticCaptureContext): string | null {
+    if (!this.enabled) return null;
+    if (this.pausedCapture !== null) return this.pausedCapture;
+    const events = this.snapshot();
+    const reportContext: SyncDiagnosticReportContext = {
+      ...context,
+      browser: {
+        ...context.browser,
+        userAgent: sanitizeDiagnosticText(context.browser.userAgent),
+        language: sanitizeDiagnosticText(context.browser.language)
+      },
+      capturedAt: this.paused && events.length > 0 ? events[events.length - 1]!.at : this.now(),
+      sessionId: this.sessionId
+    };
+    const report = formatSyncDiagnostics(events, appVersion, reportContext);
+    if (this.paused) this.pausedCapture = report;
+    return report;
+  }
+
   private prune(now: number): void {
     const oldest = now - SYNC_DIAGNOSTIC_RETENTION_MS;
     const firstCurrentEvent = this.events.findIndex((event) => event.at >= oldest);
@@ -105,10 +159,15 @@ export class SyncDiagnosticsBuffer {
   }
 }
 
-export function formatSyncDiagnostics(events: readonly SyncDiagnosticEvent[], appVersion: string): string {
+export function formatSyncDiagnostics(
+  events: readonly SyncDiagnosticEvent[],
+  appVersion: string,
+  context?: SyncDiagnosticReportContext
+): string {
   return [
     `Jot ${appVersion} sync diagnostics`,
     "Retention: last 60 seconds in memory. Note contents and raw Drive identifiers are omitted.",
+    ...(context === undefined ? [] : [JSON.stringify({ type: "capture-context", ...context })]),
     ...events.map((event) => JSON.stringify(event))
   ].join("\n");
 }
@@ -125,6 +184,16 @@ function createDiagnosticSalt(): string {
   const bytes = new Uint32Array(4);
   globalThis.crypto.getRandomValues(bytes);
   return bytes.join("-");
+}
+
+function createDiagnosticSessionId(): string {
+  const bytes = new Uint32Array(2);
+  globalThis.crypto.getRandomValues(bytes);
+  return [...bytes].map((value) => value.toString(16).padStart(8, "0")).join("");
+}
+
+function sanitizeDiagnosticText(value: string): string {
+  return value.replace(/https?:\/\/\S+/giu, "[url omitted]").slice(0, 256);
 }
 
 function diagnosticHash(value: string): string {

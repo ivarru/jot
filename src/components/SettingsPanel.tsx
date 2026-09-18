@@ -4,6 +4,8 @@ interface SettingsPanelProps {
   readonly settings: JotSettings;
   readonly onChange: (settings: JotSettings) => void;
   readonly onClose: () => void;
+  readonly onCaptureSyncDiagnostics: () => void;
+  readonly syncDiagnosticsCopyMessage: string | null;
 }
 
 type TimerSettingKey = Exclude<keyof JotSettings, "spellcheck" | "syncDiagnosticsEnabled" | "normalizeEmptyEditorPlaceholders">;
@@ -103,10 +105,22 @@ export function SettingsPanel(props: SettingsPanelProps) {
             })}
           />
           <span>
-            <strong>Collect sync diagnostics for conflict reports</strong>
-            <small>Kept in memory for one minute only. Note contents and raw Google Drive identifiers are not recorded.</small>
+            <strong>Collect sync diagnostics</strong>
+            <small>Kept in memory for one minute and available to copy below. Note contents and raw Google Drive identifiers are not recorded.</small>
           </span>
         </label>
+        <div class="settings-diagnostics-actions">
+          <button
+            type="button"
+            disabled={!props.settings.syncDiagnosticsEnabled}
+            onClick={props.onCaptureSyncDiagnostics}
+          >
+            Capture and copy sync diagnostics
+          </button>
+          {props.syncDiagnosticsCopyMessage === null
+            ? null
+            : <p aria-live="polite">{props.syncDiagnosticsCopyMessage}</p>}
+        </div>
       </div>
     </section>
   );

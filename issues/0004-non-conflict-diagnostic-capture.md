@@ -1,7 +1,7 @@
 ---
 id: "0004"
 title: "Capture diagnostics outside Sync Conflicts"
-status: open
+status: closed
 type: feature
 priority: medium
 created: "2026-09-18"
@@ -25,16 +25,16 @@ note-content recording, and a general telemetry service are out of scope.
 
 ## Acceptance criteria
 
-- [ ] With diagnostics enabled, a user can capture and copy a stable report without provoking a conflict; later events
+- [x] With diagnostics enabled, a user can capture and copy a stable report without provoking a conflict; later events
   cannot change the already captured report.
-- [ ] Reports identify app version, relevant browser context, editor mode, normalization setting, and event ordering
+- [x] Reports identify app version, relevant browser context, editor mode, normalization setting, and event ordering
   with operation/session identity sufficient to investigate stale callbacks.
-- [ ] Reports exclude note text, tokens, raw provider identifiers, and URLs; retained dates/hashes are minimized and
+- [x] Reports exclude note text, tokens, raw provider identifiers, and URLs; retained dates/hashes are minimized and
   their inclusion is documented.
-- [ ] Disabled collection, clearing, reload behavior, and existing conflict capture retain their documented guarantees.
-- [ ] Copy failure is visible and does not imply a report was copied; capture works without unexpectedly taking editor
+- [x] Disabled collection, clearing, reload behavior, and existing conflict capture retain their documented guarantees.
+- [x] Copy failure is visible and does not imply a report was copied; capture works without unexpectedly taking editor
   focus during background work.
-- [ ] Documentation explains capture, retention, and what reproduction context to attach to a local issue.
+- [x] Documentation explains capture, retention, and what reproduction context to attach to a local issue.
 
 ## Verification
 
@@ -49,4 +49,15 @@ replayable regression leads. Decide the smallest discoverable UI location during
 
 ## Resolution
 
-Pending.
+Added a Settings action that captures the enabled in-memory diagnostics buffer and copies a stable report without
+requiring a Sync Conflict. Reports now include app/editor/settings/browser context, a random page-session identifier,
+editor epoch, and monotonic event sequence numbers. Existing conflict capture remains frozen, and clipboard success or
+failure is reported beside the action.
+
+Diagnostic context is typed and bounded. Note contents and raw provider identifiers remain fingerprinted or omitted;
+URL-like browser context is redacted. Documentation records why ISO dates and per-page salted hashes remain useful and
+what non-sensitive reproduction context should accompany a local issue.
+
+Verification: focused diagnostic and route suites passed, `npm run verify` passed with 650 tests plus typecheck and the
+production build, the no-conflict clipboard browser regression passed, and the complete browser suite passed all 80
+tests. The user-visible capability bumps the app version to `0.26.0`.

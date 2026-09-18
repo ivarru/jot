@@ -194,6 +194,37 @@ test("an enabled diagnostic buffer can be copied and freezes when a conflict ope
   await expect.poll(async () => await page.evaluate(async () => await navigator.clipboard.readText())).toBe(copied);
 });
 
+test("diagnostics can be captured from settings without a conflict", async ({ page }) => {
+  const privateMarkdown = "private note text that must stay redacted";
+  await openDevelopmentStorage(page, `/#/date/${date}`, "enabled");
+  await grantClipboardPermissions(page);
+  await page.getByRole("button", { name: "Open menu" }).click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await page.getByLabel("Collect sync diagnostics for conflict reports").check();
+  await clickButton(page, "Close settings");
+
+  await setRawMarkdown(page, privateMarkdown);
+  await page.getByRole("button", { name: "Open menu" }).click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  const capture = page.getByRole("button", { name: "Capture and copy sync diagnostics" });
+  await capture.click();
+
+  await expect(page.getByText("Sync diagnostics copied.")).toBeVisible();
+  await expect(capture).toBeFocused();
+  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+  await expect(page.getByText("Sync conflict")).toHaveCount(0);
+  const copied = await page.evaluate(async () => await navigator.clipboard.readText());
+  expect(copied).toMatch(/^Jot \d+\.\d+\.\d+ sync diagnostics/);
+  expect(copied).toContain('"editorMode":"text"');
+  expect(copied).toContain('"normalizeEmptyEditorPlaceholders":true');
+  expect(copied).toContain('"sessionId"');
+  expect(copied).toContain('"sequence"');
+  expect(copied).not.toContain(privateMarkdown);
+  await expectRawMarkdown(page, privateMarkdown);
+  await setRawMarkdown(page, `${privateMarkdown}\nlater edit`);
+  await expect.poll(async () => await page.evaluate(async () => await navigator.clipboard.readText())).toBe(copied);
+});
+
 test("a clean stale phone cache refreshes to the longer remote note before remaining synced", async ({ page }) => {
   const shortPhoneCopy = "# Day\n\nBreakfast\n";
   const longPcCopy = "# Day\n\nBreakfast\n\nWork completed on the PC\n\nEvening notes\n";

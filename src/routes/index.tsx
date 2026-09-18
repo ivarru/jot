@@ -153,11 +153,7 @@ import {
   shouldShowUnsyncedWarning,
   shouldTrackUnsyncedSince
 } from "~/sync/syncScheduling";
-import {
-  formatSyncDiagnostics,
-  SyncDiagnosticsBuffer,
-  type SyncDiagnosticSource
-} from "~/sync/syncDiagnostics";
+import { SyncDiagnosticsBuffer, type SyncDiagnosticSource } from "~/sync/syncDiagnostics";
 import { performGoogleTokenRenewal, shouldSyncVisibleEditsBeforeRenewal } from "~/sync/googleTokenRenewal";
 import {
   GOOGLE_PHOTOS_APPENDONLY_SCOPE,
@@ -644,6 +640,7 @@ export default function Home() {
     syncDiagnostics.record({
       event: "sync-requested",
       source,
+      generation: editorChangeEpoch(),
       ...(date === null ? {} : { date }),
       ...(snapshot === null ? {} : { markdown: snapshot.markdown })
     });
@@ -1641,8 +1638,27 @@ export default function Home() {
   };
 
   const copySyncDiagnostics = async () => {
+    const report = syncDiagnostics.capture(APP_VERSION, {
+      editorMode: editorMode(),
+      normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders,
+      selectedDate: selectedDate(),
+      loadedDate: loadedDate(),
+      editorChangeEpoch: editorChangeEpoch(),
+      browser: {
+        userAgent: navigator.userAgent,
+        language: navigator.language,
+        online: navigator.onLine,
+        visibility: document.visibilityState,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight
+      }
+    });
+    if (report === null) {
+      setSyncDiagnosticsCopyMessage("Could not copy sync diagnostics.");
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(formatSyncDiagnostics(syncDiagnostics.snapshot(), APP_VERSION));
+      await navigator.clipboard.writeText(report);
       setSyncDiagnosticsCopyMessage("Sync diagnostics copied.");
     } catch {
       setSyncDiagnosticsCopyMessage("Could not copy sync diagnostics.");
@@ -2577,7 +2593,12 @@ export default function Home() {
     const date = parseIsoDate(documentKey);
     if (date === null) return;
     scheduleLivePlaceholderNormalization(date, value);
-    syncDiagnostics.record({ event: "editor-change", date, markdown: value });
+    syncDiagnostics.record({
+      event: "editor-change",
+      date,
+      markdown: value,
+      generation: editorChangeEpoch()
+    });
     if (editorMode() === "wysiwyg") {
       clearRawHistory();
     }
@@ -2602,7 +2623,12 @@ export default function Home() {
     if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
     if (date === null) return;
-    syncDiagnostics.record({ event: "editor-change", date, markdown: value });
+    syncDiagnostics.record({
+      event: "editor-change",
+      date,
+      markdown: value,
+      generation: editorChangeEpoch()
+    });
 
     applyRawEditorChange(date, value, {
       focusSelection: null,
@@ -3993,7 +4019,13 @@ export default function Home() {
           <DailyNoteUploadSurfaces workflow={dailyNoteUpload} />
 
           <Show when={settingsOpen()}>
-            <SettingsPanel settings={settings()} onChange={updateSettings} onClose={() => setSettingsOpen(false)} />
+            <SettingsPanel
+              settings={settings()}
+              onChange={updateSettings}
+              onClose={() => setSettingsOpen(false)}
+              onCaptureSyncDiagnostics={() => void copySyncDiagnostics()}
+              syncDiagnosticsCopyMessage={syncDiagnosticsCopyMessage()}
+            />
           </Show>
 
           <Show when={aboutOpen()}>
