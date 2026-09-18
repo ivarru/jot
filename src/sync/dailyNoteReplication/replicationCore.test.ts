@@ -15,6 +15,7 @@ import {
   commitVisibleCleanDailyNoteRefresh,
   loadCleanDailyNoteRefresh,
   loadDailyNoteSession,
+  persistLocalDraft,
   rebaseAndSyncDailyNoteSnapshot,
   saveAndSyncDailyNoteSnapshot,
   syncDirtyDailyNoteDrafts
@@ -126,6 +127,17 @@ class SharedRemoteStorageProvider implements RemoteStorageProvider {
 }
 
 describe("daily note sync", () => {
+  it("does not report a successful local-save status when persistence fails", async () => {
+    const drafts = new MemoryDraftStore();
+    drafts.save = async () => {
+      throw new DOMException("The transaction was aborted.", "AbortError");
+    };
+
+    await expect(persistLocalDraft("2030-02-02", "visible edit", drafts)).rejects.toMatchObject({
+      name: "AbortError"
+    });
+  });
+
   it("marks an empty missing remote note synced after checking Drive", async () => {
     const drafts = new MemoryDraftStore();
     const remote = new RecordingRemoteStorageProvider();

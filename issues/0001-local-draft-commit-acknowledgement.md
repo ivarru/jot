@@ -1,7 +1,7 @@
 ---
 id: "0001"
 title: "Validate Local Draft commit acknowledgement"
-status: open
+status: closed
 type: investigation
 priority: high
 created: "2026-09-18"
@@ -28,13 +28,13 @@ storage refactoring out of this issue.
 
 ## Acceptance criteria
 
-- [ ] A focused regression establishes request-success-then-abort behavior before any production fix; if the concern
+- [x] A focused regression establishes request-success-then-abort behavior before any production fix; if the concern
   cannot be reproduced, record the tested assumptions and evidence explaining why.
-- [ ] Successful writes resolve only after transaction completion; aborted or failed transactions reject the public
+- [x] Successful writes resolve only after transaction completion; aborted or failed transactions reject the public
   operation instead of reporting success or remaining pending.
-- [ ] Synchronous operation failures and both request-returning and Promise-returning paths have focused coverage.
-- [ ] Integration coverage shows that failed local persistence cannot produce a successful local-save status.
-- [ ] Successful committed content remains available after reopening storage, and compare-and-swap contention retains
+- [x] Synchronous operation failures and both request-returning and Promise-returning paths have focused coverage.
+- [x] Integration coverage shows that failed local persistence cannot produce a successful local-save status.
+- [x] Successful committed content remains available after reopening storage, and compare-and-swap contention retains
   the intended conditional-write behavior.
 
 ## Verification
@@ -50,4 +50,18 @@ No hard dependencies. [#0005](0005-offline-restart-and-shared-tabs.md) exercises
 
 ## Resolution
 
-Pending.
+Confirmed and fixed in version 0.25.16. The regression reproduced `withStore` resolving a successful request before an
+explicit abort of the same transaction. `withStore` now installs completion, error, and abort handlers before invoking
+the operation, waits for both the operation result and transaction completion, and aborts an active transaction when
+the operation throws or rejects.
+
+Focused fake-indexeddb coverage exercises request-success-then-abort, Promise-success-then-abort, request failure,
+synchronous failure, both completion orderings, committed reads through a subsequent database operation, and Local
+Draft compare-and-swap contention. Daily Note Replication integration coverage confirms that a rejected draft write
+cannot return `saved-locally`. This adapter acknowledgement boundary is below the atomic sync model: the model assumes
+that `LocalDraftStore` operations truthfully report their outcome, so the regression belongs at the IndexedDB adapter
+and replication integration seams rather than as a model trace.
+
+Verification passed with `npm run verify` (635 tests, typecheck, and production build) and the focused real-browser
+persistence/reload check in `tests/browser/editing/remote-note-caret.spec.ts` (2 tests). Transaction completion confirms
+the browser's IndexedDB commit boundary; it is not a guarantee against later OS-level storage loss or eviction.

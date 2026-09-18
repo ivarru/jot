@@ -11,19 +11,55 @@ export async function withStore<T>(
   return new Promise<T>((resolve, reject) => {
     const transaction = database.transaction(storeName, mode);
     const store = transaction.objectStore(storeName);
+    let operationCompleted = false;
+    let transactionCompleted = false;
+    let operationResult: T;
 
-    Promise.resolve(operation(store))
+    const resolveAfterCommit = () => {
+      if (operationCompleted && transactionCompleted) resolve(operationResult);
+    };
+    const rejectOperation = (error: unknown) => {
+      reject(error);
+      try {
+        transaction.abort();
+      } catch {
+        // The transaction may already have completed or aborted.
+      }
+    };
+
+    transaction.oncomplete = () => {
+      transactionCompleted = true;
+      resolveAfterCommit();
+    };
+    transaction.onerror = () =>
+      reject(transaction.error ?? new DOMException("The transaction failed.", "UnknownError"));
+    transaction.onabort = () =>
+      reject(transaction.error ?? new DOMException("The transaction was aborted.", "AbortError"));
+
+    let pendingOperation: IDBRequest<T> | Promise<T>;
+    try {
+      pendingOperation = operation(store);
+    } catch (error) {
+      rejectOperation(error);
+      return;
+    }
+
+    Promise.resolve(pendingOperation)
       .then((result) => {
         if (isIdbRequest<T>(result)) {
-          result.onsuccess = () => resolve(result.result);
-          result.onerror = () => reject(result.error);
+          result.onsuccess = () => {
+            operationResult = result.result;
+            operationCompleted = true;
+            resolveAfterCommit();
+          };
+          result.onerror = () => rejectOperation(result.error);
         } else {
-          transaction.oncomplete = () => resolve(result);
+          operationResult = result;
+          operationCompleted = true;
+          resolveAfterCommit();
         }
       })
-      .catch(reject);
-
-    transaction.onerror = () => reject(transaction.error);
+      .catch(rejectOperation);
   });
 }
 
