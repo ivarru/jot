@@ -1,7 +1,7 @@
 ---
 id: "0007"
 title: "Investigate intermittent list-item trailing-space loss"
-status: open
+status: closed
 type: investigation
 priority: high
 created: "2026-09-19"
@@ -103,16 +103,16 @@ disabling autosave, or recording note contents in diagnostics is also out of sco
 
 ## Acceptance criteria
 
-- [ ] The investigation documents the relevant snapshot owners, asynchronous boundaries, candidate ordering, and
+- [x] The investigation documents the relevant snapshot owners, asynchronous boundaries, candidate ordering, and
   guard or transformation responsible; it establishes whether the failure is a race or another kind of defect.
-- [ ] A named failing regression reproduces the space loss through the user-visible WYSIWYG workflow before production
+- [x] A named failing regression reproduces the space loss through the user-visible WYSIWYG workflow before production
   code is changed.
-- [ ] The reproduction covers a non-final item in a compact bulleted list and the async boundary that triggers the loss.
-- [ ] The root cause is identified with evidence distinguishing DOM text, ProseMirror state, serialized Markdown,
+- [x] The reproduction covers a non-final item in a compact bulleted list and the async boundary that triggers the loss.
+- [x] The root cause is identified with evidence distinguishing DOM text, ProseMirror state, serialized Markdown,
   application state, the persistence snapshot, and any later external write-back.
-- [ ] The fix preserves the typed separator and caret while retaining correct autosave, sync, list compactness, and
+- [x] The fix preserves the typed separator and caret while retaining correct autosave, sync, list compactness, and
   placeholder normalization behavior.
-- [ ] Diagnostic coverage is extended only with bounded, redacted structural or operation context needed to distinguish
+- [x] Diagnostic coverage is extended only with bounded, redacted structural or operation context needed to distinguish
   this failure if the existing report cannot isolate it.
 
 ## Verification
@@ -133,4 +133,33 @@ live DOM/ProseMirror snapshot from serialized Markdown without retaining note co
 
 ## Resolution
 
-Pending.
+Reproduced on 2026-09-19 using native Chromium typing with controlled browser time:
+
+1. Open a compact three-item list and insert an empty item after the first item.
+2. Move to the end of the original middle item, type ` word `, and wait for the three-second cleanup boundary.
+3. Confirm the empty item was removed, then type `next`. Before the fix, the middle item becomes `Middle item wordnext`.
+
+A second regression reproduces loss of the separator and caret displacement when a remote append is merged during
+autosave. Both tests failed before production changes. Unlike earlier timing-only attempts, these sequences force a
+genuine document write-back while a live trailing separator exists.
+
+The proven mechanism is a delayed representation change rather than a demonstrated stale remote overwrite. The live
+editor and persistence snapshot contain the separator. Cleanup writes normalized Markdown back through
+`applyExternalMarkdown`; CommonMark parsing drops whitespace at paragraph ends, so the document difference also changes
+the otherwise unrelated middle item. Native typing represents that terminal separator as NBSP. Merely restoring an
+ordinary ASCII space in the parsed document still lets the next native input remove it. Separately, the source-to-caret
+mapping omitted the same trailing whitespace, restoring the caret before the separator during cleanup.
+
+The fix restores whitespace omitted at paragraph ends from the source-position gap in the Markdown AST, using NBSP for
+editable spaces. Existing Milkdown serialization converts NBSP back to ordinary source spaces. Cursor mapping uses the
+same transformation and source positions. Fenced/indented code, raw HTML, and actual hard breaks retain their existing
+handling. No additional real-note diagnostics or speculative timer changes were needed.
+
+Coverage includes the two browser reproductions, navigation to date B while date A's cleanup/autosave are pending,
+persisted/reloaded text, parser boundary cases, and a named caret-mapping regression that also failed before its fix.
+This belongs outside the atomic sync model because the failure depends on Markdown parsing and native editable DOM
+whitespace. The original private incident cannot be matched conclusively from its redacted timeline alone.
+
+Verification passed: `npm run verify:full` ran 655 unit/integration tests, TypeScript checking, the production build,
+and all 83 browser tests, including the three new regressions. The preview server stopped after verification. Fixed in
+patch version `0.26.1`; no claim is made that the unavailable original incident trace proves this was its only cause.

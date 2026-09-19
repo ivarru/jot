@@ -4,6 +4,13 @@ import {
 } from "./markdownCursor";
 
 describe("markdown cursor mapping", () => {
+  it("counts the trailing separator before a non-final list item boundary", () => {
+    const markdown = "* First\n* Middle word \n* Last";
+    const source = markdown.indexOf("word ") + "word ".length;
+    const rendered = "First\n\nMiddle word ".length;
+    expect(markdownSourceOffsetToRenderedOffset(markdown, source)).toBe(rendered);
+    expect(renderedOffsetToMarkdownSourceOffset(markdown, rendered)).toBe(source);
+  });
   it("maps heading source offsets to rendered text offsets", () => {
     const markdown = "# Heading";
 

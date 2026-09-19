@@ -17,8 +17,9 @@ import type {
 } from "mdast";
 import { remark } from "remark";
 import remarkGfm from "remark-gfm";
+import { preserveParagraphTrailingSpaces } from "./markdownTrailingSpaces";
 
-const markdownParser = remark().use(remarkGfm);
+const markdownParser = remark().use(remarkGfm).use(preserveParagraphTrailingSpaces);
 let cachedMarkdown: string | null = null;
 let cachedMapping: MarkdownCursorMapping | null = null;
 
@@ -258,7 +259,7 @@ function buildMarkdownCursorMapping(markdown: string): MarkdownCursorMapping {
     if (typeof source === "number") renderedToSource[rendered] = Math.max(0, Math.min(markdown.length, source));
   };
 
-  showBlocks((markdownParser.parse(markdown) as Root).children, "\n\n");
+  showBlocks((markdownParser.runSync(markdownParser.parse(markdown), markdown) as Root).children, "\n\n");
 
   let lastRendered = 0;
   for (let source = 0; source < sourceToRendered.length; source += 1) {

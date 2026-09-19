@@ -7,6 +7,7 @@ import {
 import type { ImageAttachmentDisplayMap } from "./milkdownImages";
 import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
 import { shouldSyncMilkdownInlineMarkdown } from "./milkdownInlineSync";
+import { preserveParagraphTrailingSpaces } from "~/editor/markdownTrailingSpaces";
 import { applyListTightnessUpdates, createListTightnessPlugin } from "./milkdownListTightness";
 import { renderMilkdownListItemLabel } from "./milkdownListItems";
 import { createPlainUrlLinkBoundaryPlugin } from "./milkdownPlainUrl";
@@ -294,7 +295,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { isInTable, selectedRect },
           { liftListItem, sinkListItem },
           { toggleMark, wrapIn },
-          { $prose, $useKeymap, $view, replaceAll },
+          { $prose, $remark, $useKeymap, $view, replaceAll },
           { createLatexPlugins }
         ] =
           await Promise.all([
@@ -518,6 +519,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(commonmark)
           .use(jotImageView)
           .use(gfm)
+          .use($remark("preserveParagraphTrailingSpaces", () => preserveParagraphTrailingSpaces))
           .use(createLatexPlugins())
           .use(automd)
           .use(preventPlainUrlLinkBoundaryPaste)
