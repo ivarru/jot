@@ -5,7 +5,7 @@ status: open
 type: investigation
 priority: high
 created: "2026-09-19"
-labels: [editor, wysiwyg, autosave, diagnostics]
+labels: [editor, wysiwyg, autosave, diagnostics, lifecycle]
 ---
 
 # Investigate intermittent list-item trailing-space loss
@@ -16,6 +16,12 @@ The owner regularly observes an intermittent WYSIWYG editing defect in Brave on 
 bulleted-list item with normal text, typing a word and a space, and pausing briefly, the visible trailing space can
 disappear. Continuing to type would then join the next word to the previous word. The affected item was not the final
 item in the list. No deterministic action sequence is known.
+
+Treat this as a suspected ordering or stale-snapshot problem until the code investigation establishes otherwise. A
+pause allows debounced editor notifications, autosave, normalization, and save completions to run; the symptom could
+depend on their relative order rather than on the keystrokes alone. A race condition is the leading investigation
+hypothesis, not a demonstrated root cause. A deterministic parse/serialize transformation triggered by a delayed update
+could produce the same symptom.
 
 The incident was observed in Jot `0.26.0` with empty-placeholder normalization enabled. A manually captured sync
 diagnostic report covered the incident in Brave on macOS; Brave exposed a Chromium user agent containing
@@ -50,17 +56,55 @@ Chromium represented the terminal visible space as a non-breaking space in the e
 that representation was expected and did not remove the Markdown space. All temporary test and provider-delay changes
 were reverted after the experiments.
 
+These negative results cover those particular documents and schedules. They do not exclude a race, establish that all
+relevant callbacks ran in the problematic order, or prove that normalization performed an actual document change.
+Further reproduction attempts should follow a code-derived hypothesis rather than repeatedly varying pause lengths.
+
 ## Outcome and scope
 
-Obtain a faithful reproduction of the intermittent compact-list symptom, identify which editor, serialization,
-normalization, autosave, or external-update boundary removes the visible separator, and fix the proven cause without
-weakening date-bound sync safety or empty-placeholder normalization.
+Trace ownership and ordering of editor snapshots, identify a concrete path that could remove the separator, and turn
+that path into a faithful failing regression. Then fix the proven cause without weakening date-bound sync safety or
+empty-placeholder normalization. Code inspection and temporary test instrumentation should precede further broad
+browser experiments; production fixes still require a failing regression first.
 
 Speculative changes based only on the diagnostic length difference are out of scope. Broad replacement of Milkdown,
 disabling autosave, or recording note contents in diagnostics is also out of scope.
 
+## Proposed investigation
+
+1. **Map the path from typing to write-back.** Start with `MilkdownEditor.tsx`: DOM-to-ProseMirror updates, the Milkdown
+   listener, `applyMilkdownUpdatedMarkdown`, live snapshot getters, and `applyExternalMarkdown`. Follow the route's
+   `flushCurrentVisibleEditorSnapshot`, `scheduleLivePlaceholderNormalization`, and autosave effect into
+   `createDailyNoteReplication` and the selected-session result application. Inspect the installed AutoMD and listener
+   implementations where their scheduling or parsing affects this path. Record which representation each operation
+   reads, when it captures it, and what later permits it to replace visible content.
+2. **Identify vulnerable orderings and their guards.** Trace a typed separator arriving while an older notification,
+   normalization callback, or save result is pending. Check date, editor epoch, snapshot equality, and external-update
+   acknowledgement at each boundary. Distinguish an acknowledgement of the live document from a genuinely different
+   document update. State the exact sequence required for each hypothesis and the guard that should prevent it.
+3. **Inspect transformations as well as timing.** Determine whether reparsing a document can remove an interior
+   list-item trailing space, and whether the document-difference transaction can apply that change unintentionally.
+   One candidate is cleanup of an eligible placeholder elsewhere in the document causing a live write-back; another
+   is a genuinely different incoming document. Neither is established by the incident. Inspect inline marks, links,
+   list normalization, and AutoMD only where the code shows that they can participate in that replacement.
+4. **Build a deterministic schedule from the strongest hypothesis.** Use synthetic note content and explicit gates at
+   the relevant notification, snapshot, commit, or response boundary. Do not equate delaying a save response with
+   delaying its remote acceptance. Preserve native typing/DOM handling where it matters, and verify that any intended
+   normalization or external update actually executes. Prefer a focused editor integration test for a transformation
+   or callback race that it can faithfully express; confirm the visible symptom in Playwright.
+5. **Locate the first divergence.** For the controlled reproduction, compare DOM text and selection, ProseMirror text
+   and selection, serialized Markdown, route state, the save snapshot, and the applied external transaction. Assert
+   that typing the next word retains its separator. Record the first representation that loses the space and the
+   operation responsible, rather than inferring loss from total Markdown length.
+6. **Instrument narrowly if evidence is still missing.** Only after identifying an unobservable boundary, add bounded
+   structural context such as operation origin, captured/current epoch, trailing-space presence, or whether a document
+   replacement occurred. Synthetic test traces may inspect their fixture text; diagnostics from real notes must remain
+   redacted. A screen recording or details about marks can refine the hypothesis but should not block code analysis.
+
 ## Acceptance criteria
 
+- [ ] The investigation documents the relevant snapshot owners, asynchronous boundaries, candidate ordering, and
+  guard or transformation responsible; it establishes whether the failure is a race or another kind of defect.
 - [ ] A named failing regression reproduces the space loss through the user-visible WYSIWYG workflow before production
   code is changed.
 - [ ] The reproduction covers a non-final item in a compact bulleted list and the async boundary that triggers the loss.
@@ -73,10 +117,12 @@ disabling autosave, or recording note contents in diagnostics is also out of sco
 
 ## Verification
 
-Start with a focused Playwright regression under `tests/browser/editing`, since the symptom concerns native browser
-editing, DOM whitespace, caret behavior, and an asynchronous save boundary. Once reproduced, add the lowest suitable
-unit or integration test for the identified cause. Run the focused browser regression, `npm run verify`, and
-`npm run verify:full` before closure.
+Start with code inspection and a concrete scheduling or transformation hypothesis. Add the failing regression at the
+lowest layer that faithfully exercises it, plus a focused Playwright regression under `tests/browser/editing` for native
+typing, the separator, and caret behavior. If the cause belongs in the sync model, add a named trace there; if it depends
+on ProseMirror or DOM state outside that model, document why focused editor coverage is appropriate. Include a stale
+date-A-to-date-B case for any changed editor, autosave, or sync callback. Run the focused browser regression,
+`npm run verify`, and `npm run verify:full` before closure.
 
 ## Dependencies and related work
 
