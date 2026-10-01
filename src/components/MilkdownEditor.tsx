@@ -1397,10 +1397,11 @@ export function createInlineCodeBoundaryAffinityPlugin(
         }
 
         const position = view.posAtDOM(anchorNode, anchorOffset);
+        const domInsideCode = closestInlineCodeElement(anchorNode, view.dom) !== null;
         boundaryAffinity = recordInlineCodeDomAffinity(
           boundaryAffinity,
           position,
-          closestInlineCodeElement(anchorNode, view.dom) !== null
+          inlineCodeDomAffinity(view.state, position, domInsideCode, codeType)
         );
       };
       ownerDocument.addEventListener("selectionchange", trackBoundaryAffinity);
@@ -1502,6 +1503,26 @@ function closestInlineCodeElement(node: Node, root: HTMLElement): HTMLElement | 
     current = current.parentElement;
   }
   return null;
+}
+
+function inlineCodeDomAffinity(
+  state: EditorState,
+  position: number,
+  domInsideCode: boolean,
+  codeType: MarkType
+): boolean {
+  if (!domInsideCode) return false;
+
+  const resolved = state.doc.resolve(position);
+  const beforeHasCode = resolved.nodeBefore !== null
+    && codeType.isInSet(resolved.nodeBefore.marks) !== undefined;
+  const atTextblockEnd = resolved.parent.isTextblock
+    && resolved.parentOffset === resolved.parent.content.size;
+
+  // A terminal inline-code node has no plain DOM node on its right, so the
+  // browser can only report the visually trailing caret from inside <code>.
+  // Treat that unambiguous document endpoint as the plain-text side.
+  return !(atTextblockEnd && beforeHasCode);
 }
 
 function clearLinkBoundaryStoredMarkTransaction(state: EditorState, linkType: MarkType): Transaction | null {

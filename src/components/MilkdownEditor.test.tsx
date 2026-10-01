@@ -1411,10 +1411,10 @@ describe("MilkdownEditor", () => {
       selection.addRange(range);
       document.dispatchEvent(new Event("selectionchange"));
 
-      await placeNativeCaret(view, codeText!, codeText!.textContent!.length);
+      await placeNativeCaret(view, codeText!, 1);
       typeTextThroughView(view, "X");
 
-      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("`fooX`\n");
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("`fXoo`\n");
     } finally {
       await testEditor.destroy();
     }

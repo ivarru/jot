@@ -161,6 +161,20 @@ test("WYSIWYG inline-code boundary typing follows the visible caret side", async
   await expectUnderlyingMarkdown(page, "Use `foo`X today");
 });
 
+test("WYSIWYG typing at terminal inline code appends plain text", async ({ page }) => {
+  for (const [markdown, expected] of [
+    ["Use `foo`", "Use `foo` bar"],
+    ["* Use `foo`\n* next", "* Use `foo` bar\n* next"]
+  ] as const) {
+    await setRawMarkdown(page, markdown);
+    await switchToWysiwygMode(page);
+    await focusWysiwygTextOffset(page, "foo", "foo".length);
+    await page.keyboard.insertText(" bar");
+    await expectUnderlyingMarkdown(page, expected);
+    await switchToRawMode(page);
+  }
+});
+
 test("WYSIWYG inline-code toolbar exit keeps following text outside code", async ({ page }) => {
   const markdown = "`foo`";
   const codeEnd = markdown.lastIndexOf("`");
