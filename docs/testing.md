@@ -86,6 +86,10 @@ The Google auth-renewal workflow runs the production `GoogleIdentityTokenProvide
 Google Identity Services browser object and using fake remote storage. It covers final synchronization, a failed
 no-UI renewal, cached-token invalidation, and interactive reconnect without using a real Google account.
 
+The offline-restart workflow sets `jot.fakeRemoteUnavailable=true` in localStorage to make fake Daily Note reads, date
+listing, and writes fail while browser IndexedDB remains available for Local Drafts. Clearing that key reconnects the fake provider.
+The workflow closes and reopens a page in the same browser context; it does not test browser-process crash durability.
+
 To use an already-running preview, set `BROWSER_TEST_BASE_URL`:
 
 ```sh

@@ -17,15 +17,18 @@ interface StoredJotImageAlbum {
 
 export class FakeRemoteStorageProvider implements RemoteStorageProvider {
   async loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null> {
+    assertFakeRemoteAvailable();
     return (await withStore<RemoteDailyNote | undefined>("fakeRemoteNotes", "readonly", (store) => store.get(date))) ?? null;
   }
 
   async listDailyNoteDates(): Promise<IsoDate[]> {
+    assertFakeRemoteAvailable();
     const notes = await withStore<RemoteDailyNote[]>("fakeRemoteNotes", "readonly", (store) => store.getAll());
     return notes.filter((note) => hasDailyNoteContent(note.markdown)).map((note) => note.date).sort();
   }
 
   async saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult> {
+    assertFakeRemoteAvailable();
     return await withStore<SaveDailyNoteResult>("fakeRemoteNotes", "readwrite", async (store) => {
       const existing = (await waitForRequest<RemoteDailyNote | undefined>(store.get(input.date))) ?? null;
 
@@ -119,6 +122,12 @@ export class FakeRemoteStorageProvider implements RemoteStorageProvider {
       store.getAll()
     );
     return metadata.find((item) => imageAttachmentMediaItemId(item, field) === mediaItemId) ?? null;
+  }
+}
+
+function assertFakeRemoteAvailable(): void {
+  if (typeof window !== "undefined" && window.localStorage.getItem("jot.fakeRemoteUnavailable") === "true") {
+    throw new Error("Fake remote storage is unavailable.");
   }
 }
 
