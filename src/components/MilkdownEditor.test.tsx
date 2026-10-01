@@ -1387,7 +1387,7 @@ describe("MilkdownEditor", () => {
   });
 
   it("discards explicit code affinity while the DOM selection is outside the editor", async () => {
-    const testEditor = await createMilkdownDomTestEditor("`foo`");
+    const testEditor = await createMilkdownDomTestEditor("`foo`bar");
 
     try {
       const codeText = testEditor.root.querySelector("code")?.firstChild;
@@ -1411,10 +1411,10 @@ describe("MilkdownEditor", () => {
       selection.addRange(range);
       document.dispatchEvent(new Event("selectionchange"));
 
-      await placeNativeCaret(view, codeText!, 1);
+      await placeNativeCaret(view, codeText!, codeText!.textContent!.length);
       typeTextThroughView(view, "X");
 
-      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("`fXoo`\n");
+      expect(testEditor.editor.ctx.get(serializerCtx)(view.state.doc)).toBe("`fooX`bar\n");
     } finally {
       await testEditor.destroy();
     }
