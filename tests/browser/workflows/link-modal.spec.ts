@@ -8,10 +8,11 @@ import {
   focusWysiwygTextOffset,
   openDevelopmentStorage,
   rawMarkdown,
-  setRawMarkdown,
+  setRawMarkdown as setRawMarkdownInEditor,
   switchToRawMode,
   switchToWysiwygMode
 } from "../helpers/editor";
+import { readLocalDraft } from "../helpers/idb";
 
 test("link modal supports clipboard autofill, editing, and share-target insertion", async ({ page }) => {
   await assertManifestShareTarget(page);
@@ -30,6 +31,14 @@ test("link modal supports clipboard autofill, editing, and share-target insertio
   await assertExistingLinkEdit(page);
   await assertShareTargetInsert(page);
 });
+
+async function setRawMarkdown(page: Page, markdown: string): Promise<void> {
+  await expect(page.locator(".sync-status[aria-label*='Synced']")).toBeVisible();
+  await setRawMarkdownInEditor(page, markdown);
+  const date = await page.getByRole("textbox", { name: "Selected date" }).inputValue();
+  await expect.poll(async () => (await readLocalDraft(page, date))?.markdown).toBe(markdown);
+  await expect(page.locator(".sync-status[aria-label*='Synced']")).toBeVisible();
+}
 
 async function assertManifestShareTarget(page: Page): Promise<void> {
   const response = await page.request.get(new URL("manifest.webmanifest", browserTestBaseUrl()).href);
@@ -147,7 +156,9 @@ async function assertWysiwygCollapsedCursorInsert(page: Page): Promise<void> {
   await clickButton(page, "Insert or edit link");
   await expectLinkModalValues(page, { text: "", url: "" });
   await page.locator(".link-modal input").nth(0).fill("Jot");
+  await expect(page.locator(".link-modal input").nth(0)).toHaveValue("Jot");
   await setLinkModalUrl(page, "https://example.com/jot");
+  await expectLinkModalValues(page, { text: "Jot", url: "https://example.com/jot" });
   await clickLinkModalButton(page, "Insert");
   await expectRawMarkdown(page, expected);
 }
@@ -254,4 +265,5 @@ async function setLinkModalUrl(page: Page, url: string): Promise<void> {
 
 async function clickLinkModalButton(page: Page, name: string): Promise<void> {
   await page.locator(".link-modal").getByRole("button", { name }).click();
+  await expect(page.locator(".link-modal")).toBeHidden();
 }

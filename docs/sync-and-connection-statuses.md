@@ -11,6 +11,15 @@ Jot has two related but independent kinds of state:
 Being connected does not imply that the selected Daily Note is synced. It may still be saved only locally, syncing,
 conflicted, or in error.
 
+## Shared Browser Tabs
+
+Pages in one browser storage area may view the same Daily Note, but only one live page owns editing for a date. Other
+pages show a committed Local Draft snapshot read-only until the owner closes or crashes; reloading the page refreshes
+that snapshot. A waiting page reloads the latest draft and its remote baseline before becoming editable. Background
+synchronization skips dates owned by another page.
+Signing out invalidates the shared Local Draft session, clears drafts, and signs out other open pages. Draft writes from
+the old session cannot repopulate cleared storage.
+
 ## Effective Connection State
 
 ```mermaid

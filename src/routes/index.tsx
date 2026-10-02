@@ -135,13 +135,15 @@ import { createDailyNoteUploadWorkflow } from "~/features/dailyNoteUpload/create
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
 import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
+import { SessionGuardedDraftStore } from "~/storage/sessionGuardedDraftStore";
 import { TagSuggestionCatalog } from "~/storage/tagSuggestionCatalog";
 import type { RemoteStorageProvider, SyncStatus } from "~/storage/types";
 import {
   createDailyNoteReplication,
   isCancelledDailyNoteSyncError,
+  persistLocalDraft,
   saveAndSyncDailyNoteSnapshot,
-  syncDirtyDailyNoteDrafts,
+  syncDailyNote,
   type DailyNoteConflictResolution,
   type DailyNoteSyncConflict,
   type DailyNoteSyncControl
@@ -166,8 +168,9 @@ import {
   type PickedGooglePhotosMediaItem
 } from "~/photos/googlePhotosAttachments";
 import { FakePhotosAttachmentProvider } from "~/photos/fakePhotosAttachments";
+import { requestDailyNoteOwnership, withAvailableDailyNoteOwnership } from "./sharedTabOwnership";
+import { syncDepartedDate } from "./departedDateSync";
 
-const drafts = new IndexedDbLocalDraftStore();
 const ACTIVE_IMAGE_PICKER_STORAGE_KEY = "jot.googlePhotosActivePicker";
 const ACTIVE_IMAGE_PICKER_TTL_MS = 10 * 60 * 1000;
 
@@ -232,6 +235,7 @@ export default function Home() {
   const runtime = createStorageRuntime();
   const shortcutLabels = shortcutLabelsForPlatform(globalThis.navigator?.platform ?? "");
   const browserLocalStorage = getLocalStorage();
+  const drafts = new SessionGuardedDraftStore(new IndexedDbLocalDraftStore(), browserLocalStorage);
   const tagSuggestionCatalog = new TagSuggestionCatalog(browserLocalStorage);
   const initialRoute = routeFromHash();
   onMount(() => {
@@ -267,6 +271,7 @@ export default function Home() {
     "Jot is keeping edits on this device until Google access is refreshed."
   );
   const [selectedDate, setSelectedDate] = createSignal<IsoDate | null>(initialRoute.date);
+  const [ownedDate, setOwnedDate] = createSignal<IsoDate | null>(null);
   const [invalidDate, setInvalidDate] = createSignal<string | null>(initialRoute.invalidDate);
   const [pendingSectionLinkNavigation, setPendingSectionLinkNavigation] = createSignal<DailyNoteLinkTarget | null>(
     initialRoute.date !== null && initialRoute.headingSlug !== null
@@ -401,6 +406,7 @@ export default function Home() {
   let backgroundSyncGeneration = 0;
   let sectionLinkTargetLoadGeneration = 0;
   let lastBackgroundSaveSnapshotKey: string | null = null;
+  const navigationReleaseWork = new Map<IsoDate, Promise<boolean>>();
   type FocusedEditorIdentity = {
     readonly date: IsoDate;
     readonly mode: EditorMode;
@@ -431,7 +437,9 @@ export default function Home() {
   const sectionLinkDatePickerMonthLabel = createMemo(() => monthLabel(sectionLinkDatePickerMonth()));
   const selectedDateCanEdit = createMemo(() => canEditSelectedDate(dateBoundEditorState()));
   const manualConflictMarkersPresent = createMemo(() => containsDailyNoteConflictMarkers(markdown()));
-  const editorReadOnly = createMemo(() => reconnectingAuth() || resolvingSyncConflict() || pendingSyncConflict() !== null);
+  const editorReadOnly = createMemo(() =>
+    reconnectingAuth() || resolvingSyncConflict() || pendingSyncConflict() !== null || ownedDate() !== selectedDate()
+  );
   const selectedDateCanWrite = createMemo(() => selectedDateCanEdit() && !editorReadOnly());
   const reconnectPromptOpen = createMemo(() => authReconnectRequired() && !reconnectPromptPostponed());
   const reconnectInlineVisible = createMemo(() => authReconnectRequired() && reconnectPromptPostponed());
@@ -534,25 +542,47 @@ export default function Home() {
   const canContinueBackgroundSync = (
     generation: number
   ): NonNullable<DailyNoteSyncControl["canContinue"]> => {
-    return () => generation === backgroundSyncGeneration;
+    return () => generation === backgroundSyncGeneration && drafts.hasCurrentEpoch();
   };
 
   const syncDirtyDraftsExceptSelected = async (skipDate: IsoDate | null = untrack(selectedDate)): Promise<void> => {
     const generation = backgroundSyncGeneration;
     try {
-      await syncDirtyDailyNoteDrafts(drafts, runtime.remote, skipDate, {
-        canContinue: canContinueBackgroundSync(generation),
-        normalizeMarkdown: (markdown) => normalizeDailyNoteMarkdown(markdown, {
-          normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
-        })
-      });
+      const dirty = await drafts.listDirty();
+      for (const draft of dirty) {
+        if (draft.date === skipDate || generation !== backgroundSyncGeneration) continue;
+        await withAvailableDailyNoteOwnership(draft.date, async () => {
+          await syncDailyNote(draft.date, drafts, runtime.remote, {
+            canContinue: canContinueBackgroundSync(generation),
+            normalizeMarkdown: (markdown) => normalizeDailyNoteMarkdown(markdown, {
+              normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+            })
+          });
+        });
+      }
     } catch (error: unknown) {
       if (isCancelledDailyNoteSyncError(error)) return;
       throw error;
     }
   };
 
+  const syncDepartedDailyNote = async (date: IsoDate): Promise<void> => {
+    if (!authenticated() || selectedDate() === date || !drafts.hasCurrentEpoch()) return;
+    try {
+      await syncDepartedDate(date, drafts, runtime.remote, {
+        canContinue: () => drafts.hasCurrentEpoch() && selectedDate() !== date,
+        normalizeMarkdown: (markdown) => normalizeDailyNoteMarkdown(markdown, {
+          normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+        })
+      });
+    } catch (error: unknown) {
+      if (isCancelledDailyNoteSyncError(error)) return;
+      setLastSyncError({ message: errorMessage(error), retry: "save-current-note", date });
+    }
+  };
+
   const dailyNoteReplication = createDailyNoteReplication({
+    canContinue: () => drafts.hasCurrentEpoch(),
     authenticated,
     authReconnectRequired,
     drafts,
@@ -759,6 +789,7 @@ export default function Home() {
     source: SyncDiagnosticSource,
     options: { readonly dedupeBackground?: boolean } = {}
   ) => {
+    if (ownedDate() !== selectedDate()) return;
     const flushed = flushCurrentVisibleEditorSnapshot();
     if (flushed === null) {
       recordSyncRequest(source);
@@ -785,6 +816,7 @@ export default function Home() {
   };
 
   const syncSelectedDateOnDemandWithLatestEditor = () => {
+    if (ownedDate() !== selectedDate()) return;
     const flushed = flushCurrentVisibleEditorSnapshot();
     if (flushed?.changed) {
       recordSyncRequest("foreground", flushed.snapshot);
@@ -1055,6 +1087,7 @@ export default function Home() {
     on(
       () => [authenticated(), selectedDate()] as const,
       ([isAuthenticated, date]) => {
+        setOwnedDate(null);
         rawHistoryPast = [];
         rawHistoryFuture = [];
         if (editorMode() === "text") setEditorHistoryAvailability({ canUndo: false, canRedo: false });
@@ -1075,7 +1108,40 @@ export default function Home() {
         setImportingImageResolutionName(null);
         setImageAttachmentDisplays({});
 
-        void dailyNoteReplication.loadSelectedDateFromLocalDraft(date);
+        let active = true;
+        let readOnlyPreviewApplied = false;
+        const release = requestDailyNoteOwnership(date, () => {
+          if (!active || !authenticated() || selectedDate() !== date) return;
+          dailyNoteReplication.cancelInFlightWork();
+          if (readOnlyPreviewApplied) {
+            applyDateBoundEditorTransition(resetSelectedDailyNoteSession(dateBoundEditorState(), date));
+          }
+          setOwnedDate(date);
+          void dailyNoteReplication.loadSelectedDateFromLocalDraft(date);
+        }, (error) => setLoadError(errorMessage(error)));
+        void drafts.load(date).then((draft) => {
+          if (!active || ownedDate() === date || selectedDate() !== date || draft === null) return;
+          setMarkdown(draft.markdown);
+          setCleanEditorMarkdown(draft.baselineMarkdown);
+          setLoadedDate(date);
+          setSyncStatus(draft.dirty ? "saved-locally" : "synced");
+          readOnlyPreviewApplied = true;
+        });
+        onCleanup(() => {
+          active = false;
+          const pending = navigationReleaseWork.get(date);
+          if (pending !== undefined) {
+            navigationReleaseWork.delete(date);
+            void pending.then(async (committed) => {
+              await release();
+              if (committed) await syncDepartedDailyNote(date);
+            });
+          } else {
+            void release();
+          }
+          setOwnedDate(null);
+          dailyNoteReplication.cancelInFlightWork();
+        });
 
       },
       { defer: false }
@@ -1151,9 +1217,10 @@ export default function Home() {
   createEffect(
     on(markdown, (value) => {
       const snapshot = captureVisibleDailyNoteSnapshot({ ...dateBoundEditorState(), markdown: value });
-      if (!authenticated() || snapshot === null || suppressLocalPersist()) return;
+      if (!authenticated() || snapshot === null || suppressLocalPersist() || ownedDate() !== snapshot.date) return;
 
       const timeout = window.setTimeout(() => {
+        if (ownedDate() !== snapshot.date) return;
         void dailyNoteReplication.persistVisibleLocalDraft(snapshot);
       }, LOCAL_DRAFT_DEBOUNCE_MS);
 
@@ -1165,7 +1232,8 @@ export default function Home() {
     on(
       () => [markdown(), selectedDate(), loadedDate(), settings().autosaveDebounceMs, settingsLoaded()] as const,
       () => {
-        if (!authenticated() || !settingsLoaded() || selectedDate() === null || loadedDate() !== selectedDate()) return;
+        if (!authenticated() || !settingsLoaded() || selectedDate() === null || loadedDate() !== selectedDate()
+          || ownedDate() !== selectedDate()) return;
         if (authReconnectRequired()) return;
 
         const flushed = flushCurrentVisibleEditorSnapshot();
@@ -1173,6 +1241,7 @@ export default function Home() {
         const snapshot = flushed.snapshot;
 
         const timeout = window.setTimeout(() => {
+          if (ownedDate() !== snapshot.date) return;
           if (!canEditDailyNoteDate(snapshot.date, dateBoundEditorState())) return;
           // The editor can have received a clean remote refresh, or Milkdown can
           // have caught up with application state, while this debounce timer was
@@ -1268,7 +1337,7 @@ export default function Home() {
           settings().dirtyPollingIntervalMs
         ] as const,
       () => {
-        if (!settingsLoaded()) return;
+        if (!settingsLoaded() || ownedDate() !== selectedDate()) return;
         const mode = dailyNoteReplication.pollingMode();
         if (mode === null) return;
 
@@ -1600,7 +1669,25 @@ export default function Home() {
   const navigateToDate = async (date: IsoDate, headingSlug: string | null = null) => {
     datePicker.close();
     existingNoteDates.cancel();
-    void dailyNoteReplication.saveCurrentEditorSnapshot();
+    const leaving = flushCurrentVisibleEditorSnapshot();
+    if (leaving !== null && ownedDate() === leaving.snapshot.date) {
+      const snapshot = leaving.snapshot;
+      const localCommit = persistLocalDraft(snapshot.date, snapshot.markdown, drafts, {
+        canContinue: () => drafts.hasCurrentEpoch(),
+        normalizeMarkdown: (value) => normalizeDailyNoteMarkdown(value, {
+          normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+        })
+      }).then(() => true, (error: unknown) => {
+        if (!isCancelledDailyNoteSyncError(error)) setLastSyncError({
+          message: errorMessage(error), retry: "save-current-note", date: snapshot.date
+        });
+        return false;
+      });
+      const earlier = navigationReleaseWork.get(snapshot.date);
+      navigationReleaseWork.set(snapshot.date, earlier === undefined
+        ? localCommit
+        : Promise.all([earlier, localCommit]).then(([previous, current]) => previous && current));
+    }
     const nextHash = dailyNoteRouteHash(date, headingSlug);
     if (window.location.hash === nextHash) {
       setPendingSectionLinkNavigation(headingSlug === null ? null : { date, headingSlug });
@@ -2589,9 +2676,8 @@ export default function Home() {
   };
 
   const handleEditorChange = (documentKey: string, value: string) => {
-    if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
-    if (date === null) return;
+    if (date === null || date !== selectedDate() || ownedDate() !== date || editorReadOnly()) return;
     scheduleLivePlaceholderNormalization(date, value);
     syncDiagnostics.record({
       event: "editor-change",
@@ -2620,9 +2706,8 @@ export default function Home() {
   };
 
   const handleRawEditorChange = (documentKey: string, value: string) => {
-    if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
-    if (date === null) return;
+    if (date === null || date !== selectedDate() || ownedDate() !== date || editorReadOnly()) return;
     syncDiagnostics.record({
       event: "editor-change",
       date,
@@ -2690,9 +2775,8 @@ export default function Home() {
   };
 
   const handleEditorBlur = (documentKey: string, value: string) => {
-    if (editorReadOnly()) return;
     const date = parseIsoDate(documentKey);
-    if (date === null) return;
+    if (date === null || date !== selectedDate() || ownedDate() !== date || editorReadOnly()) return;
     const flushed = flushCurrentVisibleEditorSnapshot();
     const snapshot = flushed?.snapshot.date === date
       ? flushed.snapshot
@@ -3090,6 +3174,7 @@ export default function Home() {
     setLastSyncError(null);
     try {
       await signIn(runtime);
+      drafts.adoptCurrentEpoch();
       setAuthenticated(true);
       setAuthReconnectRequired(false);
       setReconnectPromptPostponed(false);
@@ -3111,8 +3196,9 @@ export default function Home() {
   };
 
   const signOut = async () => {
-    if (syncStatus() === "saved-locally" || syncStatus() === "conflict" || syncStatus() === "error" || syncStatus() === "auth-required") {
-      const confirmed = window.confirm("Signing out will delete unsynced local data on this device.");
+    const dirtyDrafts = await drafts.listDirty();
+    if (dirtyDrafts.length > 0 || syncStatus() === "saved-locally" || syncStatus() === "conflict" || syncStatus() === "error" || syncStatus() === "auth-required") {
+      const confirmed = window.confirm("Signing out will delete unsynced local data in this browser.");
       if (!confirmed) return;
     }
 
@@ -3121,14 +3207,14 @@ export default function Home() {
     cancelBackgroundSyncWork();
     dailyNoteUpload.cancelAndReset();
     dailyNoteReplication.cancelInFlightWork();
-    await drafts.clearAll();
+    browserLocalStorage?.removeItem("jot.fakeAuth");
+    await drafts.clearForSignOut();
     tagSuggestionCatalog.clear();
     setTagSuggestions([]);
     if (runtime.kind === "google") {
       await runtime.tokenProvider.revoke?.();
     }
     clearStoredActiveImagePicker();
-    browserLocalStorage?.removeItem("jot.fakeAuth");
     setAuthReconnectRequired(false);
     setReconnectPromptPostponed(false);
     setReconnectMessage("Jot is keeping edits on this device until Google access is refreshed.");
@@ -3137,6 +3223,26 @@ export default function Home() {
     setMarkdown("");
     setSyncStatus("local-only");
   };
+
+  onMount(() => {
+    const onOtherTabSignOut = (event: StorageEvent) => {
+      if (event.key !== "jot.accountEpoch" || drafts.hasCurrentEpoch()) return;
+      datePicker.reset();
+      existingNoteDates.reset();
+      cancelBackgroundSyncWork();
+      dailyNoteUpload.cancelAndReset();
+      dailyNoteReplication.cancelInFlightWork();
+      if (runtime.kind === "google") runtime.tokenProvider.invalidateAccessToken?.();
+      clearStoredActiveImagePicker();
+      setAuthenticated(false);
+      setPendingSyncConflictWithDiagnostics(null);
+      setCleanEditorMarkdown(null);
+      setMarkdown("");
+      setSyncStatus("local-only");
+    };
+    window.addEventListener("storage", onOtherTabSignOut);
+    onCleanup(() => window.removeEventListener("storage", onOtherTabSignOut));
+  });
 
   return (
     <main class="app">
@@ -3160,6 +3266,7 @@ export default function Home() {
                   setAuthError(null);
                   void signIn(runtime)
                     .then(() => {
+                      drafts.adoptCurrentEpoch();
                       if (runtime.kind === "fake") {
                         browserLocalStorage?.setItem("jot.fakeAuth", "true");
                       }
@@ -3588,6 +3695,10 @@ export default function Home() {
               </div>
             </div>
           </header>
+
+          <Show when={ownedDate() !== selectedDate()}>
+            <p role="status">Open in another tab. Waiting for editing access.</p>
+          </Show>
 
           <Show when={reconnectPromptOpen()}>
             <div class="modal-backdrop" role="presentation">

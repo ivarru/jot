@@ -1170,6 +1170,73 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
+  it("does not let a delayed date A WYSIWYG callback overwrite another tab's draft after owning B", async () => {
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "A original"));
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "B original"));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("A original"));
+      testState.deferNextWysiwygChange = true;
+      const editorA = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editorA.value = "A delayed callback";
+      editorA.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+      expect(testState.releaseWysiwygChange).not.toBeNull();
+
+      clickButton(host, "Next day");
+      await waitFor(() => {
+        expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")?.value).toBe("2030-02-03");
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("B original");
+      });
+      await waitFor(() => expect(testState.drafts.get("2030-02-02")?.markdown).toBe("A delayed callback"));
+      testState.drafts.set("2030-02-02", { ...draft("2030-02-02", "other tab edit"), dirty: true });
+
+      testState.releaseWysiwygChange?.();
+      await settle();
+      expect(testState.drafts.get("2030-02-02")?.markdown).toBe("other tab edit");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("releases date A after local commit and leaves a new owner's draft untouched by a pending remote response", async () => {
+    testState.useGoogleRuntime = true;
+    testState.trackOwnershipReleases = true;
+    testState.remoteNote = {
+      date: "2030-02-02", markdown: "A original", revisionId: "a-revision", updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    testState.drafts.set("2030-02-02", draft("2030-02-02", "A original"));
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "B original"));
+    testState.delayedRemoteSave = delayedRemoteSave("2030-02-02");
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("A original"));
+      const editorA = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editorA.value = "A changed";
+      editorA.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+      clickButton(host, "Next day");
+
+      await waitFor(() => expect(testState.drafts.get("2030-02-02")?.markdown).toBe("A changed"));
+      await waitFor(() => expect(testState.ownershipReleaseDates).toContain("2030-02-02"));
+      await testState.delayedRemoteSave.started.promise;
+      testState.otherTabOwnedDates.add("2030-02-02");
+      const newOwnerDraft = { ...draft("2030-02-02", "other tab edit"), dirty: true };
+      testState.drafts.set("2030-02-02", newOwnerDraft);
+      testState.delayedRemoteSave.finish.resolve();
+      await waitFor(() => expect(testState.remoteNote?.markdown).toBe("A changed"));
+      await settle();
+      expect(testState.drafts.get("2030-02-02")).toEqual(newOwnerDraft);
+    } finally {
+      testState.delayedRemoteSave?.finish.resolve();
+      dispose();
+    }
+  });
+
   it("syncs a propagated edit on pagehide before the autosave debounce fires", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
@@ -1210,7 +1277,7 @@ describe("Home reconnect and conflict handling", () => {
       revisionId: "a-revision",
       updatedAt: "2030-01-01T00:00:00.000Z"
     };
-    testState.drafts.set("2030-02-03", draft("2030-02-03", "A changed"));
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "B original"));
     const host = document.createElement("div");
     document.body.append(host);
     const dispose = render(() => <Home />, host);
@@ -1232,7 +1299,10 @@ describe("Home reconnect and conflict handling", () => {
       });
       await new Promise((resolve) => window.setTimeout(resolve, 750));
 
-      expect(testState.remoteSaveInputs).toEqual(["2030-02-02"]);
+      await waitFor(() => expect(testState.remoteSaveInputs).toContain("2030-02-02"));
+      expect(testState.drafts.get("2030-02-02")?.markdown).toBe("A changed");
+      expect(testState.drafts.get("2030-02-03")?.markdown).toBe("B original");
+      await waitFor(() => expect(testState.remoteNote?.markdown).toBe("A changed"));
     } finally {
       dispose();
     }
@@ -2945,6 +3015,7 @@ describe("Home reconnect and conflict handling", () => {
   });
 
   it("does not let background dirty-draft sync repopulate drafts after sign-out", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     testState.drafts.set("2030-02-03", {
       date: "2030-02-03",
       markdown: "background dirty draft",
@@ -2965,7 +3036,7 @@ describe("Home reconnect and conflict handling", () => {
     clickButton(host, "Sign out");
     await settle();
 
-    expect(testState.drafts.size).toBe(0);
+    await waitFor(() => expect(testState.drafts.size).toBe(0));
 
     testState.delayedRemoteSave.finish.resolve();
     await settle();
@@ -2973,9 +3044,11 @@ describe("Home reconnect and conflict handling", () => {
     expect(testState.drafts.size).toBe(0);
 
     dispose();
+    confirm.mockRestore();
   });
 
   it("does not let daily note upload repopulate drafts after sign-out", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     testState.delayedRemoteSave = delayedRemoteSave("2030-02-04");
     const host = document.createElement("div");
     document.body.append(host);
@@ -3006,7 +3079,7 @@ describe("Home reconnect and conflict handling", () => {
     clickButton(host, "Sign out");
     await settle();
 
-    expect(testState.drafts.size).toBe(0);
+    await waitFor(() => expect(testState.drafts.size).toBe(0));
 
     testState.delayedRemoteSave.finish.resolve();
     await settle();
@@ -3015,6 +3088,7 @@ describe("Home reconnect and conflict handling", () => {
     expect(host.textContent).not.toContain("Uploaded 1 daily note.");
 
     dispose();
+    confirm.mockRestore();
   });
 
   it("disables undo and redo buttons when their history stacks are empty", async () => {

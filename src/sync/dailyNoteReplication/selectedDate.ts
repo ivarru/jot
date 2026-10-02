@@ -31,6 +31,7 @@ import { resolveSyncErrorRetry, type SyncErrorState } from "../syncErrorRetry";
 export type SelectedDatePollingMode = "clean-refresh" | "dirty-save";
 
 export interface DailyNoteReplicationInput {
+  readonly canContinue?: () => boolean;
   readonly authenticated: () => boolean;
   readonly authReconnectRequired: () => boolean;
   readonly drafts: LocalDraftStore;
@@ -94,7 +95,8 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
   };
 
   const currentGeneration = (): number => generation;
-  const isCurrentGeneration = (capturedGeneration: number): boolean => capturedGeneration === generation;
+  const isCurrentGeneration = (capturedGeneration: number): boolean =>
+    capturedGeneration === generation && input.canContinue?.() !== false;
   const canContinueInGeneration = (capturedGeneration: number): NonNullable<DailyNoteSyncControl["canContinue"]> =>
     () => isCurrentGeneration(capturedGeneration);
   const canonicalMarkdown = (markdown: string): string => input.normalizeMarkdown?.(markdown) ?? markdown;

@@ -7,7 +7,9 @@ export {
 export {
   CancelledDailyNoteSyncError,
   isCancelledDailyNoteSyncError,
+  persistLocalDraft,
   saveAndSyncDailyNoteSnapshot,
+  syncDailyNote,
   syncDirtyDailyNoteDrafts,
   type DailyNoteConflictResolution,
   type DailyNoteSession,

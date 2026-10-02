@@ -17,6 +17,11 @@ _Avoid_: Log, journal entry, note
 The browser-local calendar date whose **Daily Note** is currently open. It is displayed as `YYYY-MM-DD`, with the day of week and whether it is today.
 _Avoid_: Current date, file date, active day
 
+**Editing Ownership**:
+The live browser page allowed to edit a selected **Daily Note** when several pages share one browser storage area. Other
+pages showing that date remain read-only. Ownership is released when the page closes or its browser process ends and is
+never stored as a persistent flag; a new owner reloads the latest committed **Local Draft** before editing.
+
 **Jot Folder**:
 The top-level app-owned folder in the user's Google Drive. It contains Jot's own content and organizational subfolders.
 _Avoid_: Root folder, workspace, app folder

@@ -90,6 +90,12 @@ The offline-restart workflow sets `jot.fakeRemoteUnavailable=true` in localStora
 listing, and writes fail while browser IndexedDB remains available for Local Drafts. Clearing that key reconnects the fake provider.
 The workflow closes and reopens a page in the same browser context; it does not test browser-process crash durability.
 
+The shared-tabs workflow opens pages in one browser context to check read-only ownership, refresh, queued date navigation,
+single-tab sync after navigation, new-owner editing and sync, and cross-tab sign-out with a dirty Local Draft. A separate
+Chrome renderer-crash case reopens the same persistent browser profile and checks that editing ownership is released
+while the committed draft remains readable. It does not establish
+OS-level durability after a machine crash.
+
 To use an already-running preview, set `BROWSER_TEST_BASE_URL`:
 
 ```sh

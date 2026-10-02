@@ -1,6 +1,7 @@
 import type { IsoDate } from "~/domain/dates";
 import type { JotSettings } from "~/domain/settings";
 import type { LocalDraft, SaveDailyNoteInput } from "~/storage/types";
+import { CancelledDailyNoteSyncError } from "~/sync/dailyNoteReplication";
 
 export type Deferred<T = void> = {
   readonly promise: Promise<T>;
@@ -77,6 +78,11 @@ const routeTestState = vi.hoisted(() => ({
   focusSelectionApplyCount: 0,
   focusCurrentSelectionCount: 0,
   setWysiwygInternalMarkdown: null as ((markdown: string) => void) | null,
+  deferNextWysiwygChange: false,
+  releaseWysiwygChange: null as (() => void) | null,
+  trackOwnershipReleases: false,
+  ownershipReleaseDates: [] as IsoDate[],
+  otherTabOwnedDates: new Set<IsoDate>(),
   savedSettings: [] as unknown[],
   useGoogleRuntime: false,
   googleRenewalDue: false,
@@ -90,6 +96,26 @@ const routeTestState = vi.hoisted(() => ({
 export function getRouteTestState(): typeof routeTestState {
   return routeTestState;
 }
+
+vi.mock("./sharedTabOwnership", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./sharedTabOwnership")>();
+  return {
+    ...actual,
+    requestDailyNoteOwnership: (
+      date: IsoDate,
+      onAcquired: () => void,
+      onError: (error: unknown) => void
+    ) => {
+      if (!routeTestState.trackOwnershipReleases) return actual.requestDailyNoteOwnership(date, onAcquired, onError);
+      onAcquired();
+      return async () => { routeTestState.ownershipReleaseDates.push(date); };
+    },
+    withUnownedDailyNoteAccess: async <T,>(date: IsoDate, work: () => Promise<T>): Promise<T> => {
+      if (routeTestState.otherTabOwnedDates.has(date)) throw new CancelledDailyNoteSyncError();
+      return await actual.withUnownedDailyNoteAccess(date, work);
+    }
+  };
+});
 
 vi.mock("~/config", () => ({
   APP_COPYRIGHT: "Copyright (c) 2026 Test Author",
@@ -312,6 +338,12 @@ vi.mock("~/components/MilkdownEditor", async () => {
       };
       const recordUserEdit = (markdown: string) => {
         recordControllerMarkdown(markdown);
+        if (routeTestState.deferNextWysiwygChange) {
+          routeTestState.deferNextWysiwygChange = false;
+          const documentKey = props.documentKey;
+          routeTestState.releaseWysiwygChange = () => props.onChange(documentKey, markdown);
+          return;
+        }
         props.onChange(props.documentKey, markdown);
       };
       const undo = () => {
@@ -693,6 +725,11 @@ export function resetRouteTestState(): void {
   routeTestState.focusSelectionApplyCount = 0;
   routeTestState.focusCurrentSelectionCount = 0;
   routeTestState.setWysiwygInternalMarkdown = null;
+  routeTestState.deferNextWysiwygChange = false;
+  routeTestState.releaseWysiwygChange = null;
+  routeTestState.trackOwnershipReleases = false;
+  routeTestState.ownershipReleaseDates = [];
+  routeTestState.otherTabOwnedDates.clear();
   routeTestState.savedSettings = [];
   routeTestState.useGoogleRuntime = false;
   routeTestState.googleRenewalDue = false;

@@ -35,6 +35,18 @@ The strongest operational rule is: if Jot cannot prove that a remote revision wa
 replicated, or that the remote replacement was accepted against the expected revision, it keeps the Local Draft dirty
 or surfaces a Sync Conflict.
 
+Pages sharing one browser storage area coordinate editing ownership for each date with a browser-managed lock. Waiting
+pages remain read-only and reload the committed Local Draft when ownership becomes available. Draft mutations and
+sign-out clearing use a separate browser-managed lock and a session generation; writes from a signed-out page cannot
+recreate cleared drafts. These locks are scoped to one browser storage area. Independent devices still rely on revision
+preconditions and Sync Conflicts.
+Navigation releases the date's editing lock after its local draft commit. A departed-date sync checks that the date is
+unowned for each Local Draft operation and when it starts a remote request; it does not hold the editing lock while
+waiting for the remote response. If another page takes ownership during that request, the departing page cancels its
+remaining Local Draft work. Conditional remote writes and an atomic Local Draft comparison protect a newer edit.
+The new owner can then replicate its committed draft.
+Late editor callbacks for a previous date are ignored once that page no longer owns the date.
+
 ## Threat Model
 
 The contract covers:

@@ -26,6 +26,7 @@ export async function openDevelopmentStorage(
   await page.goto(path);
   await page.getByRole("button", { name: "Use development storage" }).click();
   await expect(wysiwygEditor(page)).toBeVisible();
+  await expect(page.locator(".sync-status[aria-label*='Synced']")).toBeVisible();
 }
 
 export async function switchToRawMode(page: Page): Promise<void> {
