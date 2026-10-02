@@ -46,6 +46,7 @@ export async function switchToWysiwygMode(page: Page): Promise<void> {
 
 export async function setRawMarkdown(page: Page, markdown: string): Promise<void> {
   await switchToRawMode(page);
+  await expect(rawEditor(page)).toBeEditable();
   await rawEditor(page).evaluate((element, value) => {
     if (!(element instanceof HTMLTextAreaElement)) throw new Error("Raw editor is not a textarea.");
     element.value = value;
