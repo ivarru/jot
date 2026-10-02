@@ -14,19 +14,27 @@ import {
 } from "../helpers/editor";
 import { readLocalDraft } from "../helpers/idb";
 
-test("link modal supports clipboard autofill, editing, and share-target insertion", async ({ page }) => {
-  await assertManifestShareTarget(page);
+test.beforeEach(async ({ page }) => {
   await grantClipboardPermissions(page);
   await openDevelopmentStorage(page, "/", "disabled");
   await switchToRawMode(page);
+});
 
+test("link modal inserts clipboard links into WYSIWYG paragraphs and lists", async ({ page }) => {
   await assertWysiwygTrailingEmptyParagraphInsert(page);
   await assertWysiwygFinalListItemTextInsert(page);
   await assertWysiwygEmptyListItemClipboardAutofill(page);
   await assertWysiwygTrailingEmptyListItemInsert(page);
+});
+
+test("link modal supports clipboard autofill and manual insertion", async ({ page }) => {
   await assertClipboardAutoFill(page);
   await assertWysiwygCollapsedCursorInsert(page);
   await assertManualLinkModalInsert(page);
+});
+
+test("link modal edits links and inserts a shared URL", async ({ page }) => {
+  await assertManifestShareTarget(page);
   await assertClipboardButtonLinkEdit(page);
   await assertExistingLinkEdit(page);
   await assertShareTargetInsert(page);
@@ -155,6 +163,7 @@ async function assertWysiwygCollapsedCursorInsert(page: Page): Promise<void> {
 
   await clickButton(page, "Insert or edit link");
   await expectLinkModalValues(page, { text: "", url: "" });
+  await expect(page.locator(".link-modal input").nth(1)).toBeFocused();
   await page.locator(".link-modal input").nth(0).fill("Jot");
   await expect(page.locator(".link-modal input").nth(0)).toHaveValue("Jot");
   await setLinkModalUrl(page, "https://example.com/jot");
@@ -203,6 +212,7 @@ async function assertExistingLinkEdit(page: Page): Promise<void> {
     text: "old text",
     url: "https://example.com/old"
   });
+  await expect(page.locator(".link-modal input").nth(0)).toBeFocused();
   await setLinkModalUrl(page, "https://example.com/new");
   await clickLinkModalButton(page, "Update");
   await expectRawMarkdown(page, "Read [old text](<https://example.com/new>) today");
