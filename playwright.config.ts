@@ -1,5 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
+delete process.env.NO_COLOR;
+
 const chromePath = process.env.CHROME_PATH;
 const baseURL = process.env.BROWSER_TEST_BASE_URL ?? "http://127.0.0.1:4173/";
 const startPreviewServer =
