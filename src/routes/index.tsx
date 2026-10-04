@@ -3668,6 +3668,7 @@ export default function Home() {
                       role="menuitem"
                       onClick={() => {
                         setTopMenuOpen(false);
+                        setSyncDiagnosticsCopyMessage(null);
                         setSettingsOpen((open) => !open);
                       }}
                     >
@@ -4133,7 +4134,10 @@ export default function Home() {
             <SettingsPanel
               settings={settings()}
               onChange={updateSettings}
-              onClose={() => setSettingsOpen(false)}
+              onClose={() => {
+                setSyncDiagnosticsCopyMessage(null);
+                setSettingsOpen(false);
+              }}
               onCaptureSyncDiagnostics={() => void copySyncDiagnostics()}
               syncDiagnosticsCopyMessage={syncDiagnosticsCopyMessage()}
             />

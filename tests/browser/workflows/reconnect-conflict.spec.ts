@@ -196,6 +196,8 @@ test("an enabled diagnostic buffer can be copied and freezes when a conflict ope
 
 test("diagnostics can be captured from settings without a conflict", async ({ page }) => {
   const privateMarkdown = "private note text that must stay redacted";
+  const copiedMessage = "Sync diagnostics copied.";
+  const settingsPanel = page.getByRole("region", { name: "Settings" });
   await openDevelopmentStorage(page, `/#/date/${date}`, "enabled");
   await grantClipboardPermissions(page);
   await page.getByRole("button", { name: "Open menu" }).click();
@@ -209,9 +211,9 @@ test("diagnostics can be captured from settings without a conflict", async ({ pa
   const capture = page.getByRole("button", { name: "Capture and copy sync diagnostics" });
   await capture.click();
 
-  await expect(page.getByText("Sync diagnostics copied.")).toBeVisible();
+  await expect(settingsPanel.getByText(copiedMessage, { exact: true })).toBeVisible();
   await expect(capture).toBeFocused();
-  await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
+  await expect(settingsPanel).toBeVisible();
   await expect(page.getByText("Sync conflict")).toHaveCount(0);
   const copied = await page.evaluate(async () => await navigator.clipboard.readText());
   expect(copied).toMatch(/^Jot \d+\.\d+\.\d+ sync diagnostics/);
@@ -223,6 +225,11 @@ test("diagnostics can be captured from settings without a conflict", async ({ pa
   await expectRawMarkdown(page, privateMarkdown);
   await setRawMarkdown(page, `${privateMarkdown}\nlater edit`);
   await expect.poll(async () => await page.evaluate(async () => await navigator.clipboard.readText())).toBe(copied);
+
+  await clickButton(page, "Close settings");
+  await page.getByRole("button", { name: "Open menu" }).click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await expect(settingsPanel.getByText(copiedMessage, { exact: true })).toHaveCount(0);
 });
 
 test("a clean stale phone cache refreshes to the longer remote note before remaining synced", async ({ page }) => {
