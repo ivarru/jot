@@ -16,7 +16,9 @@ The owner observed the last line of a Daily Note disappear while syncing. It was
 caret in it. The incident occurred in Jot `0.27.0` on 2026-10-04, in WYSIWYG mode with empty-editor-placeholder
 normalization enabled. The selected and loaded date were both `2026-10-04`; the browser was online and visible.
 
-The supplied redacted sync diagnostics show frequent editor changes and autosaves near the incident. In particular,
+The owner generated the supplied redacted sync diagnostics as soon as the item visibly disappeared, so the capture
+describes the immediate lead-up rather than a later, unrelated editing session. It shows frequent editor changes and
+autosaves near the incident. In particular,
 autosave requests at sequences 522 and 525 had the same Markdown fingerprint (`length: 4364`, `hash: 6f6ca90c`),
 while the next request at sequence 528 had `length: 4363`, `hash: d3018a4e`, still at editor-change generation 272.
 The status reached `synced` at sequence 530. A blur request at sequence 531 used the same fingerprint as sequence 528.
