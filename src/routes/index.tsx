@@ -254,6 +254,8 @@ export default function Home() {
   let tagNameInput: HTMLInputElement | undefined;
   let aboutCloseButton: HTMLButtonElement | undefined;
   let topMenuElement: HTMLDivElement | undefined;
+  let settingsDialog: HTMLDialogElement | undefined;
+  let settingsReturnFocus: HTMLButtonElement | undefined;
   const [authenticated, setAuthenticated] = createSignal(
     redirectAuthResult.type === "authenticated" ||
     runtime.kind === "fake" && ENABLE_FAKE_AUTH && browserLocalStorage?.getItem("jot.fakeAuth") === "true"
@@ -324,6 +326,12 @@ export default function Home() {
   const [settingsLoaded, setSettingsLoaded] = createSignal(false);
   const [syncDiagnosticsCopyMessage, setSyncDiagnosticsCopyMessage] = createSignal<string | null>(null);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  const closeSettings = () => {
+    settingsDialog?.close?.();
+    setSyncDiagnosticsCopyMessage(null);
+    setSettingsOpen(false);
+    queueMicrotask(() => settingsReturnFocus?.focus());
+  };
   const [topMenuOpen, setTopMenuOpen] = createSignal(false);
   const [aboutOpen, setAboutOpen] = createSignal(false);
   const [editorMode, setEditorMode] = createSignal<EditorMode>("wysiwyg");
@@ -3628,6 +3636,7 @@ export default function Home() {
                   data-tooltip="Open menu"
                   aria-haspopup="menu"
                   aria-expanded={topMenuOpen()}
+                  ref={(element) => { settingsReturnFocus = element; }}
                   onClick={() => setTopMenuOpen((open) => !open)}
                 >
                   <MenuIcon />
@@ -3669,7 +3678,7 @@ export default function Home() {
                       onClick={() => {
                         setTopMenuOpen(false);
                         setSyncDiagnosticsCopyMessage(null);
-                        setSettingsOpen((open) => !open);
+                        setSettingsOpen(true);
                       }}
                     >
                       Settings
@@ -4131,16 +4140,29 @@ export default function Home() {
           <DailyNoteUploadSurfaces workflow={dailyNoteUpload} />
 
           <Show when={settingsOpen()}>
-            <SettingsPanel
-              settings={settings()}
-              onChange={updateSettings}
-              onClose={() => {
-                setSyncDiagnosticsCopyMessage(null);
-                setSettingsOpen(false);
+            <dialog
+              class="settings-dialog"
+              aria-label="Settings"
+              aria-modal="true"
+              ref={(element) => {
+                settingsDialog = element;
+                queueMicrotask(() => {
+                  if (settingsOpen() && element.isConnected) element.showModal?.();
+                });
               }}
-              onCaptureSyncDiagnostics={() => void copySyncDiagnostics()}
-              syncDiagnosticsCopyMessage={syncDiagnosticsCopyMessage()}
-            />
+              onCancel={(event) => {
+                event.preventDefault();
+                closeSettings();
+              }}
+            >
+              <SettingsPanel
+                settings={settings()}
+                onChange={updateSettings}
+                onClose={closeSettings}
+                onCaptureSyncDiagnostics={() => void copySyncDiagnostics()}
+                syncDiagnosticsCopyMessage={syncDiagnosticsCopyMessage()}
+              />
+            </dialog>
           </Show>
 
           <Show when={aboutOpen()}>

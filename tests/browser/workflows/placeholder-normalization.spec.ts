@@ -84,6 +84,7 @@ test("disabled normalization preserves all empty placeholders locally and remote
   await page.getByRole("button", { name: "Open menu" }).click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   await page.getByLabel("Normalize empty editor placeholders when saving").uncheck();
+  await clickButton(page, "Close settings");
 
   const pending = "before\n* <br />\n* <br />";
   await setRawMarkdown(page, pending);

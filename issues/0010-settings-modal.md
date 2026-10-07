@@ -1,7 +1,7 @@
 ---
 id: "0010"
 title: "Open Settings in a modal"
-status: open
+status: closed
 type: feature
 priority: medium
 created: "2026-10-04"
@@ -23,12 +23,12 @@ behavior. Closing the modal should return the reader to the same place in the no
 
 ## Acceptance criteria
 
-- [ ] Opening Settings from the menu shows a modal in the viewport, including when the Daily Note is long and scrolled.
-- [ ] The existing settings controls and their save behavior remain available in the modal.
-- [ ] Keyboard users can reach the controls, close the modal with Escape or its close button, and return focus to the
+- [x] Opening Settings from the menu shows a modal in the viewport, including when the Daily Note is long and scrolled.
+- [x] The existing settings controls and their save behavior remain available in the modal.
+- [x] Keyboard users can reach the controls, close the modal with Escape or its close button, and return focus to the
       invoking control.
-- [ ] Closing Settings preserves the Daily Note's content and scroll position.
-- [ ] The open modal is identified as a dialog to assistive technology, and background page controls are not
+- [x] Closing Settings preserves the Daily Note's content and scroll position.
+- [x] The open modal is identified as a dialog to assistive technology, and background page controls are not
       interactive while it is open.
 
 ## Verification
@@ -43,4 +43,9 @@ None.
 
 ## Resolution
 
-Pending.
+Settings now opens in a native modal dialog. The browser keeps the background inert while it is open, and closing it
+returns focus to the menu button. The existing Settings panel and save path remain in use.
+
+Verified with `npm run verify` and `npm run test:browser:workflows` (36 passed). The new Playwright workflow covers a
+long scrolled note, dialog accessibility, Escape and close-button focus restoration, unchanged note content and scroll,
+and a saved preference after reload. Existing workflows now close Settings before interacting with the background.

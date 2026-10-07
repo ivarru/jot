@@ -172,6 +172,7 @@ test("an enabled diagnostic buffer can be copied and freezes when a conflict ope
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
   const diagnostics = page.getByLabel("Collect sync diagnostics for conflict reports");
   await diagnostics.check();
+  await clickButton(page, "Close settings");
 
   await seedConflictState(page, { date, baseline, local, remote });
   await page.goto(`/#/date/${date}`);
