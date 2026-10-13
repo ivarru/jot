@@ -9,7 +9,7 @@ or Recovery Snapshots are implemented by this documentation change. Current sync
 
 | Stage | User outcome | Limits and owner |
 | --- | --- | --- |
-| 1 | Download committed Local Drafts without connectivity or successful sync. | This browser's captured drafts only; images and remote inventory unavailable. [#0012](../issues/0012-local-draft-export.md). |
+| 1 | Download Local Drafts without connectivity or successful sync. | This browser's captured drafts only; images and remote inventory unavailable. [#0012](../issues/0012-local-draft-export.md). |
 | 2 | Preview and restore package markdown, preserving content before replacement. | Text restoration; missing images remain explicit. [#0013](../issues/0013-safe-package-restore.md). |
 | 3 | Export discovered remote files together with local drafts and divergent versions. | Individually captured versions, not a global point-in-time snapshot. [#0014](../issues/0014-remote-collection-export.md). |
 | 4 | Package referenced image bytes and restore them to a destination account. | Requires verified provider capabilities; no promise to recover unavailable bytes. [#0015](../issues/0015-image-inclusive-recovery.md). |
@@ -22,29 +22,39 @@ A download event establishes that the browser offered the package, not that the 
 
 ## Capture and selection
 
+A Local Draft is already successfully persisted; there is no uncommitted Local Draft. An Editor Snapshot awaiting
+persistence and a pending Local Draft write are distinct from the Local Draft itself. At the storage boundary,
+successful persistence means the IndexedDB transaction completed, not merely that its write request succeeded.
+Dirty describes pending Drive Sync, not pending local persistence. See [CONTEXT.md](../CONTEXT.md).
+
+A **markdown snapshot** is the broader technical term for captured markdown paired with an explicit Daily Note date.
+Its source may be the editor, a Local Draft, or remote storage. An **Editor Snapshot** specifically captures visible
+editor content at one moment; it is separate from the changing live editor. Neither term by itself establishes local
+persistence or successful sync. Subsequent edits and navigation do not change a snapshot's captured text or date.
+
 Export is read-only: it does not flush edits, merge conflicts, change a Local Draft baseline, start sync, or mark any
 content saved. At invocation, capture the visible editor's explicit `IsoDate`, markdown and editor generation, plus
 account/session generation. Capture all Local Draft records in one readonly IndexedDB transaction and use the result
 only after transaction completion. Include clean, dirty, and empty records, including dirty empty local-only dates;
 `listExistingDailyNoteDates` and `listDirty` alone cannot supply this inventory. Do not hold editing locks during download.
 
-The package distinguishes the editor capture time from the local transaction capture time. A visible snapshot is an
-additional version if it differs from the captured committed draft; it is never silently substituted for durable content.
-An absent committed record does not turn visible content into a committed Local Draft.
+The package distinguishes the editor capture time from the local transaction capture time. An Editor Snapshot is an
+additional version if it differs from the captured Local Draft; it is never silently substituted for durable content.
+An absent Local Draft does not turn visible content into a Local Draft.
 
 | Available versions for a date | Primary `notes/YYYY-MM-DD.md` | Preserved alternatives and report |
 | --- | --- | --- |
-| Local mode, committed draft | Captured committed markdown, including an empty string | Differing visible snapshot is labeled `visible-uncommitted`. |
-| Local mode, only visible content | No primary committed note | Captured visible snapshot is included as an alternative; committed record absent. |
-| Collection mode, dirty draft and remote | Captured committed dirty markdown | Every differing remote version and differing visible capture. |
-| Collection mode, clean draft and one remote file | Captured remote markdown | Differing committed draft and visible capture. |
+| Local mode, Local Draft | Captured Local Draft markdown, including an empty string | Differing visible snapshot is labeled `visible-uncommitted`. |
+| Local mode, only visible content | No primary Local Draft version | Captured visible snapshot is included as an alternative; Local Draft absent. |
+| Collection mode, dirty Local Draft and remote | Captured dirty Local Draft markdown | Every differing remote version and differing visible capture. |
+| Collection mode, clean Local Draft and one remote file | Captured remote markdown | Differing Local Draft and visible capture. |
 | Collection mode, several remote files for one date | Dirty draft if present, otherwise captured clean draft if present | All remote files remain separate; without a local draft there is no primary until a restore choice. |
-| Collection mode, local record only | Captured committed markdown | Remote absence is reported only after successful inventory/read checks. |
-| Collection mode, remote read failed | Captured committed markdown if available | Remote state is unknown; package is partial, not evidence of remote absence. |
+| Collection mode, Local Draft only | Captured Local Draft markdown | Remote absence is reported only after successful inventory/read checks. |
+| Collection mode, remote read failed | Captured Local Draft markdown if available | Remote state is unknown; package is partial, not evidence of remote absence. |
 
 Primary means the suggested restore candidate, not the uniquely correct version. Preserve captured Sync Conflict markers
 verbatim and flag them for review; export never resolves them. Pending or failed local persistence leaves the last
-committed record primary and the captured visible version uncommitted. If draft capture itself fails, abort local export
+Local Draft primary and the captured visible version separate. If draft capture itself fails, abort local export
 with a visible error; do not produce a success package from a possibly empty inventory.
 
 Edits, navigation, blur, autosave and refresh after capture do not alter captured strings or reassociate them with a new
@@ -94,6 +104,9 @@ has `format: "jot-export"`, `version: 1`, a random `packageId`, app version, UTC
 `externalDependencies`. Each note entry has an entry ID, explicit date, role `primary` or `alternative`, source
 `local-committed`, `visible-uncommitted`, or `remote`, dirty/conflict flags where applicable, capture time, path, UTF-8
 byte length and SHA-256 digest. Provider revisions, when available, are provenance, never destination write authority.
+The format label `local-committed` identifies a Local Draft capture; `committed` is redundant in domain prose.
+`visible-uncommitted` identifies an editor capture not confirmed by an identical Local Draft in this export, not a kind
+of Local Draft or a claim that the text has never previously been persisted.
 Each attachment entry records ID, referencing note entry IDs, metadata path/digest or missing status, and image
 path/digest/MIME/byte length or unavailable/not-requested status. Failure records identify entry/date, failed phase and a
 sanitized reason; exclude credentials and transient authenticated URLs. Unknown optional fields may be ignored;
@@ -135,7 +148,7 @@ ID remapping. Whitespace-only text canonicalizes to empty as required by the dom
 
 Reuse Daily Note Upload's date parsing, combination rules and Daily Note Replication seam. Its existing global conflict
 choice and re-read-at-save behavior are insufficient: a choice for yesterday's preview cannot authorize replacement of
-new content discovered during execution. Add a restore plan with per-date expected visible state, committed Local Draft
+new content discovered during execution. Add a restore plan with per-date expected visible state, Local Draft
 and remote baseline. Acquire the date's Editing Ownership (or wait/skip with explanation), recheck under the appropriate
 local mutation lock, then conditionally commit. A change after preview invalidates that date's decision and requires a
 new preview; other already completed dates remain reported as completed. Remote replacement still uses revision

@@ -1,6 +1,6 @@
 ---
 id: "0012"
-title: "Export committed Local Drafts"
+title: "Export Local Drafts"
 status: open
 type: feature
 priority: medium
@@ -8,7 +8,7 @@ created: "2026-10-13"
 labels: [recovery, portability, storage]
 ---
 
-# Export committed Local Drafts
+# Export Local Drafts
 
 ## Problem and evidence
 

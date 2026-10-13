@@ -18,7 +18,7 @@ retire duplicates. These interfaces cannot establish a lossless, read-only colle
 ## Outcome and scope
 
 Implement stage 3 of the [export contract](../docs/export-and-recovery.md): read-only remote discovery and versioned
-capture combined with committed local drafts, referenced Attachment Metadata and alternatives. No image bytes,
+capture combined with Local Drafts, referenced Attachment Metadata and alternatives. No image bytes,
 trash/history scan, attachment cleanup or provider writes during export. Own future large-collection streaming/limit
 changes here; version 1 limits remain in force until an explicit revised decision.
 

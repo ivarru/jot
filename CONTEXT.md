@@ -20,7 +20,7 @@ _Avoid_: Current date, file date, active day
 **Editing Ownership**:
 The live browser page allowed to edit a selected **Daily Note** when several pages share one browser storage area. Other
 pages showing that date remain read-only. Ownership is released when the page closes or its browser process ends and is
-never stored as a persistent flag; a new owner reloads the latest committed **Local Draft** before editing.
+never stored as a persistent flag; a new owner reloads the latest **Local Draft** before editing.
 
 **Jot Folder**:
 The top-level app-owned folder in the user's Google Drive. It contains Jot's own content and organizational subfolders.
@@ -96,8 +96,17 @@ _Avoid_: Tag index, synced tag database, note metadata
 A state where the local and remote versions of a **Daily Note** have both changed since the last successful save. A **Sync Conflict** preserves both versions in the **Daily Note** text using Git-style conflict markers.
 _Avoid_: Overwrite, failed save, silent merge
 
+**Editor Snapshot**:
+The markdown text captured from the visible editor for one explicit **Daily Note** date at a particular moment.
+It may differ from the **Local Draft**. Capturing it does not persist it, and subsequent edits or changes to the
+**Selected Date** do not change its captured text or date. The live editor content continues to change independently.
+_Avoid_: Uncommitted Local Draft, live snapshot
+
 **Local Draft**:
-The locally persisted state of a **Daily Note** that protects edits from browser suspension, navigation, offline use, or failed remote saves.
+The successfully persisted local state of a **Daily Note** that protects edits from browser suspension, navigation,
+offline use, or failed remote saves. Visible editor content awaiting local persistence is not yet a **Local Draft**;
+a pending or failed write does not replace the previously persisted state. A **Local Draft** may be dirty (containing
+changes awaiting **Drive Sync**) or clean, and may contain empty markdown. Dirty does not mean awaiting local persistence.
 _Avoid_: Cache, autosave buffer, unsaved text
 
 **Drive Sync**:
