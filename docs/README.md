@@ -26,6 +26,12 @@ take precedence over historical investigations and private working notes.
 | [Manual Google Provider Retest](manual-google-provider-retest.md) | Manual checklist for real OAuth, Drive, and Google Photos behavior that automated fake-provider tests cannot establish. |
 | [Architecture Decision Records](adr/README.md) | Index of accepted architectural decisions and their trade-offs. ADRs preserve historical rationale; a later decision should supersede rather than silently rewrite one. |
 
+## Accepted designs awaiting implementation
+
+| Document | Authority and purpose |
+| --- | --- |
+| [Export and recovery contract](export-and-recovery.md) | Accepted staged design for explicit export packages, completeness reporting, and safe restore. It defines follow-up implementation guarantees, not currently shipped backup or restore behavior. |
+
 ## Historical and working material
 
 | Document | Authority and purpose |

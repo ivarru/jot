@@ -156,6 +156,11 @@ incorporated, and that stable duplicates eventually consolidate; immediate singl
 
 ## Deferred For Reconsideration
 
+The accepted [export and recovery contract](export-and-recovery.md) stages explicit packages and safe restore in
+[#0012](../issues/0012-local-draft-export.md) through [#0015](../issues/0015-image-inclusive-recovery.md). These are
+future capabilities; they do not expand the current safety guarantees. Automatic history remains deferred, with its
+policy owned by [#0016](../issues/0016-recovery-history-policy.md).
+
 - Specify the protocol in TLA+, parameterized by devices, and turn important counterexamples into executable regression
   traces.
 - Consider immutable Recovery Snapshots created before a remote clean acknowledgement. A Recovery Snapshot would be a

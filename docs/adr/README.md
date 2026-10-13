@@ -21,6 +21,7 @@ This directory records durable architecture decisions for Jot. ADRs explain why 
 | [0007: Reference Tags as Markdown Links](0007-reference-tags-as-markdown-links.md) | Accepted | Portable tag syntax, structural association, and suggestion-state boundaries. |
 | [0008: Normalize Whitespace-Only Notes Prospectively](0008-normalize-whitespace-notes-prospectively.md) | Accepted | Whitespace normalization boundary and deliberate absence of a data migration. |
 | [0009: Concentrate Daily Note Replication](0009-concentrate-daily-note-replication.md) | Accepted | One public sync module with internal protocol, editor-session, and lifecycle seams. |
+| [0010: Use explicit export packages and safe restore](0010-explicit-export-and-safe-restore.md) | Accepted | Staged export/restore, honest completeness, read-only capture, and preservation before replacement; implementation remains follow-up work. |
 
 ## Maintenance
 
