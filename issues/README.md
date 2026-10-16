@@ -46,14 +46,20 @@ Do not mirror this backlog in GitHub Issues. External reports may be linked, but
 
 ## Finding work
 
-There is no manually maintained status index. Browse numbered files or search front matter:
+There is no manually maintained status index. To find work that is open or already in progress:
 
 ```sh
-rg -l '^status: (open|in-progress|blocked)$' issues/[0-9]*.md
-rg -l '^priority: high$' issues/[0-9]*.md
+rg -l '^status: (open|in-progress)$' issues/[0-9]*.md
 ```
 
-Start with #0001 for the storage concern. #0002 establishes a small property-testing foundation before #0003's generated
-lifecycle scenarios. #0004 improves incident evidence, #0005 covers browser persistence boundaries, and #0006 scopes
-export and recovery. These IDs describe the initial sequence, not a separate status list. Add a generated index only
-when browsing and searching the files becomes inconvenient.
+Review blocked work separately when reconsidering blockers or postponed plans:
+
+```sh
+rg -l '^status: blocked$' issues/[0-9]*.md
+```
+
+Read the matching issues' priority, scope, and dependencies before choosing work. Priority alone does not make a closed
+or blocked issue actionable. `rg` returns exit status 1 when no issues match; that means the list is empty.
+
+Issue numbers are stable identifiers, not a recommended implementation order. Add a generated index only when browsing
+and searching the files becomes inconvenient.
