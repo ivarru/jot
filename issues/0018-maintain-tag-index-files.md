@@ -148,3 +148,14 @@ browser workflows). The two new browser workflows cover settings/rebuilds/remova
 recovery. Drive request tests exercise creation, metadata and media bodies, auth headers, pagination, cached reads,
 conditional updates/trashing, concurrent providers, abort during metadata retrieval, settings changes, and failure
 repair. No live Google account was used for this verification.
+
+### Review follow-up (0.30.1)
+
+Both parser review findings were reproduced before changing production code: heading and table-cell tags inside
+list items inherited unrelated list text, while duplicate reference definitions used the last destination rather
+than the first. Five focused regressions failed, covering both context boundaries at a short excerpt limit, both
+orders of ordinary/tag reference definitions, and reference-link serialization in excerpt text. Extraction now
+prefers the nearest heading/table cell over list context, and definition lookup retains the first normalized key.
+These are pure Markdown extraction fixes; Daily Note Replication and the browser workflows are unchanged.
+Verification: `npm run verify` passed (708 unit/integration tests, TypeScript, and production build). The five new
+regressions now pass alongside the existing paragraph/list, clipping, and maintenance coverage.

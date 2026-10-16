@@ -84,3 +84,23 @@ it("keeps multiline inline code and link titles on one physical index line", () 
 it("uses a section heading for tag declarations inside a list item", () => {
   expect(excerpts(`- ## Nested section\n\n  Tags: ${tag}\n\n  Section body`)).toEqual(["Nested section"]);
 });
+
+it.each([
+  ["heading", `- Unrelated introduction.\n\n  ## Target ${tag}`],
+  ["table cell", `- Unrelated introduction.\n\n  | First | Second |\n  | --- | --- |\n  | Unrelated cell | Target ${tag} |`]
+])("uses the nearer %s instead of surrounding list-item prose", (_, source) => {
+  expect(excerpts(source)).toEqual(["Target"]);
+  expect(excerpts(source, 6)).toEqual(["Target"]);
+});
+
+it.each([
+  ["https://example.com", "jot:tag/work", []],
+  ["jot:tag/work", "https://example.com", ["Context"]]
+])("uses the first duplicate reference definition (%s before %s)", (first, second, expected) => {
+  expect(excerpts(`Context [label][x]\n\n[X]: ${first}\n[x]: ${second}`)).toEqual(expected);
+});
+
+it("also uses the first duplicate definition when serializing links in the excerpt", () => {
+  expect(excerpts(`Read [label][x] ${tag}\n\n[X]: https://first.example\n[x]: https://last.example`))
+    .toEqual(["Read [label](https://first.example)"]);
+});

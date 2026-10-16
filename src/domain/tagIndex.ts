@@ -39,14 +39,18 @@ export function extractTagIndexOccurrences(date: IsoDate, source: string, maxCha
   const occurrences: Array<{ node: Node; element: Node; paragraph: Node | undefined }> = [];
   const definitionKey = (value: string) => value.toUpperCase().replace(/\s+/g, " ");
   const walk = (node: Node, ancestors: Node[]) => {
-    if (node.type === "definition" && node.identifier) definitions.set(definitionKey(node.identifier), node);
-    const listItem = [...ancestors].reverse().find((parent) => parent.type === "listItem");
+    if (node.type === "definition" && node.identifier) {
+      const key = definitionKey(node.identifier);
+      if (!definitions.has(key)) definitions.set(key, node);
+    }
+    const nearestAncestors = [...ancestors].reverse();
+    const listItem = nearestAncestors.find((parent) => parent.type === "listItem");
     if (node.type === "listItem" || node.type === "heading" || node.type === "tableCell"
       || node.type === "paragraph" && !listItem) elements.push(node);
     if (node.type === "link" || node.type === "linkReference") {
-      const element = listItem ?? [...ancestors].reverse().find((parent) =>
-        ["paragraph", "heading", "tableCell"].includes(parent.type));
-      if (element) occurrences.push({ node, element, paragraph: [...ancestors].reverse().find((parent) => parent.type === "paragraph") });
+      const element = nearestAncestors.find((parent) => parent.type === "heading" || parent.type === "tableCell")
+        ?? listItem ?? nearestAncestors.find((parent) => parent.type === "paragraph");
+      if (element) occurrences.push({ node, element, paragraph: nearestAncestors.find((parent) => parent.type === "paragraph") });
     }
     for (const child of node.children ?? []) walk(child, [...ancestors, node]);
   };

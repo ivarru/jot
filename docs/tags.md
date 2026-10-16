@@ -79,15 +79,16 @@ reparse the current note rather than assume an excerpt or old offset uniquely id
 
 Excerpts start at the beginning of the tagged Markdown element and end before that particular tag, excluding text
 after it. A paragraph uses its opening text; a list item includes its direct paragraphs but excludes nested lists
-and sibling items. Nested items have their own context. Headings and table cells use their own inline content.
-Source soft wraps and paragraph breaks within an item become spaces. List, heading, and task markers are omitted,
+and sibling items. Nested items have their own context. Headings and table cells use their own inline content, even
+inside a list item. Source soft wraps and paragraph breaks within an item become spaces. List, heading, and task markers are omitted,
 as are other Reference Tag links in the prefix. A standalone tag uses the nearest preceding element with usable
 text. A `Tags:` declaration containing only tags uses this preceding context, normally its section heading. Code
 blocks and link definitions are not fallback elements. Both sides of conflict-preserved Markdown can contribute;
 Jot's conflict wrapper lines are excluded from excerpt prose without changing occurrence offsets.
 
 Complete emphasis, strong emphasis, strikethrough, links, and inline code are retained. Reference links are resolved
-into inline links; optional link titles are omitted. Images contribute alt text rather than loading an image.
+into inline links using the first definition for each normalized identifier, matching CommonMark; optional link
+titles are omitted. Images contribute alt text rather than loading an image.
 HTML is escaped as readable text, and code fences are never copied as index structure. Extraction and clipping use
 parsed inline content followed by Markdown serialization, so formatting cannot remain open across entries.
 
