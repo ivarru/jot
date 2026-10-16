@@ -1,6 +1,9 @@
+import type { TagIndexMaintenanceStatus } from "~/features/tagIndex/maintenance";
 import { millisecondsToSeconds, secondsToMilliseconds, type JotSettings } from "~/domain/settings";
 
 interface SettingsPanelProps {
+  readonly tagIndexStatus?: TagIndexMaintenanceStatus;
+  readonly onRebuildTagIndex?: () => void;
   readonly settings: JotSettings;
   readonly onChange: (settings: JotSettings) => void;
   readonly onClose: () => void;
@@ -8,7 +11,7 @@ interface SettingsPanelProps {
   readonly syncDiagnosticsCopyMessage: string | null;
 }
 
-type TimerSettingKey = Exclude<keyof JotSettings, "spellcheck" | "syncDiagnosticsEnabled" | "normalizeEmptyEditorPlaceholders">;
+type TimerSettingKey = Exclude<keyof JotSettings, "spellcheck" | "syncDiagnosticsEnabled" | "normalizeEmptyEditorPlaceholders" | "tagIndexMaxCharacters">;
 
 export function SettingsPanel(props: SettingsPanelProps) {
   const updateSeconds = (key: TimerSettingKey, value: string) => {
@@ -78,6 +81,28 @@ export function SettingsPanel(props: SettingsPanelProps) {
         />
         </label>
       </div>
+      <section aria-label="Tag index">
+        <h3>Tag index</h3>
+        <label>
+          <span>Maximum excerpt length (characters)</span>
+          <input type="number" min="1" max="2000" step="1" value={props.settings.tagIndexMaxCharacters}
+            onChange={(event) => {
+              const value = Number(event.currentTarget.value);
+              if (!Number.isInteger(value) || value < 1 || value > 2000) {
+                event.currentTarget.value = String(props.settings.tagIndexMaxCharacters);
+                return;
+              }
+              props.onChange({ ...props.settings, tagIndexMaxCharacters: value });
+            }} />
+        </label>
+        <p>Index excerpts keep the opening text before each tag. Changing the limit rebuilds existing excerpts.</p>
+        <button type="button" onClick={() => props.onRebuildTagIndex?.()}
+          disabled={!props.onRebuildTagIndex || props.tagIndexStatus === "updating"}>Rebuild tag index</button>
+        <p role="status">{props.tagIndexStatus === "updating" ? "Updating tag index…"
+          : props.tagIndexStatus === "current" ? "Tag index is up to date."
+          : props.tagIndexStatus === "retrying" ? "Could not update tag index. Retrying automatically."
+          : "Tag index update pending."}</p>
+      </section>
       <div class="settings-toggle-list">
         <label class="settings-toggle-row">
           <input

@@ -1,3 +1,4 @@
+import { createTagIndexMaintenance, type TagIndexMaintenanceStatus } from "~/features/tagIndex/maintenance";
 import { dailyNoteMatchesSearch } from "~/domain/dailyNoteSearch";
 import { DailyNoteSearchDialog } from "~/components/DailyNoteSearchDialog";
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
@@ -624,6 +625,7 @@ export default function Home() {
     errorMessage,
     applySaveResult: dailyNoteReplication.applySaveResult,
     onDailyNotesChanged: () => {
+      tagIndexMaintenance?.request();
       if (datePicker.open()) void existingNoteDates.refresh();
     }
   });
@@ -1059,6 +1061,30 @@ export default function Home() {
       })
       .finally(() => setPreparingAuth(false));
   });
+
+  const [tagIndexStatus, setTagIndexStatus] = createSignal<TagIndexMaintenanceStatus>("waiting");
+  let tagIndexMaintenance: ReturnType<typeof createTagIndexMaintenance> | undefined;
+  createEffect(on(() => [authenticated(), settingsLoaded(), authReconnectRequired()] as const,
+    ([isAuthenticated, loaded, reconnect]) => {
+      if (!isAuthenticated || !loaded || reconnect || !runtime.remote.maintainTagIndex) return;
+      const worker = createTagIndexMaintenance({
+        maintain: (signal) => runtime.remote.maintainTagIndex!(signal),
+        intervalMs: () => settings().cleanPollingIntervalMs,
+        retryMs: () => settings().retryInitialDelayMs,
+        onStatus: setTagIndexStatus
+      });
+      tagIndexMaintenance = worker;
+      const online = () => worker.request();
+      window.addEventListener("online", online);
+      onCleanup(() => {
+        worker.dispose();
+        window.removeEventListener("online", online);
+        if (tagIndexMaintenance === worker) tagIndexMaintenance = undefined;
+      });
+    }));
+  createEffect(on(syncStatus, (status) => {
+    if (status === "synced" || status === "conflict") tagIndexMaintenance?.request();
+  }));
 
   let settingsLoadGeneration = 0;
 
@@ -1790,7 +1816,10 @@ export default function Home() {
   const updateSettings = (next: JotSettings) => {
     const normalized = normalizeJotSettings(next);
     setSettings(normalized);
-    void runtime.remote.saveSettings(normalized).then(() => setLastSyncError(null)).catch((error: unknown) => {
+    void runtime.remote.saveSettings(normalized).then(() => {
+      setLastSyncError(null);
+      tagIndexMaintenance?.request();
+    }).catch((error: unknown) => {
       if (handleRemoteError(error, { message: errorMessage(error), retry: "save-settings" })) return;
       setLastSyncError({ message: errorMessage(error), retry: "save-settings" });
       setSyncStatus("error");
@@ -4201,6 +4230,9 @@ export default function Home() {
               }}
             >
               <SettingsPanel
+                tagIndexStatus={tagIndexStatus()}
+                {...(authenticated() && settingsLoaded() && !authReconnectRequired() && runtime.remote.maintainTagIndex
+                  ? { onRebuildTagIndex: () => tagIndexMaintenance?.request() } : {})}
                 settings={settings()}
                 onChange={updateSettings}
                 onClose={closeSettings}

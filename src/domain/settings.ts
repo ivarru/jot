@@ -1,4 +1,5 @@
 export interface JotSettings {
+  readonly tagIndexMaxCharacters: number;
   readonly autosaveDebounceMs: number;
   readonly cleanPollingIntervalMs: number;
   readonly dirtyPollingIntervalMs: number;
@@ -10,6 +11,7 @@ export interface JotSettings {
 }
 
 export const DEFAULT_JOT_SETTINGS: JotSettings = {
+  tagIndexMaxCharacters: 200,
   autosaveDebounceMs: 2000,
   cleanPollingIntervalMs: 120000,
   dirtyPollingIntervalMs: 15000,
@@ -27,6 +29,7 @@ export function normalizeJotSettings(input: unknown): JotSettings {
   if (!isRecord(input)) return DEFAULT_JOT_SETTINGS;
 
   const settings: JotSettings = {
+    tagIndexMaxCharacters: normalizeTagIndexMaxCharacters(input.tagIndexMaxCharacters),
     autosaveDebounceMs: positiveNumber(input.autosaveDebounceMs, DEFAULT_JOT_SETTINGS.autosaveDebounceMs),
     cleanPollingIntervalMs: positiveNumber(input.cleanPollingIntervalMs, DEFAULT_JOT_SETTINGS.cleanPollingIntervalMs),
     dirtyPollingIntervalMs: positiveNumber(input.dirtyPollingIntervalMs, DEFAULT_JOT_SETTINGS.dirtyPollingIntervalMs),
@@ -69,4 +72,9 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function normalizeTagIndexMaxCharacters(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 2000
+    ? value : DEFAULT_JOT_SETTINGS.tagIndexMaxCharacters;
 }

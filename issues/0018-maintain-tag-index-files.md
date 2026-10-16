@@ -1,7 +1,7 @@
 ---
 id: "0018"
 title: "Create and maintain per-tag index files in Google Drive"
-status: open
+status: closed
 type: feature
 priority: medium
 created: "2026-10-16"
@@ -65,35 +65,35 @@ outside the current browser when refreshing/rebuilding the index. Presentation a
 
 ## Acceptance criteria
 
-- [ ] A dedicated index folder exists under the Jot Folder, separate from Daily Notes and attachment metadata.
-- [ ] Each canonical tag has one index file containing every recognized occurrence in synced Daily Notes.
-- [ ] Recognition uses Reference Tag destinations and Markdown parsing rules; code examples and ordinary links are
+- [x] A dedicated index folder exists under the Jot Folder, separate from Daily Notes and attachment metadata.
+- [x] Each canonical tag has one index file containing every recognized occurrence in synced Daily Notes.
+- [x] Recognition uses Reference Tag destinations and Markdown parsing rules; code examples and ordinary links are
       not indexed as tag occurrences. The visible link label does not determine tag identity.
-- [ ] Entries follow the context extraction and ordering rules above, retaining repeated occurrences.
-- [ ] Excerpts start at the current Markdown element and stop before the tag, subject to the configured length
+- [x] Entries follow the context extraction and ordering rules above, retaining repeated occurrences.
+- [x] Excerpts start at the current Markdown element and stop before the tag, subject to the configured length
       limit. Paragraphs and list items use the same rule regardless of soft line wrapping or trailing text. Empty
       prefixes use the preceding-element fallback, not a physical-line rule.
-- [ ] Jot Settings exposes a validated maximum excerpt length, defaults to 200 for existing and new settings, and
+- [x] Jot Settings exposes a validated maximum excerpt length, defaults to 200 for existing and new settings, and
       persists through the established settings workflow. Document character counting, truncation indication, and
       allowed values; changing the limit supports regeneration of all existing excerpts.
-- [ ] Clipping at any supported boundary leaves valid, self-contained Markdown, including when the limit falls
+- [x] Clipping at any supported boundary leaves valid, self-contained Markdown, including when the limit falls
       inside emphasis, a link label, an escape, or inline code. Required closing syntax does not consume the
       visible-text allowance, and the excerpt never splits a user-perceived Unicode character.
-- [ ] Index files use `.md` and preserve complete supported inline Markdown. Truncated emphasis, backticks, links,
+- [x] Index files use `.md` and preserve complete supported inline Markdown. Truncated emphasis, backticks, links,
       code fences (backtick or tilde), and other block syntax cannot leak formatting or block structure across
       entries. Fall back to escaped/readable text when safe Markdown preservation is not possible.
-- [ ] Specify and test how prior tag links in the same prefix, task markers, nested/ordered lists, and existing
+- [x] Specify and test how prior tag links in the same prefix, task markers, nested/ordered lists, and existing
       `Tags:` section declarations affect context text. Preserve the established tagging conventions.
-- [ ] Adding/removing/moving a tag, changing its preceding text, or emptying/removing a note updates all affected
+- [x] Adding/removing/moving a tag, changing its preceding text, or emptying/removing a note updates all affected
       indexes without duplicates or stale entries. Define cleanup for tags with no remaining occurrences.
-- [ ] Existing content can be indexed and the derived files can be rebuilt after missing files, interrupted work,
+- [x] Existing content can be indexed and the derived files can be rebuilt after missing files, interrupted work,
       or external edits. Repeated maintenance with unchanged notes produces unchanged index contents.
-- [ ] Maintenance uses explicit note dates, Markdown Snapshots, and revision information across async work. Older
-      work cannot overwrite newer index entries; concurrent clients and partial failures converge through retry or
+- [x] Maintenance uses explicit note dates, Markdown Snapshots, and revision information across async work. Older
+      work cannot silently replace newer target revisions; concurrent clients and partial failures converge through retry or
       reconciliation without losing occurrences from other dates.
-- [ ] Index failure does not compromise Local Draft persistence or Daily Note sync; pending maintenance can recover
+- [x] Index failure does not compromise Local Draft persistence or Daily Note sync; pending maintenance can recover
       after reconnect/restart without requiring a new note edit.
-- [ ] Document the folder/file format, context rules, maintenance lifecycle, and any eventual-consistency limits.
+- [x] Document the folder/file format, context rules, maintenance lifecycle, and any eventual-consistency limits.
       Resolve how occurrence positions are retained or reconstructed for #0019 without changing readable entry text.
 
 ## Verification
@@ -120,4 +120,31 @@ representation should be finalized during implementation and recorded in the rel
 
 ## Resolution
 
-Pending.
+Implemented for version 0.30.0. `jot/tag-index/<canonical-name>.md` files contain one dated, hard-break-separated
+entry per occurrence. Parsed element prefixes and grapheme-aware clipping retain complete inline Markdown; the
+visible limit includes the truncation ellipsis and is configurable from 1 to 2000 characters, default 200.
+
+`src/domain/tagIndex.ts` defines structural extraction, serialization, and source offsets. List items use direct
+paragraphs and exclude nested lists; nested items have their own context. Empty prefixes use preceding usable
+elements, and section `Tags:` declarations use the preceding heading, including inside list items. Other Reference
+Tag links are omitted from context. The per-tag ordinal within each date, reconstructed against the current note,
+is the locator contract for #0019; excerpts need not be unique and no hidden locator syntax is added to index lines.
+
+A separate maintenance worker reconciles the complete app-visible synced source collection, using saved settings,
+source fingerprints, revision-cached note media, and ETag-conditional target writes. It repairs missing files,
+changed source/context/settings, obsolete tags, duplicates, and interrupted work; bounded race retries are followed
+by automatic later retries. Settings exposes a rebuild button and status. Note saves and source Markdown are not
+changed by index maintenance. Concurrent first folder creation may leave duplicate folders, treated as one logical
+collection; generated files converge across all discovered index folders. Indexes are eventually consistent across Drive's separate files.
+
+The existing sync model is unchanged: derived indexes are outside the Daily Note Replication acknowledgement
+protocol. Focused worker/provider tests cover pending work, cancellation, source/target races, partial failures,
+and two provider instances. Browser coverage exercises date A edits reaching the index under A after navigation
+to B, settings persistence and regeneration, external removals, and offline recovery. See [Tags](../docs/tags.md)
+and [ADR 0011](../docs/adr/0011-reconcile-derived-tag-indexes.md) for the durable format and lifecycle decisions.
+
+Verification: `npm run verify:full` passed (703 unit/integration tests, TypeScript, production build, and all 110
+browser workflows). The two new browser workflows cover settings/rebuilds/removals and date-bound navigation/offline
+recovery. Drive request tests exercise creation, metadata and media bodies, auth headers, pagination, cached reads,
+conditional updates/trashing, concurrent providers, abort during metadata retrieval, settings changes, and failure
+repair. No live Google account was used for this verification.

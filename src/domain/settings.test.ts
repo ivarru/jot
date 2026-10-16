@@ -46,3 +46,11 @@ describe("settings", () => {
     expect(secondsToMilliseconds(2.5)).toBe(2500);
   });
 });
+
+it("validates tag excerpt length and defaults existing settings to 200", () => {
+  expect(normalizeJotSettings({}).tagIndexMaxCharacters).toBe(200);
+  for (const value of [0, -1, 1.5, 2001, Infinity, "100", null]) {
+    expect(normalizeJotSettings({ tagIndexMaxCharacters: value }).tagIndexMaxCharacters).toBe(200);
+  }
+  for (const value of [1, 200, 2000]) expect(normalizeJotSettings({ tagIndexMaxCharacters: value }).tagIndexMaxCharacters).toBe(value);
+});

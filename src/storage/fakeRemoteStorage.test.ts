@@ -42,3 +42,15 @@ describe("FakeRemoteStorageProvider", () => {
     expect(results).toContainEqual({ type: "conflict", remote });
   });
 });
+
+it("keeps fake derived indexes separate and rebuilds them from saved settings and synced notes", async () => {
+  const provider = new FakeRemoteStorageProvider();
+  await withStore<undefined>("fakeRemoteNotes", "readwrite", (store) => store.clear());
+  await provider.saveDailyNote({ date: "2030-02-01", markdown: "Original [#work](jot:tag/work)", expectedRevisionId: null });
+  const { DEFAULT_JOT_SETTINGS } = await import("~/domain/settings");
+  await provider.saveSettings({ ...DEFAULT_JOT_SETTINGS, tagIndexMaxCharacters: 4 });
+  await provider.maintainTagIndex(new AbortController().signal);
+  expect(await withStore("settings", "readonly", (store) => store.get("fake-tag-index")))
+    .toEqual({ id: "fake-tag-index", files: { "work.md": "2030-02-01 Ori…  \n" } });
+  expect((await provider.loadDailyNote("2030-02-01"))?.markdown).toBe("Original [#work](jot:tag/work)");
+});

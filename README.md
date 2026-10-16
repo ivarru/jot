@@ -105,6 +105,13 @@ production GitHub Actions workflow uses the same command and expects repository 
 
 See [docs/deployment.md](docs/deployment.md) for GitHub Pages setup, Google OAuth configuration, required APIs, and release checks.
 
+## Tag index files
+
+Jot maintains one generated Markdown file per Reference Tag under `jot/tag-index/` in Drive. Entries contain the note
+date and an excerpt from the beginning of the tagged element, sorted by date and occurrence order. Settings controls
+the excerpt limit (default 200 characters) and provides a rebuild button. Indexes use synced notes and update in the
+background; the browsing interface is planned separately. See [Tags](docs/tags.md) for format and consistency details.
+
 ## Image Attachments
 
 Jot copies selected images into a Jot-created Google Photos album named `jot` at the chosen resolution. The Daily Note stores only a normal Markdown image reference with a `jot:image:<id>` target. Attachment metadata lives separately in Drive under `jot/Image Attachments`.

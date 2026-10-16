@@ -86,6 +86,15 @@ An ordinary markdown link in a **Daily Note** whose `jot:tag/<canonical-name>` d
 with a paragraph, list item, or section. The visible label convention is `#<canonical-name>`.
 _Avoid_: Hashtag, label metadata, custom inline node
 
+**Tag Index**:
+Derived, rebuildable Markdown files in the **Tag Index Folder**, one per canonical **Reference Tag**. Each dated
+entry describes an occurrence in synced **Daily Note** content, ordered by note date and source position. Indexes
+are eventually consistent and are separate from the browser-local **Tag Suggestion Catalog**.
+_Avoid_: Source of truth, synced tag database, note metadata
+
+**Tag Index Folder**:
+The `tag-index` folder inside the **Jot Folder** containing generated per-tag Markdown files.
+
 **Tag Suggestion Catalog**:
 Browser-local convenience state containing previously encountered or inserted **Reference Tags**. Removing an entry
 from the catalog hides the suggestion without editing any **Daily Note**. Signing out clears the catalog so it cannot

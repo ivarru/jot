@@ -22,6 +22,7 @@ This directory records durable architecture decisions for Jot. ADRs explain why 
 | [0008: Normalize Whitespace-Only Notes Prospectively](0008-normalize-whitespace-notes-prospectively.md) | Accepted | Whitespace normalization boundary and deliberate absence of a data migration. |
 | [0009: Concentrate Daily Note Replication](0009-concentrate-daily-note-replication.md) | Accepted | One public sync module with internal protocol, editor-session, and lifecycle seams. |
 | [0010: Use explicit export packages and safe restore](0010-explicit-export-and-safe-restore.md) | Deferred | Export/recovery programme postponed; original design retained for reconsideration, with follow-up issues blocked. |
+| [0011: Reconcile derived tag indexes independently](0011-reconcile-derived-tag-indexes.md) | Accepted | Rebuildable Markdown projections, safe clipping, independent retries, and eventual consistency. |
 
 ## Maintenance
 

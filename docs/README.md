@@ -22,7 +22,7 @@ take precedence over historical investigations and private working notes.
 | [Sync and Connection Statuses](sync-and-connection-statuses.md) | Current behavioral reference for authentication, selected-note synchronization, refreshes, queued work, and conflicts. |
 | [Sync Model](sync-model.md) | Scope, events, invariants, and lifecycle assumptions of the bounded Daily Note Replication model. It does not describe every provider or UI workflow. |
 | [Daily Note Replication Safety](sync-safety.md) | Safety contract, threat model, diagnostics, established reliability work, and deferred sync hardening. |
-| [Tags](tags.md) | Current Reference Tag syntax, structural association, storage boundaries, suggestions, and compatibility. |
+| [Tags](tags.md) | Current Reference Tag syntax, structural association, storage boundaries, suggestions, derived Drive indexes, and compatibility. |
 | [Manual Google Provider Retest](manual-google-provider-retest.md) | Manual checklist for real OAuth, Drive, and Google Photos behavior that automated fake-provider tests cannot establish. |
 | [Architecture Decision Records](adr/README.md) | Index of accepted architectural decisions and their trade-offs. ADRs preserve historical rationale; a later decision should supersede rather than silently rewrite one. |
 

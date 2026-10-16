@@ -1,3 +1,4 @@
+import { buildTagIndexFiles } from "~/domain/tagIndex";
 import { dailyNoteSearchTerms, inDailyNoteSearchRange, validateDailyNoteSearch, type DailyNoteSearch, type DailyNoteSearchResult } from "~/domain/dailyNoteSearch";
 import type { IsoDate } from "~/domain/dates";
 import { hasDailyNoteContent } from "~/domain/dailyNoteMarkdown";
@@ -17,6 +18,19 @@ interface StoredJotImageAlbum {
 }
 
 export class FakeRemoteStorageProvider implements RemoteStorageProvider {
+  async maintainTagIndex(signal: AbortSignal): Promise<void> {
+    assertFakeRemoteAvailable();
+    const settings = normalizeJotSettings(await this.loadSettings());
+    signal.throwIfAborted();
+    // Fake-provider derived files live in the existing settings store; Daily Notes remain separate.
+    const notes = await withStore<RemoteDailyNote[]>("fakeRemoteNotes", "readonly", (store) => store.getAll());
+    const files = buildTagIndexFiles(notes, settings.tagIndexMaxCharacters);
+    signal.throwIfAborted();
+    await withStore<IDBValidKey>("settings", "readwrite", (store) => store.put({
+      id: "fake-tag-index", files: Object.fromEntries([...files].map(([tag, markdown]) => [`${tag}.md`, markdown]))
+    }));
+  }
+
   async loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null> {
     assertFakeRemoteAvailable();
     return (await withStore<RemoteDailyNote | undefined>("fakeRemoteNotes", "readonly", (store) => store.get(date))) ?? null;

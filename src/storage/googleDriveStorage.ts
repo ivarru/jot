@@ -1,3 +1,5 @@
+import { normalizeJotTagName } from "~/domain/jotTags";
+import { reconcileTagIndex, type TagIndexFile } from "~/features/tagIndex/reconcileTagIndex";
 import { dailyNoteSearchTerms, inDailyNoteSearchRange, validateDailyNoteSearch, type DailyNoteSearch, type DailyNoteSearchResult } from "~/domain/dailyNoteSearch";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { dateToFilename, parseIsoDate, type IsoDate } from "~/domain/dates";
@@ -91,6 +93,7 @@ export class GoogleDriveRequestError extends Error {
 }
 
 export class GoogleDriveStorageProvider implements RemoteStorageProvider {
+  private readonly tagIndexNoteCache = new Map<string, { revision: string; markdown: string }>();
   private foldersPromise: Promise<JotDriveFolders> | null = null;
   private readonly dailyNoteSaveLocks = new Map<IsoDate, Promise<void>>();
 
@@ -98,6 +101,72 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     private readonly tokenProvider: AccessTokenProvider,
     private readonly fetchFn: FetchLike = globalThis.fetch.bind(globalThis)
   ) {}
+
+  async maintainTagIndex(signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    const { jotFolderId, dailyNotesFolderId } = await this.ensureFolders();
+    signal.throwIfAborted();
+    let folders = await this.listFiles(jotFolderId, "tag-index", FOLDER_MIME_TYPE);
+    if (!folders.length) {
+      signal.throwIfAborted();
+      folders = [await this.findOrCreateFolder(jotFolderId, "tag-index", "Tag Index Folder", signal)];
+    }
+    // Concurrent first creation can produce duplicate folders. Read all of them and converge their files.
+    folders.sort((a, b) => a.id.localeCompare(b.id));
+    const indexFiles = new Map<string, DriveFile>();
+    const readSource = async () => {
+      signal.throwIfAborted();
+      const settings = await this.loadSettings();
+      const maxCharacters = normalizeJotSettings(settings).tagIndexMaxCharacters;
+      const files = (await this.listFilesByQuery({ parentId: dailyNotesFolderId, mimeType: MARKDOWN_MIME_TYPE }))
+        .filter((file) => filenameToDailyNoteDate(file.name) !== null).sort((a, b) => a.id.localeCompare(b.id));
+      const live = new Set(files.map((file) => file.id));
+      for (const id of this.tagIndexNoteCache.keys()) if (!live.has(id)) this.tagIndexNoteCache.delete(id);
+      return {
+        key: JSON.stringify([maxCharacters, files.map((file) => [file.id, file.name, driveRevisionId(file), file.modifiedTime, file.size])]),
+        maxCharacters,
+        notes: files.map((file) => ({ id: file.id, date: filenameToDailyNoteDate(file.name)!, revision: driveRevisionId(file) }))
+      };
+    };
+    await reconcileTagIndex({
+      readSource,
+      readNote: async (file) => {
+        const cached = this.tagIndexNoteCache.get(file.id);
+        if (cached?.revision === file.revision) return cached.markdown;
+        const markdown = await this.downloadText(file.id);
+        this.tagIndexNoteCache.set(file.id, { revision: file.revision, markdown });
+        return markdown;
+      },
+      listIndexes: async () => {
+        indexFiles.clear();
+        const result: TagIndexFile[] = [];
+        for (const folder of folders) {
+          const files = await this.listFilesByQuery({ parentId: folder.id, mimeType: MARKDOWN_MIME_TYPE });
+          for (const file of files) {
+            const tag = file.name.endsWith(".md") ? file.name.slice(0, -3) : "";
+            if (!tag || normalizeJotTagName(tag) !== tag) continue;
+            indexFiles.set(file.id, file);
+            result.push({ id: file.id, tag, revision: driveRevisionId(file) });
+          }
+        }
+        return result;
+      },
+      readIndex: (file) => this.downloadText(file.id),
+      writeIndex: async (tag, content, existing) => {
+        signal.throwIfAborted();
+        if (existing) {
+          return await this.updateDailyNoteMediaFileIfUnchanged(indexFiles.get(existing.id)!, new Set([existing.revision]), content, signal) !== null;
+        }
+        await this.createMultipartFile({
+          metadata: { name: `${tag}.md`, mimeType: MARKDOWN_MIME_TYPE, parents: [folders[0]!.id],
+            appProperties: { jotType: "tag-index", tag } },
+          content, contentType: MARKDOWN_MIME_TYPE, signal
+        });
+        return true;
+      },
+      retireIndex: (file) => this.trashDailyNoteFileIfUnchanged(indexFiles.get(file.id)!, signal)
+    }, signal);
+  }
 
   async loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null> {
     return await this.withDailyNoteSaveLock(date, async () => await this.loadDailyNoteUnlocked(date));
@@ -458,7 +527,7 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     });
   }
 
-  private async findOrCreateFolder(parentId: string, name: string, description: string): Promise<DriveFile> {
+  private async findOrCreateFolder(parentId: string, name: string, description: string, signal?: AbortSignal): Promise<DriveFile> {
     const existing = await this.findSingleFile({
       parentId,
       name,
@@ -467,9 +536,11 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     });
 
     if (existing !== null) return existing;
+    signal?.throwIfAborted();
 
     return await this.requestJson<DriveFile>(`${DRIVE_API_BASE}/files?${new URLSearchParams({ fields: FILE_FIELDS })}`, {
       method: "POST",
+      ...(signal ? { signal } : {}),
       headers: {
         "Content-Type": "application/json; charset=UTF-8"
       },
@@ -663,15 +734,18 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     readonly metadata: Record<string, unknown>;
     readonly content: string;
     readonly contentType: string;
+    readonly signal?: AbortSignal;
   }): Promise<DriveFile> {
     const params = new URLSearchParams({
       uploadType: "multipart",
       fields: FILE_FIELDS
     });
     const multipart = createMultipartRelatedBody(input.metadata, input.content, input.contentType);
+    input.signal?.throwIfAborted();
 
     return await this.requestJson<DriveFile>(`${DRIVE_UPLOAD_BASE}/files?${params}`, {
       method: "POST",
+      ...(input.signal ? { signal: input.signal } : {}),
       headers: {
         "Content-Type": `multipart/related; boundary=${multipart.boundary}`
       },
@@ -697,7 +771,8 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
   private async updateDailyNoteMediaFileIfUnchanged(
     file: DriveFile,
     expectedRevisionIds: ReadonlySet<string>,
-    content: string
+    content: string,
+    signal?: AbortSignal
   ): Promise<DriveFile | null> {
     const metadataParams = new URLSearchParams({ fields: V2_CONDITIONAL_FILE_FIELDS });
     const metadata = await this.requestJson<DriveV2ConditionalFile>(
@@ -713,11 +788,13 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
       uploadType: "media",
       fields: V2_CONDITIONAL_FILE_FIELDS
     });
+    signal?.throwIfAborted();
     try {
       const saved = await this.requestJson<DriveV2ConditionalFile>(
         `${DRIVE_V2_UPLOAD_BASE}/files/${encodeURIComponent(file.id)}?${uploadParams}`,
         {
           method: "PUT",
+          ...(signal ? { signal } : {}),
           headers: {
             "Content-Type": `${MARKDOWN_MIME_TYPE}; charset=UTF-8`,
             "If-Match": metadata.etag
@@ -756,7 +833,7 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
         };
   }
 
-  private async trashDailyNoteFileIfUnchanged(file: DriveFile): Promise<boolean> {
+  private async trashDailyNoteFileIfUnchanged(file: DriveFile, signal?: AbortSignal): Promise<boolean> {
     const metadataParams = new URLSearchParams({ fields: V2_CONDITIONAL_FILE_FIELDS });
     const metadata = await this.requestJson<DriveV2ConditionalFile>(
       `${DRIVE_V2_API_BASE}/files/${encodeURIComponent(file.id)}?${metadataParams}`,
@@ -767,11 +844,13 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
       throw new Error("Google Drive did not provide the ETag required to retire a duplicate Daily Note safely.");
     }
 
+    signal?.throwIfAborted();
     try {
       await this.requestJson<DriveV2ConditionalFile>(
         `${DRIVE_V2_API_BASE}/files/${encodeURIComponent(file.id)}?${metadataParams}`,
         {
           method: "PATCH",
+          ...(signal ? { signal } : {}),
           headers: {
             "Content-Type": "application/json; charset=UTF-8",
             "If-Match": metadata.etag

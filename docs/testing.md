@@ -198,3 +198,11 @@ external services. See [manual-google-provider-retest.md](manual-google-provider
 - [Sync model](sync-model.md) documents the modeled state, events, invariants, and scope.
 - [Deployment](deployment.md) documents Pages and OAuth release configuration.
 - [Manual Google provider retest](manual-google-provider-retest.md) documents real OAuth, Drive, and Photos validation.
+
+## Tag index maintenance
+
+`src/domain/tagIndex.test.ts` covers structural excerpts, grapheme limits, and Markdown-safe serialization.
+`src/features/tagIndex` tests source/target races, duplicates, cancellation, partial failures, and periodic recovery;
+`src/storage/googleDriveTagIndex.test.ts` exercises authenticated mocked Drive metadata/media and conditional writes.
+`tests/browser/workflows/tag-index.spec.ts` covers settings persistence and regeneration, external tag removal,
+date A/B navigation with pending edits, and offline maintenance recovery against fake storage.
