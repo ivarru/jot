@@ -18,6 +18,10 @@ versions. See [Sync and Connection Statuses](docs/sync-and-connection-statuses.m
 ## Features
 
 - Date-based navigation with ISO dates, weekday display, and a jump-to-today indicator.
+- Search synced Daily Notes from the menu or date picker using Google Drive, with optional date bounds (start included, end excluded),
+  filtering by note date or local last-modified date,
+  and expandable read-only previews positioned at the first matching text. Click a result row to toggle its preview;
+  click the preview or its open-note button to open the Daily Note.
 - Milkdown WYSIWYG-style Markdown editing plus a plain text editor mode.
 - Local drafts before Drive sync, configurable sync intervals, and Git-style conflict markers.
 - Daily Note upload for existing `YYYY-MM-DD.md` files, with conflict choices when local or remote content already exists.

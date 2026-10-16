@@ -1,3 +1,5 @@
+import { dailyNoteMatchesSearch } from "~/domain/dailyNoteSearch";
+import { DailyNoteSearchDialog } from "~/components/DailyNoteSearchDialog";
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { ImageAttachmentFlow, type LocalImageAttachmentSource, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
 import { commitImageAttachmentReferenceInsertion } from "~/attachments/imageAttachmentInsertionSession";
@@ -256,6 +258,7 @@ export default function Home() {
   let topMenuElement: HTMLDivElement | undefined;
   let settingsDialog: HTMLDialogElement | undefined;
   let settingsReturnFocus: HTMLButtonElement | undefined;
+  let searchReturnFocus: HTMLElement | undefined;
   const [authenticated, setAuthenticated] = createSignal(
     redirectAuthResult.type === "authenticated" ||
     runtime.kind === "fake" && ENABLE_FAKE_AUTH && browserLocalStorage?.getItem("jot.fakeAuth") === "true"
@@ -325,6 +328,7 @@ export default function Home() {
   const [settings, setSettings] = createSignal<JotSettings>(initialSettings);
   const [settingsLoaded, setSettingsLoaded] = createSignal(false);
   const [syncDiagnosticsCopyMessage, setSyncDiagnosticsCopyMessage] = createSignal<string | null>(null);
+  const [searchOpen, setSearchOpen] = createSignal(false);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const closeSettings = () => {
     settingsDialog?.close?.();
@@ -3331,6 +3335,10 @@ export default function Home() {
                   selectedDate={selectedDate()!}
                   existingNoteDates={existingNoteDates}
                   onNavigate={(date) => void navigateToDate(date)}
+                  onSearch={(returnFocus) => {
+                    searchReturnFocus = returnFocus;
+                    setSearchOpen(true);
+                  }}
                 />
                 <button
                   type="button"
@@ -3643,16 +3651,11 @@ export default function Home() {
                 </button>
                 <Show when={topMenuOpen()}>
                   <div class="top-menu-popover" role="menu" aria-label="Application menu">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setTopMenuOpen(false);
-                        setAboutOpen(true);
-                      }}
-                    >
-                      About Jot
-                    </button>
+                    <button type="button" role="menuitem" onClick={() => {
+                      setTopMenuOpen(false);
+                      searchReturnFocus = settingsReturnFocus;
+                      setSearchOpen(true);
+                    }}>Search daily notes</button>
                     <button
                       type="button"
                       role="menuitem"
@@ -3675,6 +3678,13 @@ export default function Home() {
                     <button
                       type="button"
                       role="menuitem"
+                      onClick={toggleSpellcheck}
+                    >
+                      {settings().spellcheck ? "Turn spellcheck off" : "Turn spellcheck on"}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
                       onClick={() => {
                         setTopMenuOpen(false);
                         setSyncDiagnosticsCopyMessage(null);
@@ -3686,9 +3696,12 @@ export default function Home() {
                     <button
                       type="button"
                       role="menuitem"
-                      onClick={toggleSpellcheck}
+                      onClick={() => {
+                        setTopMenuOpen(false);
+                        setAboutOpen(true);
+                      }}
                     >
-                      {settings().spellcheck ? "Turn spellcheck off" : "Turn spellcheck on"}
+                      About Jot
                     </button>
                     <button
                       type="button"
@@ -4138,6 +4151,38 @@ export default function Home() {
           </Show>
 
           <DailyNoteUploadSurfaces workflow={dailyNoteUpload} />
+
+          <Show when={searchOpen()}>
+            <DailyNoteSearchDialog selectedDate={selectedDate()!} today={today()}
+              search={(input) => {
+                if (!runtime.remote.searchDailyNotes) return Promise.reject(new Error("Search is unavailable for this connection."));
+                return runtime.remote.searchDailyNotes(input);
+              }}
+              getImmediatePreview={(result, query) => {
+                const date = selectedDate();
+                if (date !== result.date || loadedDate() !== date) return null;
+                const snapshot = currentEditorMarkdown();
+                return dailyNoteMatchesSearch(snapshot, query) ? snapshot : null;
+              }}
+              loadPreview={(result) => {
+                if (!runtime.remote.loadDailyNoteSearchPreview) return Promise.reject(new Error("Preview is unavailable for this connection."));
+                return runtime.remote.loadDailyNoteSearchPreview(result);
+              }}
+              resolveImage={(id) => runtime.imageAttachments?.resolveImageAttachmentDisplay(id)
+                ?? Promise.resolve({ id, status: "missing" as const, message: "Image preview is unavailable." })}
+              onSelect={(date) => void navigateToDate(date)}
+              onClose={() => {
+                setSearchOpen(false);
+                queueMicrotask(() => {
+                  searchReturnFocus?.focus();
+                  if (searchReturnFocus?.classList.contains("iso-date-input")) {
+                    existingNoteDates.cancel();
+                    datePicker.close();
+                  }
+                });
+              }}
+            />
+          </Show>
 
           <Show when={settingsOpen()}>
             <dialog

@@ -19,7 +19,7 @@ describe("application menu", () => {
     cleanupRouteTestDom();
   });
 
-  it("places About first", async () => {
+  it("orders finding, editing, settings, and account commands", async () => {
     const host = document.createElement("div");
     document.body.append(host);
 
@@ -29,11 +29,12 @@ describe("application menu", () => {
     openMenu(host);
 
     expect(Array.from(host.querySelectorAll(".top-menu-popover [role='menuitem']")).map((element) => element.textContent)).toEqual([
-      "About Jot",
+      "Search daily notes",
       "Upload daily notes",
       "Compactify lists",
-      "Settings",
       "Turn spellcheck off",
+      "Settings",
+      "About Jot",
       "Sign out"
     ]);
 
@@ -84,7 +85,8 @@ describe("application menu", () => {
     await settle();
 
     openMenu(host);
-    host.querySelectorAll<HTMLButtonElement>(".top-menu-popover [role='menuitem']")[0]!.click();
+    Array.from(host.querySelectorAll<HTMLButtonElement>(".top-menu-popover [role='menuitem']"))
+      .find((button) => button.textContent?.trim() === "About Jot")!.click();
     await settle();
 
     const dialog = host.querySelector<HTMLElement>(".about-modal")!;

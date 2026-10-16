@@ -1308,6 +1308,51 @@ describe("Home reconnect and conflict handling", () => {
     }
   });
 
+  it("keeps date A autosave bound to A when navigating through a search result", async () => {
+    testState.remoteNote = {
+      date: "2030-02-02",
+      markdown: "A original",
+      revisionId: "a-revision",
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    };
+    testState.drafts.set("2030-02-03", draft("2030-02-03", "B original"));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Home />, host);
+
+    try {
+      await waitFor(() => {
+        expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("A original");
+      });
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+      editor.value = "A changed";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: " changed" }));
+      await settle();
+      testState.remoteSaveInputs = [];
+
+      await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+      clickButton(host, "Open menu");
+      clickButton(host, "Search daily notes");
+      const searchInput = host.querySelector<HTMLInputElement>('input[type="search"]')!;
+      searchInput.value = "B";
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+      host.querySelector("dialog form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await waitFor(() => expect(host.querySelector("dialog ul")?.textContent).toContain("2030-02-03"));
+      host.querySelector<HTMLButtonElement>("dialog .search-result-open")!.click();
+      await waitFor(() => {
+        expect(host.querySelector<HTMLInputElement>("input[aria-label='Selected date']")?.value).toBe("2030-02-03");
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 750));
+
+      await waitFor(() => expect(testState.remoteSaveInputs).toContain("2030-02-02"));
+      expect(testState.drafts.get("2030-02-02")?.markdown).toBe("A changed");
+      expect(testState.drafts.get("2030-02-03")?.markdown).toBe("B original");
+      await waitFor(() => expect(testState.remoteNote?.markdown).toBe("A changed"));
+    } finally {
+      dispose();
+    }
+  });
+
   it("does not let date A's delayed live normalization rewrite date B", async () => {
     testState.remoteNote = {
       date: "2030-02-02",

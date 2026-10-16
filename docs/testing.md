@@ -105,6 +105,20 @@ BROWSER_TEST_BASE_URL=http://127.0.0.1:4173/ npm run test:browser:editing
 The Playwright configuration uses one Chrome worker so that browser-local storage and the preview server remain
 deterministic. Failed checks retain a trace and capture a screenshot.
 
+### Firefox checks
+
+The default browser remains Chrome. For a focused Firefox reproduction, install the Playwright-managed browser once
+and select it explicitly:
+
+```sh
+npx playwright install firefox
+PLAYWRIGHT_BROWSER=firefox npx playwright test tests/browser/workflows/daily-note-search.spec.ts --grep "centered search dialog resize corner"
+```
+
+The centered search-dialog regression checks that its resize corner follows the pointer throughout a drag while the
+center stays fixed, and also checks keyboard resizing. The search workflows cover the marker spacing and note-preview
+scrolling affected by the dialog's separate scrolling surface.
+
 ### Placeholder-normalization profiles
 
 Fake-provider browser tests choose one of three profiles in `openDevelopmentStorage` before Jot starts loading settings,

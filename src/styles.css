@@ -256,6 +256,11 @@ select {
   align-items: center;
 }
 
+.date-picker-header-search { grid-template-columns: 68px minmax(0, 1fr) 68px; }
+
+.date-picker-header-actions { display: flex; gap: 4px; }
+.date-picker-header-actions button { display: grid; place-items: center; }
+
 .date-picker-header button {
   width: 32px;
   min-width: 32px;
@@ -1747,3 +1752,58 @@ select {
     width: 100%;
   }
 }
+
+.search-dialog { padding: 0; width: min(calc(100% - 24px), 1100px); max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); overflow: hidden; resize: none; }
+.search-dialog-content { box-sizing: border-box; padding: 1.25rem; height: 100%; max-height: calc(100dvh - 24px); overflow: auto; }
+.search-dialog-resize { position: absolute; right: 0; bottom: 0; display: grid; place-items: center; width: 24px; height: 24px;
+  min-height: 24px; padding: 0; border: 0; border-radius: 0; background: var(--panel); color: var(--muted); cursor: nwse-resize; touch-action: none; }
+.search-dialog-resize:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.search-dialog .settings-panel-header { margin-bottom: 0.35rem; }
+.search-dialog .settings-panel-header h2 { font-size: 1.5rem; margin: 0; }
+.search-dialog #daily-note-search-help { margin-top: 0.35rem; }
+.search-dialog .search-date-basis { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem; }
+.search-dialog .search-date-basis input { width: auto; }
+.search-result-marker { font-size: 0.85em; color: var(--muted); }
+.search-dialog label { display: grid; gap: 0.35rem; min-width: 0; }
+.search-dialog input { width: 100%; min-width: 0; box-sizing: border-box; }
+.search-date-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin: 1rem 0; }
+.search-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
+.search-dialog-content > ul { padding: 0; list-style: none; }
+.search-dialog-content > ul > li { margin: 0.25rem 0; }
+@media (max-width: 380px) { .search-date-range { grid-template-columns: 1fr; } }
+
+.search-submit {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+  padding-inline: 1.25rem;
+}
+.search-submit:disabled {
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.search-result { padding: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.search-result-heading { display: grid; grid-template-columns: minmax(0, 1fr) 36px; align-items: stretch; }
+.search-result-heading:is(:hover, :focus-within) { background: color-mix(in srgb, var(--accent), var(--panel) 88%); }
+.search-result-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.75rem;
+  width: 100%; padding: 0.4rem 0.6rem; text-align: left; }
+.search-result-heading button { border: 0; border-radius: 0; background: transparent; }
+.search-result-heading button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.search-result-open { display: grid; place-items: center; padding: 0; }
+.search-result-metadata { display: grid; margin: 0; font-size: 0.85rem; color: var(--muted); text-align: right; }
+.search-result-metadata > span { display: block; overflow-wrap: anywhere; }
+.search-metadata-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.search-result-preview { padding: 0.5rem; border-top: 1px solid var(--border); }
+.search-preview-status { margin: 0 0 0.5rem; font-size: 0.85rem; color: var(--muted); }
+.search-preview-viewport { max-height: min(22dvh, 220px); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.search-preview-viewport .editor-shell, .search-preview-viewport .milkdown-root, .search-preview-viewport .ProseMirror { min-height: 0; }
+.search-preview-viewport .editor-shell { margin: 0; box-shadow: none; }
+.search-preview-viewport .milkdown-root { --editor-padding: 0.65rem; }
+.search-preview-viewport, .search-preview-viewport a { cursor: pointer; }
+
+.search-result-date { min-width: 0; overflow-wrap: anywhere; }
+.search-result-marker { display: inline-block; margin-inline-start: 0.375rem; max-width: calc(100% - 0.375rem); }

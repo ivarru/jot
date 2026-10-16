@@ -15,9 +15,11 @@ export interface DailyNoteDatePickerProps {
   readonly selectedDate: IsoDate;
   readonly existingNoteDates: ExistingNoteDates;
   readonly onNavigate: (date: IsoDate) => void;
+  readonly onSearch: (returnFocus: HTMLInputElement) => void;
 }
 
 export function DailyNoteDatePicker(props: DailyNoteDatePickerProps) {
+  let dateInput!: HTMLInputElement;
   const calendar = () => calendarMonth(props.controller.month());
 
   createEffect(() => {
@@ -59,6 +61,7 @@ export function DailyNoteDatePicker(props: DailyNoteDatePickerProps) {
       }}
     >
       <input
+        ref={dateInput}
         class="iso-date-input"
         type="text"
         inputmode="numeric"
@@ -91,7 +94,7 @@ export function DailyNoteDatePicker(props: DailyNoteDatePickerProps) {
             if (isEscapeKey(event)) close();
           }}
         >
-          <div class="date-picker-header">
+          <div class="date-picker-header date-picker-header-search">
             <button
               type="button"
               aria-label="Previous month"
@@ -101,14 +104,24 @@ export function DailyNoteDatePicker(props: DailyNoteDatePickerProps) {
               ‹
             </button>
             <span class="date-picker-month-label">{monthLabel(props.controller.month())}</span>
-            <button
-              type="button"
-              aria-label="Next month"
-              data-tooltip="Next month"
-              onClick={() => props.controller.setMonth((month) => addMonths(month, 1))}
-            >
-              ›
-            </button>
+            <div class="date-picker-header-actions">
+              <button type="button" aria-label="Search daily notes" data-tooltip="Search daily notes" onClick={() => {
+                close();
+                props.onSearch(dateInput);
+              }}>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                aria-label="Next month"
+                data-tooltip="Next month"
+                onClick={() => props.controller.setMonth((month) => addMonths(month, 1))}
+              >
+                ›
+              </button>
+            </div>
           </div>
           <div class="date-picker-weekdays" aria-hidden="true">
             {CALENDAR_WEEKDAY_LABELS.map((label) => <span>{label}</span>)}

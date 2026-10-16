@@ -1,3 +1,4 @@
+import { dailyNoteSearchTerms, inDailyNoteSearchRange, validateDailyNoteSearch, type DailyNoteSearch, type DailyNoteSearchResult } from "~/domain/dailyNoteSearch";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { dateToFilename, parseIsoDate, type IsoDate } from "~/domain/dates";
 import { createConflictMarkdown } from "~/domain/merge";
@@ -113,6 +114,41 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
 
     const markdown = resolution.markdown ?? await this.downloadText(resolution.file.id);
     return driveFileToDailyNote(date, resolution.file, markdown);
+  }
+
+  async loadDailyNoteSearchPreview(result: DailyNoteSearchResult): Promise<string> {
+    // Read the exact search match without invoking duplicate-note consolidation.
+    return await this.downloadText(result.fileId);
+  }
+
+  async searchDailyNotes(input: DailyNoteSearch): Promise<DailyNoteSearchResult[]> {
+    validateDailyNoteSearch(input);
+    // Search must not create folders or update the Drive instructions file.
+    const jotFolder = await this.findSingleFile({ parentId: "root", name: JOT_FOLDER_NAME,
+      mimeType: FOLDER_MIME_TYPE, description: "Jot Folder" });
+    if (!jotFolder) return [];
+    const folder = await this.findSingleFile({ parentId: jotFolder.id, name: DAILY_NOTES_FOLDER_NAME,
+      mimeType: FOLDER_MIME_TYPE, description: "Daily Notes Folder" });
+    if (!folder) return [];
+    const files = await this.listFilesByQuery({
+      parentId: folder.id,
+      mimeType: MARKDOWN_MIME_TYPE,
+      fullTextTerms: dailyNoteSearchTerms(input.query)
+    });
+    const matches = new Map<IsoDate, DailyNoteSearchResult>();
+    // Duplicate dates retain the newest matching file's metadata, independent of page order.
+    for (const file of [...files].sort(compareDriveFilesNewestFirst)) {
+      const date = filenameToDailyNoteDate(file.name);
+      if (!date || file.size === "0" || !inDailyNoteSearchRange(date, input, file.modifiedTime) || matches.has(date)) continue;
+      const timestamp = Date.parse(file.modifiedTime ?? "");
+      matches.set(date, {
+        date,
+        fileId: file.id,
+        modifiedTime: Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null,
+        sizeBytes: file.size !== undefined && /^\d+$/.test(file.size) ? file.size : null
+      });
+    }
+    return [...matches.values()].sort((a, b) => b.date.localeCompare(a.date));
   }
 
   async listDailyNoteDates(): Promise<IsoDate[]> {
@@ -577,6 +613,7 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
   }
 
   private async listFilesByQuery(input: {
+    readonly fullTextTerms?: readonly string[];
     readonly parentId: string;
     readonly name?: string;
     readonly mimeType: string;
@@ -590,6 +627,7 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
       input.name === undefined ? null : `name = ${driveQueryStringLiteral(input.name)}`,
       `mimeType = ${driveQueryStringLiteral(input.mimeType)}`,
       input.appProperty === undefined ? null : driveAppPropertyQuery(input.appProperty.key, input.appProperty.value),
+      ...(input.fullTextTerms ?? []).map((term) => `fullText contains ${driveQueryStringLiteral(term)}`),
       "trashed = false"
     ].filter((part) => part !== null).join(" and ");
 

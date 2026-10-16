@@ -1,3 +1,4 @@
+import type { DailyNoteSearch, DailyNoteSearchResult } from "~/domain/dailyNoteSearch";
 import type { IsoDate } from "~/domain/dates";
 import type { JotSettings } from "~/domain/settings";
 
@@ -36,6 +37,8 @@ export type SaveDailyNoteResult =
 
 export interface RemoteStorageProvider {
   loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null>;
+  loadDailyNoteSearchPreview?(result: DailyNoteSearchResult): Promise<string>;
+  searchDailyNotes?(input: DailyNoteSearch): Promise<DailyNoteSearchResult[]>;
   listDailyNoteDates?(): Promise<IsoDate[]>;
   saveDailyNote(input: SaveDailyNoteInput): Promise<SaveDailyNoteResult>;
   loadSettings(): Promise<JotSettings | null>;

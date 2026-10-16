@@ -3,6 +3,7 @@ import { defineConfig } from "@playwright/test";
 delete process.env.NO_COLOR;
 
 const chromePath = process.env.CHROME_PATH;
+const useFirefox = process.env.PLAYWRIGHT_BROWSER === "firefox";
 const baseURL = process.env.BROWSER_TEST_BASE_URL ?? "http://127.0.0.1:4173/";
 const startPreviewServer =
   process.env.BROWSER_TEST_BASE_URL === undefined && process.env.PLAYWRIGHT_NO_WEBSERVER !== "true";
@@ -31,7 +32,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
     video: "off",
-    ...(chromePath === undefined
+    ...(useFirefox ? { browserName: "firefox" as const } : chromePath === undefined
       ? { channel: process.env.PLAYWRIGHT_BROWSER_CHANNEL ?? "chrome" }
       : { launchOptions: { executablePath: chromePath } })
   }

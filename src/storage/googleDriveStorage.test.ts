@@ -204,6 +204,106 @@ describe("GoogleDriveStorageProvider", () => {
     expect(fetch.requests).toHaveLength(5);
   });
 
+  it("searches body terms with authenticated folder-scoped pagination and exclusive end dates", async () => {
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("outside", "2020-01-01.md", "text/markdown", "1")], nextPageToken: "page 2" }),
+      json({ files: [
+        file("a", "2030-02-01.md", "text/markdown", "1"),
+        file("b", "2030-02-03.md", "text/markdown", "1"),
+        file("duplicate", "2030-02-01.md", "text/markdown", "2", "2031-05-06T12:30:00+02:00", "9007199254740993"),
+        file("bad", "2030-02-30.md", "text/markdown", "1"),
+        file("other", "settings.json", "text/markdown", "1"),
+        file("empty", "2030-02-02.md", "text/markdown", "1", undefined, "0")
+      ] })
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+    const query = String.raw`O'Brien \path "hello world"`;
+    await expect(provider.searchDailyNotes({ query, startDate: "2030-02-01", endDate: "2030-02-04" }))
+      .resolves.toEqual([
+        { date: "2030-02-03", fileId: "b", modifiedTime: "2030-01-01T00:00:00.000Z", sizeBytes: "1" },
+        { date: "2030-02-01", fileId: "duplicate", modifiedTime: "2031-05-06T10:30:00.000Z", sizeBytes: "9007199254740993" }
+      ]);
+    const searches = fetch.requests.slice(-2);
+    for (const request of searches) {
+      const q = new URL(request.url).searchParams.get("q")!;
+      expect(q).toContain("'daily-folder' in parents");
+      expect(q).toContain("mimeType = 'text/markdown'");
+      expect(q).toContain("trashed = false");
+      expect(new URL(request.url).searchParams.get("fields")).toContain("modifiedTime");
+      expect(new URL(request.url).searchParams.get("fields")).toContain("size");
+      expect(q).toContain(String.raw`fullText contains 'O\'Brien'`);
+      expect(q).toContain(String.raw`fullText contains '\\path'`);
+      expect(q).toContain(`fullText contains '"hello world"'`);
+      expect(request.init.method ?? "GET").toBe("GET");
+      expect(request.init.body).toBeUndefined();
+      expect(new Headers(request.init.headers).get("Authorization")).toBe("Bearer test-token");
+    }
+    expect(new URL(searches[1]!.url).searchParams.get("pageToken")).toBe("page 2");
+  });
+
+  it("keeps search results when metadata is missing instead of inventing timestamps or sizes", async () => {
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [
+        { id: "missing", name: "2030-02-01.md", mimeType: "text/markdown" },
+        { id: "invalid", name: "2030-02-02.md", mimeType: "text/markdown", modifiedTime: "bad", size: "bad" }
+      ] })
+    ]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+    await expect(provider.searchDailyNotes({ query: "word" })).resolves.toEqual([
+      { date: "2030-02-02", fileId: "invalid", modifiedTime: null, sizeBytes: null },
+      { date: "2030-02-01", fileId: "missing", modifiedTime: null, sizeBytes: null }
+    ]);
+  });
+
+  it("filters the local modified date with an exclusive end independently of the filename date", async () => {
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [
+        file("inside", "2020-01-01.md", "text/markdown", "1", new Date(2030, 1, 2, 23, 59).toISOString()),
+        file("end", "2020-01-02.md", "text/markdown", "1", new Date(2030, 1, 3, 0, 0).toISOString())
+      ] })
+    ]);
+    const results = await new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch).searchDailyNotes({
+      query: "word", dateBasis: "modified", startDate: "2030-02-02", endDate: "2030-02-03"
+    });
+    expect(results.map((result) => result.fileId)).toEqual(["inside"]);
+  });
+
+  it("previews the exact matched file using one authenticated media GET without consolidation", async () => {
+    const fetch = createDriveFetch([text("# Preview content")]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+    await expect(provider.loadDailyNoteSearchPreview({ date: "2030-02-02", fileId: "match/id",
+      modifiedTime: null, sizeBytes: null })).resolves.toBe("# Preview content");
+    expect(fetch.requests).toHaveLength(1);
+    expect(fetch.requests[0]!.url).toBe("https://www.googleapis.com/drive/v3/files/match%2Fid?alt=media");
+    expect(fetch.requests[0]!.init.method ?? "GET").toBe("GET");
+    expect(new Headers(fetch.requests[0]!.init.headers).get("Authorization")).toBe("Bearer test-token");
+  });
+
+  it("rejects invalid searches before accessing Drive and surfaces request failures", async () => {
+    const fetch = createDriveFetch([]);
+    const provider = new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch);
+    await expect(provider.searchDailyNotes({ query: " " })).rejects.toThrow("Enter words");
+    await expect(provider.searchDailyNotes({ query: "x", startDate: "2030-02-03", endDate: "2030-02-01" }))
+      .rejects.toThrow("End date");
+    expect(fetch.requests).toHaveLength(0);
+    const unavailable = new GoogleDriveStorageProvider(new StaticTokenProvider(), async () => new Response("unavailable", { status: 503 }));
+    await expect(unavailable.searchDailyNotes({ query: "x" })).rejects.toThrow("503");
+  });
+
+  it("returns no search results without creating missing folders", async () => {
+    const fetch = createDriveFetch([json({ files: [] })]);
+    await expect(new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch)
+      .searchDailyNotes({ query: "word" })).resolves.toEqual([]);
+    expect(fetch.requests).toHaveLength(1);
+    expect(fetch.requests[0]!.init.method ?? "GET").toBe("GET");
+  });
+
   it("returns a conflict instead of overwriting when Drive version changed", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),

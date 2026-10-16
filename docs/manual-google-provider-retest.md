@@ -53,6 +53,16 @@ MIME type, API upload modes, and scope as Jot, but did not run through Jot's sto
 The two disposable probe files were retained in the test account for inspection. No credentials or account identifiers
 belong in this evidence.
 
+### Implemented search verification (2026-10-16)
+
+The actual GoogleDriveStorageProvider created two previously absent Daily Notes dated 2099-10-15 and 2099-10-16
+with a unique body-only word. With the existing `drive.file` authorization, folder-scoped search found one note on
+its first poll and both on the next poll. Unbounded search, an inclusive same-day range, a start-only bound, and an
+end-only bound returned the expected dates. This exercised the provider's real folder lookup, query construction,
+and filename-date filtering. The two test notes were retained for inspection; the temporary server was stopped.
+This live check preceded the change to exclusive end dates: a one-day range now uses the following date as its end.
+See [local issue #0017](../issues/0017-daily-note-drive-search.md) for automated coverage and remaining limitations.
+
 ### Synchronization checklist
 
 1. Make a distinctive edit to today's Daily Note and confirm the status returns to `Synced`.

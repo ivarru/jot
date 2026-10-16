@@ -1,3 +1,4 @@
+import { dailyNoteSearchTerms, inDailyNoteSearchRange, validateDailyNoteSearch, type DailyNoteSearch, type DailyNoteSearchResult } from "~/domain/dailyNoteSearch";
 import type { IsoDate } from "~/domain/dates";
 import { hasDailyNoteContent } from "~/domain/dailyNoteMarkdown";
 import { type ImageAttachmentMetadata, type JotImageAlbumMetadata } from "~/domain/imageAttachments";
@@ -19,6 +20,27 @@ export class FakeRemoteStorageProvider implements RemoteStorageProvider {
   async loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null> {
     assertFakeRemoteAvailable();
     return (await withStore<RemoteDailyNote | undefined>("fakeRemoteNotes", "readonly", (store) => store.get(date))) ?? null;
+  }
+
+  async loadDailyNoteSearchPreview(result: DailyNoteSearchResult): Promise<string> {
+    const note = await this.loadDailyNote(result.date);
+    if (!note) throw new Error("This note is no longer available. Search again to refresh the results.");
+    return note.markdown;
+  }
+
+  async searchDailyNotes(input: DailyNoteSearch): Promise<DailyNoteSearchResult[]> {
+    validateDailyNoteSearch(input);
+    assertFakeRemoteAvailable();
+    const notes = await withStore<RemoteDailyNote[]>("fakeRemoteNotes", "readonly", (store) => store.getAll());
+    const terms = dailyNoteSearchTerms(input.query);
+    return notes.filter((note) => hasDailyNoteContent(note.markdown) && inDailyNoteSearchRange(note.date, input, note.updatedAt)
+      && terms.every((term) => {
+        const words = note.markdown.toLocaleLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
+        const sought = term.toLocaleLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
+        return sought.length > 0 && words.some((_, index) => sought.every((word, offset) => words[index + offset] === word));
+      })).map((note) => ({ date: note.date, fileId: note.date, modifiedTime: Number.isFinite(Date.parse(note.updatedAt)) ? new Date(note.updatedAt).toISOString() : null,
+        sizeBytes: String(new TextEncoder().encode(note.markdown).byteLength) }))
+      .sort((a, b) => b.date.localeCompare(a.date));
   }
 
   async listDailyNoteDates(): Promise<IsoDate[]> {

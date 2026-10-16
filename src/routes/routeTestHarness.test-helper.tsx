@@ -606,6 +606,12 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
   const { GoogleAccessTokenUnavailableError } = await vi.importActual<typeof import("~/auth/googleIdentity")>("~/auth/googleIdentity");
 
   class FakeRemoteStorageProvider {
+    async searchDailyNotes() {
+      return Array.from(routeTestState.drafts.keys()).sort().reverse().map((date) => ({
+        date, fileId: date, modifiedTime: "2030-01-01T00:00:00.000Z", sizeBytes: "1"
+      }));
+    }
+
     async loadDailyNote(date: IsoDate) {
       routeTestState.remoteLoadInputs.push(date);
       const delayedLoad = routeTestState.delayedRemoteLoad;
