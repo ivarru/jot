@@ -156,10 +156,12 @@ incorporated, and that stable duplicates eventually consolidate; immediate singl
 
 ## Deferred For Reconsideration
 
-The accepted [export and recovery contract](export-and-recovery.md) stages explicit packages and safe restore in
-[#0012](../issues/0012-local-draft-export.md) through [#0015](../issues/0015-image-inclusive-recovery.md). These are
-future capabilities; they do not expand the current safety guarantees. Automatic history remains deferred, with its
-policy owned by [#0016](../issues/0016-recovery-history-policy.md).
+The [export and recovery design](export-and-recovery.md) and
+[ADR 0010](adr/0010-explicit-export-and-safe-restore.md) are deferred as of 2026-10-16. Export, package restore and
+automatic history work in [#0012](../issues/0012-local-draft-export.md) through
+[#0016](../issues/0016-recovery-history-policy.md) is blocked pending reconsideration of the recovery direction,
+including whether built-in Google Drive revision history can support the desired workflow. No replacement has been
+adopted and current safety guarantees are unchanged.
 
 - Specify the protocol in TLA+, parameterized by devices, and turn important counterexamples into executable regression
   traces.

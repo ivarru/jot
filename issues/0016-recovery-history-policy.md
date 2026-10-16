@@ -1,7 +1,7 @@
 ---
 id: "0016"
 title: "Decide automatic recovery history policy"
-status: open
+status: blocked
 type: design
 priority: low
 created: "2026-10-13"
@@ -39,9 +39,16 @@ are required for this design-only issue; adopted runtime work must have focused 
 
 ## Dependencies and related work
 
+Blocked by the 2026-10-16 decision to postpone the whole export and recovery programme; see
+[ADR 0010's deferral](../docs/adr/0010-explicit-export-and-safe-restore.md#deferral--2026-10-16).
+Resume only after the recovery direction and this issue's scope/criteria have been reconsidered. The remaining
+relationships below describe the original plan and do not override this blocker.
+
 No hard dependencies. [#0012](0012-local-draft-export.md) through [#0015](0015-image-inclusive-recovery.md) deliver
 explicit export/restore independently. The targeted journal in [#0013](0013-safe-package-restore.md) does not wait for this decision.
 
 ## Resolution
 
-Pending.
+Postponed on 2026-10-16, not implemented or rejected. Retain this issue and its unchecked criteria for reconsideration.
+Built-in Google Drive revision history is a candidate to evaluate when recovery planning resumes; it is not yet an
+accepted replacement. No active implementation commitment or deadline.

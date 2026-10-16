@@ -1,9 +1,14 @@
 # Export and recovery contract
 
-Accepted design, 2026-10-13, for [issue #0006](../issues/0006-export-and-recovery-design.md) and
-[ADR 0010](adr/0010-explicit-export-and-safe-restore.md). This specifies future behavior; no export, package restore,
-or Recovery Snapshots are implemented by this documentation change. Current sync behavior remains governed by
-[sync-safety.md](sync-safety.md). Terms follow [CONTEXT.md](../CONTEXT.md).
+Deferred design, 2026-10-16. Originally accepted on 2026-10-13 for
+[issue #0006](../issues/0006-export-and-recovery-design.md) and
+[ADR 0010](adr/0010-explicit-export-and-safe-restore.md), this programme is now postponed. The stages and guarantees
+below are retained for reconsideration, not an active implementation contract. Issues #0012–#0016 are blocked until
+the direction is revisited. Built-in Google Drive revision history is a candidate for that review; no replacement
+approach has been selected.
+
+No export, package restore, or Recovery Snapshots have been implemented by this design work. Current sync behavior
+remains governed by [sync-safety.md](sync-safety.md). Terms follow [CONTEXT.md](../CONTEXT.md).
 
 ## Delivery and guarantees
 

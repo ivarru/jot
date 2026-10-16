@@ -83,10 +83,10 @@ for the restore guarantees being designed.
 
 ## Resolution
 
-Completed as a documentation-only design on 2026-10-13. The accepted
+Completed as a documentation-only design on 2026-10-13. The then-accepted
 [export and recovery contract](../docs/export-and-recovery.md) and
 [ADR 0010](../docs/adr/0010-explicit-export-and-safe-restore.md) define staged delivery, package version 1, snapshot
-selection, component completeness, guarded restore and attachment identity handling. The documentation index labels
+selection, component completeness, guarded restore and attachment identity handling. At completion, the documentation index labeled
 this as an accepted design awaiting implementation; current domain vocabulary and runtime safety guarantees remain
 unchanged.
 
@@ -114,3 +114,12 @@ browser/provider checks; this closure does not claim those checks have already p
 
 Verification: repository-relative links and local issue metadata were checked, and `git diff --check` passed.
 No app tests were run because only documentation and backlog files changed. No version bump is required.
+
+### Subsequent deferral — 2026-10-16
+
+The whole export and recovery programme was postponed after reconsidering the usefulness of regular manual exports.
+ADR 0010 is now Deferred and the design is retained for reconsideration. Issues #0012–#0016 are blocked, with their
+original criteria preserved; none is implemented or rejected. This issue remains closed because its documentation-only
+deliverable was completed. Its recorded review and checked criteria describe that completed design work, not continuing
+approval to implement the plan. Built-in Google Drive revision history is a candidate for future evaluation, not an
+adopted replacement.

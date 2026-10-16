@@ -1,7 +1,7 @@
 ---
 id: "0012"
 title: "Export Local Drafts"
-status: open
+status: blocked
 type: feature
 priority: medium
 created: "2026-10-13"
@@ -38,9 +38,16 @@ for editor/storage lifecycle integration, and keep preview servers stopped after
 
 ## Dependencies and related work
 
-No hard dependencies. The accepted contract and [ADR 0010](../docs/adr/0010-explicit-export-and-safe-restore.md) define
+Blocked by the 2026-10-16 decision to postpone the whole export and recovery programme; see
+[ADR 0010's deferral](../docs/adr/0010-explicit-export-and-safe-restore.md#deferral--2026-10-16).
+Resume only after the recovery direction and this issue's scope/criteria have been reconsidered. The remaining
+relationships below describe the original plan and do not override this blocker.
+
+No hard dependencies. The deferred design and [ADR 0010](../docs/adr/0010-explicit-export-and-safe-restore.md) define
 version 1. [#0013](0013-safe-package-restore.md) consumes the format; its runtime restore is not required to ship export.
 
 ## Resolution
 
-Pending.
+Postponed on 2026-10-16, not implemented or rejected. Retain this issue and its unchecked criteria for reconsideration.
+Built-in Google Drive revision history is a candidate to evaluate when recovery planning resumes; it is not yet an
+accepted replacement. No active implementation commitment or deadline.

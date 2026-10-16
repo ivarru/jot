@@ -1,8 +1,19 @@
 # Use explicit export packages and safe restore
 
-Status: Accepted
+Status: Deferred (previously Accepted)
 
 Date: 2026-10-13
+
+## Deferral — 2026-10-16
+
+The export and recovery programme is postponed. Manual exports require repeated user effort and have not been
+established as the right primary recovery workflow. Google Drive's built-in revision history is a candidate to evaluate
+when recovery work resumes, before deciding whether a separate history store is needed. No replacement architecture
+has been adopted and no implementation is authorized by this deferred ADR.
+
+The original decision below is retained as historical design work, not an active implementation commitment. Revisit
+its scope and ordering before resuming any stage. Issues #0012–#0016 are blocked pending that reconsideration; their
+IDs and acceptance criteria are retained for review, not treated as an agreed delivery sequence.
 
 ## Context
 

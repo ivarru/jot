@@ -1,7 +1,7 @@
 ---
 id: "0013"
 title: "Restore export packages with preserved versions"
-status: open
+status: blocked
 type: feature
 priority: medium
 created: "2026-10-13"
@@ -43,10 +43,17 @@ for any changed Google provider behavior. No live Google account is needed for r
 
 ## Dependencies and related work
 
+Blocked by the 2026-10-16 decision to postpone the whole export and recovery programme; see
+[ADR 0010's deferral](../docs/adr/0010-explicit-export-and-safe-restore.md#deferral--2026-10-16).
+Resume only after the recovery direction and this issue's scope/criteria have been reconsidered. The remaining
+relationships below describe the original plan and do not override this blocker.
+
 No runtime prerequisite: a contract-conforming package fixture can drive implementation. Related [#0012](0012-local-draft-export.md)
 supplies the download producer. [#0015](0015-image-inclusive-recovery.md) extends the journal with image mappings later.
 Reuse Daily Note Upload helpers, but do not change ordinary upload semantics incidentally.
 
 ## Resolution
 
-Pending.
+Postponed on 2026-10-16, not implemented or rejected. Retain this issue and its unchecked criteria for reconsideration.
+Built-in Google Drive revision history is a candidate to evaluate when recovery planning resumes; it is not yet an
+accepted replacement. No active implementation commitment or deadline.
