@@ -96,10 +96,14 @@ _Avoid_: Tag index, synced tag database, note metadata
 A state where the local and remote versions of a **Daily Note** have both changed since the last successful save. A **Sync Conflict** preserves both versions in the **Daily Note** text using Git-style conflict markers.
 _Avoid_: Overwrite, failed save, silent merge
 
+**Markdown Snapshot**:
+Markdown text captured for one explicit **Daily Note** date at a particular moment. Its source may be the editor,
+a **Local Draft**, or remote storage. Subsequent edits or changes to the **Selected Date** do not change its captured
+text or date. Capturing a snapshot does not itself persist or synchronize it; the term alone implies neither.
+
 **Editor Snapshot**:
-The markdown text captured from the visible editor for one explicit **Daily Note** date at a particular moment.
-It may differ from the **Local Draft**. Capturing it does not persist it, and subsequent edits or changes to the
-**Selected Date** do not change its captured text or date. The live editor content continues to change independently.
+A **Markdown Snapshot** captured from the visible editor. It may differ from the **Local Draft**. The live editor
+content continues to change independently of the captured snapshot.
 _Avoid_: Uncommitted Local Draft, live snapshot
 
 **Local Draft**:
@@ -115,7 +119,7 @@ _Avoid_: Save, backup, upload
 
 **Daily Note Replication**:
 The safety-critical coordination of Local Draft persistence, Drive Sync, and visible editor state for one explicit date,
-markdown snapshot, and remote baseline. It must preserve dirty content and surface a Sync Conflict rather than silently
+**Markdown Snapshot**, and remote baseline. It must preserve dirty content and surface a Sync Conflict rather than silently
 replace a newer Daily Note.
 _Avoid_: Sync pipeline, sync service, note save
 

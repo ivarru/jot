@@ -9,37 +9,38 @@ or Recovery Snapshots are implemented by this documentation change. Current sync
 
 | Stage | User outcome | Limits and owner |
 | --- | --- | --- |
-| 1 | Download Local Drafts without connectivity or successful sync. | This browser's captured drafts only; images and remote inventory unavailable. [#0012](../issues/0012-local-draft-export.md). |
+| 1 | Export Local Drafts without connectivity or successful sync. | This browser's captured drafts only; images and remote inventory unavailable. [#0012](../issues/0012-local-draft-export.md). |
 | 2 | Preview and restore package markdown, preserving content before replacement. | Text restoration; missing images remain explicit. [#0013](../issues/0013-safe-package-restore.md). |
 | 3 | Export discovered remote files together with local drafts and divergent versions. | Individually captured versions, not a global point-in-time snapshot. [#0014](../issues/0014-remote-collection-export.md). |
 | 4 | Package referenced image bytes and restore them to a destination account. | Requires verified provider capabilities; no promise to recover unavailable bytes. [#0015](../issues/0015-image-inclusive-recovery.md). |
 | Separate evaluation | Decide whether automatic recovery history is justified. | Not a prerequisite for stages 1–4. [#0016](../issues/0016-recovery-history-policy.md). |
 
-The first deliverable is a local package download, not a complete collection backup. Independent recovery means the
-package is kept outside browser storage and can supply the included content without reading the original account.
+The first deliverable is a Local Draft export, not a complete collection backup. Export packages captured content into
+a portable file; the browser delivers that file through its download mechanism, even when all content is already local.
+Independent recovery means the package is kept outside browser storage and can supply the included content without
+reading the original account.
 It does not mean automated scheduling, redundant storage, encryption, or survival of losing the exported file.
 A download event establishes that the browser offered the package, not that the user retained or tested it.
 
 ## Capture and selection
 
-A Local Draft is already successfully persisted; there is no uncommitted Local Draft. An Editor Snapshot awaiting
-persistence and a pending Local Draft write are distinct from the Local Draft itself. At the storage boundary,
-successful persistence means the IndexedDB transaction completed, not merely that its write request succeeded.
-Dirty describes pending Drive Sync, not pending local persistence. See [CONTEXT.md](../CONTEXT.md).
+Markdown Snapshot, Editor Snapshot, and Local Draft follow the definitions in [CONTEXT.md](../CONTEXT.md).
 
-A **markdown snapshot** is the broader technical term for captured markdown paired with an explicit Daily Note date.
-Its source may be the editor, a Local Draft, or remote storage. An **Editor Snapshot** specifically captures visible
-editor content at one moment; it is separate from the changing live editor. Neither term by itself establishes local
-persistence or successful sync. Subsequent edits and navigation do not change a snapshot's captured text or date.
-
-Export is read-only: it does not flush edits, merge conflicts, change a Local Draft baseline, start sync, or mark any
-content saved. At invocation, capture the visible editor's explicit `IsoDate`, markdown and editor generation, plus
+Both Local Draft export (stage 1) and remote collection export (stage 3) leave their source data unchanged: neither
+flushes edits, merges conflicts, changes a Local Draft baseline, starts sync, nor marks content saved. Stage 3 also
+leaves remote files unchanged, including duplicates. Creating the export package is separate from writing to those
+sources. At invocation, capture the visible editor's explicit `IsoDate`, markdown and editor generation, plus
 account/session generation. Capture all Local Draft records in one readonly IndexedDB transaction and use the result
 only after transaction completion. Include clean, dirty, and empty records, including dirty empty local-only dates;
-`listExistingDailyNoteDates` and `listDirty` alone cannot supply this inventory. Do not hold editing locks during download.
+`listExistingDailyNoteDates` and `listDirty` alone cannot supply this inventory. Do not hold editing locks during export.
 
-The package distinguishes the editor capture time from the local transaction capture time. An Editor Snapshot is an
-additional version if it differs from the captured Local Draft; it is never silently substituted for durable content.
+The package records two capture times: when it captures the Editor Snapshot, and when the transaction reading the
+Local Drafts completes (the **Local Draft capture time**). The latter marks completion of the storage read, not the
+exact instant each record was read. Local persistence may occur between the two captures, so they need not contain
+the same version of a Daily Note.
+
+An Editor Snapshot is an additional version if it differs from the captured Local Draft; it is never silently
+substituted for durable content.
 An absent Local Draft does not turn visible content into a Local Draft.
 
 | Available versions for a date | Primary `notes/YYYY-MM-DD.md` | Preserved alternatives and report |
@@ -83,7 +84,7 @@ This is a set of individually captured versions during a reported time interval.
 snapshot. Inventory completeness is `enumerated`, `partial`, or `not-requested`; note capture is independently
 `complete-for-inventory` or `partial`. Failed pagination makes the inventory partial even if every discovered file was
 read. Offline local export says remote inventory `not-requested`. A collection export with failures may be downloaded
-only through an explicit **Download partial export** action with the failures shown.
+only through an explicit **Export available content** action with the failures shown.
 
 ## Package version 1
 
@@ -127,7 +128,7 @@ not permission to delete it. External image URLs and other external resources re
 Report inventory, markdown, metadata and image coverage separately, with counts and per-entry reasons. Only label
 referenced-image recovery independent when every referenced Jot image has usable metadata and verified packaged bytes;
 ordinary external image links still have external dependencies. Never collapse these dimensions into a bare “complete
-backup” message. A package contains personal text and potentially provenance/provider identifiers; download is explicit,
+backup” message. A package contains personal text and potentially provenance/provider identifiers; export is explicit,
 unencrypted in version 1, and never automatically uploaded or added to diagnostics.
 
 ## Safe package restore
@@ -206,7 +207,7 @@ reference resolution; provider transformations must be disclosed and cannot sile
 | --- | --- | --- |
 | Browser-local automatic history | Possible bounded per-date history; lost with storage clearing/eviction and shares the account-local privacy boundary. Retention limits and purge UI require #0016. | Would be best-effort, with visible failures; does not block ordinary sync. Not an independent backup. |
 | Provider-held immutable Recovery Snapshots | Separate append-only content records with explicitly designed retention/quota/deletion rules; account loss can remove both notes and history. | No adopted policy. #0016 must decide capture boundary and whether failure blocks sync before implementation. |
-| User-held export packages | Retained wherever the user keeps downloads; plaintext personal data and externally controlled deletion/retention. | Failed export never blocks sync. Captures only the reported scope; independence requires included bytes and a retained file. |
+| User-held export packages | Retained wherever the user keeps exported files; plaintext personal data and externally controlled deletion/retention. | Failed export never blocks sync. Captures only the reported scope; independence requires included bytes and a retained file. |
 
 Choose explicit packages plus mandatory preservation during restore now; defer automatic history. History does not make
 sync correctness optional, and storing another file in the same account is not account-independent recovery. #0016 owns
@@ -220,11 +221,11 @@ These are future executable checks, not results claimed by the design issue.
 | Scenario | Required observation | Layer/owner |
 | --- | --- | --- |
 | Offline dirty A and clean B | ZIP has both committed strings, dirty provenance and remote inventory not-requested. Restore into fresh storage compares exact non-empty markdown. | Unit/IndexedDB, download/import browser workflow; #0012/#0013. |
-| Pending/aborted A commit, then navigate to B | Captured A visible alternative and last committed A remain attached to A; B never receives A text. Failed inventory aborts download. | Controlled async integration and browser; #0012. |
+| Pending/aborted A commit, then navigate to B | Captured A visible alternative and last committed A remain attached to A; B never receives A text. Failed inventory aborts export. | Controlled async integration and browser; #0012. |
 | Empty/whitespace and literal `<br />`/code/fences | Empty records remain represented; export does not normalize. Restore previews whitespace canonicalization and preserves non-empty source despite enabled placeholder cleanup. | Unit plus browser round-trip; #0012/#0013. |
 | Dirty A, divergent remote A, Sync Conflict | All differing versions and markers retained; no implicit winner or sync acknowledgement change. | Integration and package assertions; #0014. |
 | Paginated remote inventory, duplicates, zero bytes, mid-read edits | No export writes/trash requests; every discovered file accounted for, drift/failures reported; no global snapshot claim. | Mocked fetch URLs/methods/auth/bodies/preconditions/settings invariance; #0014. |
-| Metadata present, image bytes unavailable, external image URL | Text/metadata coverage distinct from images; partial download and restore limitations explicit. | Provider mocks and browser workflow; #0014/#0015. |
+| Metadata present, image bytes unavailable, external image URL | Text/metadata coverage distinct from images; partial export and restore limitations explicit. | Provider mocks and browser workflow; #0014/#0015. |
 | Fresh destination account without original account | Packaged bytes produce new provider metadata, retained Jot IDs and resolvable references; packaged image hashes verified. | Fake-provider round-trip, mocked fetch and manual external check; #0015. |
 | ID collision and literal `jot:image:` in code | Explicit remap changes only imported reference destinations; existing notes and literal code unchanged. Retry uses same mapping. | Parser/property tests and browser workflow; #0015. |
 | Existing newer A, edit while preview open, second tab owns A | Default skip; stale decision rejected; prior versions committed before an authorized replacement; conditional sync conflict preserves divergence. | Integration, shared-tab browser and stale-date regression; #0013. |
