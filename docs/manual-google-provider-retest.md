@@ -6,6 +6,12 @@ Services; it does not replace this provider-level check.
 
 ## Setup
 
+Keep the dedicated test account's email in `.env.google-test.local` as
+`JOT_GOOGLE_TEST_ACCOUNT_EMAIL`. This file is excluded by the repository's `.env.*` ignore rule; never copy its value
+into tracked documentation, fixtures, or test reports. This is a local testing setting, not a `VITE_` variable, and must
+not be bundled into the app. It identifies the account only; Google sign-in and API authorization are still required.
+Do not store passwords, verification codes, or access tokens in this file.
+
 1. Build with the Google client ID in the shell environment:
 
    ```sh
@@ -27,6 +33,27 @@ Services; it does not replace this provider-level check.
 4. Confirm Google consent includes Drive file access, Google Photos Picker access, append-only Google Photos Library access, and app-created Google Photos read access.
 
 ## Drive Synchronization
+
+### Markdown search experiment (2026-10-16)
+
+A live Drive API probe used the development OAuth client with `drive.file` access on the dedicated test account.
+It created a `text/markdown` file and a `text/plain` control using multipart uploads, each containing a unique
+body-only token absent from filenames and metadata. Queries used `files.list` with
+`trashed = false and fullText contains '<token>'`. Files were created in My Drive, outside Jot's Daily Notes folder.
+
+- Markdown matched on the first query after both uploads, and at 5, 15, 30, 60, 120, and 180 seconds afterward.
+- The plain-text control initially did not match, then matched from the 5-second check onward.
+- A media PATCH replaced the Markdown body token. The first pair of queries matched both old and new tokens;
+  from 5 seconds through 120 seconds, only the new token matched.
+
+This establishes basic body-word indexing and a short stale-result window in one run, not an indexing latency
+guarantee. Query pairs are sequential, not atomic. Large notes, phrases, Norwegian-word matching, folder-restricted
+queries, existing Daily Notes, and repeatability across accounts or days were not tested. The probe used the same
+MIME type, API upload modes, and scope as Jot, but did not run through Jot's storage provider itself.
+The two disposable probe files were retained in the test account for inspection. No credentials or account identifiers
+belong in this evidence.
+
+### Synchronization checklist
 
 1. Make a distinctive edit to today's Daily Note and confirm the status returns to `Synced`.
 2. Confirm the matching `YYYY-MM-DD.md` file under Drive `jot/Daily Notes` contains the edit.
