@@ -134,6 +134,7 @@ interface MarkdownSelectionMarkers {
 let cursorMarkerSequence = 0;
 
 export interface MilkdownEditorController {
+  readonly documentKey: string;
   readonly applyRawMarkdown: (markdown: string) => void;
   readonly applyStructuralTab: (shiftKey: boolean) => boolean;
   readonly closeHistory: () => void;
@@ -900,6 +901,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           };
           activeSession = session;
           props.onController?.({
+            documentKey,
             applyRawMarkdown: (markdown) => {
               session?.applyExternalMarkdown(markdown, true);
             },

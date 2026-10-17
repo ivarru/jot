@@ -55,6 +55,7 @@ export interface DailyNoteReplication {
   readonly loadSelectedDate: (date: IsoDate) => Promise<void>;
   readonly loadSelectedDateFromLocalDraft: (date: IsoDate) => Promise<void>;
   readonly refreshCleanSelectedDate: (date: IsoDate) => Promise<void>;
+  readonly waitForCleanRefresh: (date: IsoDate) => Promise<void>;
   readonly persistVisibleLocalDraft: (snapshot: VisibleDailyNoteSnapshot) => Promise<void>;
   readonly saveAndSyncSnapshot: (
     snapshot: VisibleDailyNoteSnapshot,
@@ -197,6 +198,12 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
     } finally {
       finishCleanRefreshBarrier(date, barrier);
     }
+  };
+
+  // Observe the existing barrier without initiating another refresh or altering replication state.
+  const waitForCleanRefresh = async (date: IsoDate): Promise<void> => {
+    let barrier: CleanRefreshBarrier | undefined;
+    while ((barrier = cleanRefreshBarriers.get(date)) !== undefined) await barrier.promise;
   };
 
   const refreshCleanSelectedDate = async (date: IsoDate): Promise<void> => {
@@ -539,6 +546,7 @@ export function createDailyNoteReplication(input: DailyNoteReplicationInput): Da
     loadSelectedDate,
     loadSelectedDateFromLocalDraft,
     refreshCleanSelectedDate,
+    waitForCleanRefresh,
     persistVisibleLocalDraft,
     saveAndSyncSnapshot,
     saveCurrentEditorSnapshot,

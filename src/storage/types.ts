@@ -36,6 +36,8 @@ export type SaveDailyNoteResult =
     };
 
 export interface RemoteStorageProvider {
+  listTagIndexes?(): Promise<readonly string[]>;
+  loadTagIndex?(tag: string): Promise<string>;
   maintainTagIndex?(signal: AbortSignal): Promise<void>;
   loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null>;
   loadDailyNoteSearchPreview?(result: DailyNoteSearchResult): Promise<string>;

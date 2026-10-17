@@ -56,6 +56,7 @@ export interface DelayedDirtyList {
 }
 
 const routeTestState = vi.hoisted(() => ({
+  tagIndexFiles: {} as Record<string, string>,
   drafts: new Map<string, LocalDraft>(),
   delayedDraftLoad: null as DelayedDraftLoad | null,
   delayedClearAll: null as DelayedClearAll | null,
@@ -261,6 +262,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
       readonly onChange: (documentKey: string, markdown: string) => void;
       readonly onBlur: (documentKey: string, markdown: string) => void;
       readonly onController?: (controller: {
+        readonly documentKey: string;
         readonly applyRawMarkdown: (markdown: string) => void;
         readonly applyStructuralTab: (shiftKey: boolean) => boolean;
         readonly closeHistory: () => void;
@@ -404,6 +406,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
       };
 
       props.onController?.({
+        get documentKey() { return props.documentKey; },
         applyRawMarkdown: recordControllerMarkdown,
         applyStructuralTab,
         closeHistory: () => undefined,
@@ -606,6 +609,9 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
   const { GoogleAccessTokenUnavailableError } = await vi.importActual<typeof import("~/auth/googleIdentity")>("~/auth/googleIdentity");
 
   class FakeRemoteStorageProvider {
+    async listTagIndexes() { return Object.keys(routeTestState.tagIndexFiles).sort(); }
+    async loadTagIndex(tag: string) { return routeTestState.tagIndexFiles[tag] ?? ""; }
+
     async searchDailyNotes() {
       return Array.from(routeTestState.drafts.keys()).sort().reverse().map((date) => ({
         date, fileId: date, modifiedTime: "2030-01-01T00:00:00.000Z", sizeBytes: "1"
@@ -709,6 +715,7 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
 });
 
 export function resetRouteTestState(): void {
+  routeTestState.tagIndexFiles = {};
   routeTestState.drafts.clear();
   routeTestState.delayedDraftLoad = null;
   routeTestState.delayedClearAll = null;

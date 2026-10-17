@@ -18,6 +18,20 @@ interface StoredJotImageAlbum {
 }
 
 export class FakeRemoteStorageProvider implements RemoteStorageProvider {
+  private async tagIndexFiles(): Promise<Record<string, string>> {
+    assertFakeRemoteAvailable();
+    const index = await withStore<{ files: Record<string, string> } | undefined>("settings", "readonly", (store) => store.get("fake-tag-index"));
+    return index?.files ?? {};
+  }
+  async listTagIndexes(): Promise<readonly string[]> {
+    return Object.keys(await this.tagIndexFiles()).map((name) => name.slice(0, -3)).sort();
+  }
+  async loadTagIndex(tag: string): Promise<string> {
+    const content = (await this.tagIndexFiles())[`${tag}.md`];
+    if (content === undefined) throw new Error("This tag index is no longer available. Refresh the tag list and try again.");
+    return content;
+  }
+
   async maintainTagIndex(signal: AbortSignal): Promise<void> {
     assertFakeRemoteAvailable();
     const settings = normalizeJotSettings(await this.loadSettings());

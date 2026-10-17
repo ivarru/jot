@@ -206,3 +206,14 @@ external services. See [manual-google-provider-retest.md](manual-google-provider
 `src/storage/googleDriveTagIndex.test.ts` exercises authenticated mocked Drive metadata/media and conditional writes.
 `tests/browser/workflows/tag-index.spec.ts` covers settings persistence and regeneration, external tag removal,
 date A/B navigation with pending edits, and offline maintenance recovery against fake storage.
+
+Tag browsing adds `src/domain/tagIndexNavigation.test.ts` for ordinal/stale-target resolution and
+`src/components/TagIndexDialog.test.tsx` for late-response cancellation and retry behavior. Route tests retain
+pending-note date boundaries when a tag navigation is superseded. The browser workflow in
+`tests/browser/workflows/browse-tags.spec.ts` covers duplicate instances, raw/WYSIWYG selection and scrolling,
+phone layout, focus restoration, non-navigating excerpt links, outages, and ambiguous/missing stale instances.
+
+Cached-note tag navigation coverage waits for the existing clean-refresh barrier before consuming its target.
+Route tests cover tags added/moved remotely and cancellation during cached/uncached loads; the focused lifecycle
+observer test ensures no duplicate load and no cross-date wait. Browse-tag browser workflows cover clean cached
+content being refreshed before selection in both raw and WYSIWYG modes.

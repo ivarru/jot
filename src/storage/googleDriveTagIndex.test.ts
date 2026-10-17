@@ -217,3 +217,31 @@ it("concurrent provider instances converge without losing another date's entries
   expect(f.indexes()[0]!.content).toBe("2030-02-01 Changed  \n2030-02-02 Other date  \n");
   expect(f.files.get("note-b")!.content).toBe("Other date [#work](jot:tag/work)");
 });
+
+it("browses tag files read-only across duplicate folders and reads the maintenance-canonical match", async () => {
+  const f = fixture();
+  f.add("folder-a", "tag-index", "jot", "", folderType);
+  f.add("folder-b", "tag-index", "jot", "", folderType);
+  f.add("work-z", "work.md", "folder-a", "2030-02-02 Later  \n");
+  f.add("work-a", "work.md", "folder-b", "2030-02-01 Canonical  \n");
+  f.add("api", "api.md", "folder-a", "2030-02-01 API  \n");
+  f.add("invalid", "../work.md", "folder-a", "ignored");
+  await expect(f.provider.listTagIndexes()).resolves.toEqual(["api", "work"]);
+  await expect(f.provider.loadTagIndex("work")).resolves.toBe("2030-02-01 Canonical  \n");
+  expect(f.requests.every((request) => request.method === "GET")).toBe(true);
+  expect(f.requests.every((request) => request.headers.get("Authorization") === "Bearer test-token")).toBe(true);
+  expect(f.requests.at(-1)!.url.pathname).toBe("/drive/v3/files/work-a");
+  expect(f.requests.at(-1)!.url.searchParams.get("alt")).toBe("media");
+  expect(f.requests.filter((request) => request.url.searchParams.get("q")?.includes("work.md"))
+    .every((request) => request.url.searchParams.get("q")!.includes("mimeType = 'text/markdown'"))).toBe(true);
+  const count = f.requests.length;
+  await expect(f.provider.loadTagIndex("../work")).rejects.toThrow("Invalid tag");
+  expect(f.requests).toHaveLength(count);
+  await expect(f.provider.loadTagIndex("missing")).rejects.toThrow("no longer available");
+});
+
+it("returns an empty tag list when folders are absent without creating them", async () => {
+  const f = fixture(); f.files.clear();
+  await expect(f.provider.listTagIndexes()).resolves.toEqual([]);
+  expect(f.requests.map((request) => request.method)).toEqual(["GET"]);
+});

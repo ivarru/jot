@@ -1,3 +1,6 @@
+import { TagIndexDialog } from "~/components/TagIndexDialog";
+import { scrollRawSelection } from "~/components/scrollRawSelection";
+import { resolveTagIndexTarget, type TagIndexTarget } from "~/domain/tagIndexNavigation";
 import { createTagIndexMaintenance, type TagIndexMaintenanceStatus } from "~/features/tagIndex/maintenance";
 import { dailyNoteMatchesSearch } from "~/domain/dailyNoteSearch";
 import { DailyNoteSearchDialog } from "~/components/DailyNoteSearchDialog";
@@ -329,6 +332,9 @@ export default function Home() {
   const [settings, setSettings] = createSignal<JotSettings>(initialSettings);
   const [settingsLoaded, setSettingsLoaded] = createSignal(false);
   const [syncDiagnosticsCopyMessage, setSyncDiagnosticsCopyMessage] = createSignal<string | null>(null);
+  const [tagIndexOpen, setTagIndexOpen] = createSignal(false);
+  const [pendingTagNavigation, setPendingTagNavigation] = createSignal<TagIndexTarget | null>(null);
+  const [tagNavigationMessage, setTagNavigationMessage] = createSignal<string | null>(null);
   const [searchOpen, setSearchOpen] = createSignal(false);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const closeSettings = () => {
@@ -400,6 +406,7 @@ export default function Home() {
   const [editorChangeEpoch, setEditorChangeEpoch] = createSignal(0);
   let insertImageMenuElement: HTMLDivElement | undefined;
   let milkdownController: MilkdownEditorController | null = null;
+  const [tagEditorController, setTagEditorController] = createSignal<MilkdownEditorController | null>(null);
   let plainTextEditorElement: HTMLTextAreaElement | null = null;
   let pendingEditorModeSelection: MarkdownSelection | null | undefined;
   let pendingFormattingToolbarSelection: MarkdownSelection | null | undefined;
@@ -1414,6 +1421,8 @@ export default function Home() {
   createEffect(() => {
     const onHashChange = () => {
       const route = routeFromHash();
+      if (route.date !== selectedDate()) setTagNavigationMessage(null);
+      if (pendingTagNavigation()?.date !== route.date) setPendingTagNavigation(null);
       setSelectedDate(route.date);
       setInvalidDate(route.invalidDate);
       setPendingSectionLinkNavigation(
@@ -1443,6 +1452,37 @@ export default function Home() {
       { defer: true }
     )
   );
+
+  createEffect(on(() => [selectedDate(), loadedDate(), markdown(), pendingTagNavigation(), editorMode(), tagEditorController()] as const,
+    ([date, loaded, , target, mode, controller]) => {
+      if (!target || date !== target.date || loaded !== date) return;
+      if (mode === "wysiwyg" && controller?.documentKey !== date) return;
+      let active = true;
+      onCleanup(() => { active = false; });
+      // Wait for both the existing refresh and the target editor; focus without reinitializing its document.
+      void dailyNoteReplication.waitForCleanRefresh(date).then(() => batch(() => {
+        if (!active || selectedDate() !== date || loadedDate() !== date || pendingTagNavigation() !== target) return;
+        const source = markdown();
+        const result = resolveTagIndexTarget(source, target);
+        setPendingTagNavigation(null);
+        if (result.status !== "found") {
+          setTagNavigationMessage(result.status === "ambiguous"
+            ? "This indexed occurrence is ambiguous in the current note. The note is open; locate the tag here or refresh the index."
+            : "This indexed occurrence could not be found in the current note. The note is open; refresh or rebuild the index.");
+          return;
+        }
+        setFocusEditorAtEnd(false);
+        setFocusEditorSelection(result.selection);
+        // Wait for the editor's focus/resize frame, carrying the explicit snapshot; navigation cancels stale scrolling.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (selectedDate() !== date || loadedDate() !== date || markdown() !== source || editorMode() !== "text") return;
+          const element = plainTextEditorElement;
+          if (element?.selectionStart === result.selection.start && element.selectionEnd === result.selection.end) {
+            scrollRawSelection(element, source, result.selection);
+          }
+        }));
+      }));
+    }));
 
   const eventOriginatesInEditor = (event: Event): boolean => {
     const target = event.target;
@@ -1704,7 +1744,9 @@ export default function Home() {
     )
   );
 
-  const navigateToDate = async (date: IsoDate, headingSlug: string | null = null) => {
+  const navigateToDate = async (date: IsoDate, headingSlug: string | null = null, tagTarget: TagIndexTarget | null = null) => {
+    setPendingTagNavigation(null);
+    setTagNavigationMessage(null);
     datePicker.close();
     existingNoteDates.cancel();
     const leaving = flushCurrentVisibleEditorSnapshot();
@@ -1729,8 +1771,10 @@ export default function Home() {
     const nextHash = dailyNoteRouteHash(date, headingSlug);
     if (window.location.hash === nextHash) {
       setPendingSectionLinkNavigation(headingSlug === null ? null : { date, headingSlug });
+      setPendingTagNavigation(tagTarget);
       return;
     }
+    setPendingTagNavigation(tagTarget);
     window.location.hash = nextHash.slice(1);
   };
 
@@ -3685,6 +3729,10 @@ export default function Home() {
                       searchReturnFocus = settingsReturnFocus;
                       setSearchOpen(true);
                     }}>Search daily notes</button>
+                    <button type="button" role="menuitem" onClick={() => {
+                      setTopMenuOpen(false);
+                      setTagIndexOpen(true);
+                    }}>Browse tags</button>
                     <button
                       type="button"
                       role="menuitem"
@@ -4179,6 +4227,21 @@ export default function Home() {
             </aside>
           </Show>
 
+          <Show when={tagNavigationMessage()}>{(message) => <aside class="sync-alert" role="status" aria-label="Tag navigation">
+            <p>{message()}</p><button type="button" onClick={() => setTagNavigationMessage(null)}>Dismiss</button>
+          </aside>}</Show>
+
+          <Show when={tagIndexOpen()}>
+            <TagIndexDialog
+              listTags={() => runtime.remote.listTagIndexes?.() ?? Promise.reject(new Error("Tag browsing is unavailable for this connection."))}
+              loadIndex={(tag) => runtime.remote.loadTagIndex?.(tag) ?? Promise.reject(new Error("Tag browsing is unavailable for this connection."))}
+              onSelect={(target) => void navigateToDate(target.date, null, target)}
+              onClose={(restoreFocus = true) => {
+                setTagIndexOpen(false);
+                if (restoreFocus) queueMicrotask(() => settingsReturnFocus?.focus());
+              }} />
+          </Show>
+
           <DailyNoteUploadSurfaces workflow={dailyNoteUpload} />
 
           <Show when={searchOpen()}>
@@ -4486,6 +4549,11 @@ export default function Home() {
                   onBlur={handleEditorBlur}
                   onController={(controller) => {
                     milkdownController = controller;
+                    if (controller === null) setTagEditorController(null);
+                    else queueMicrotask(() => {
+                      // The controller carries its explicit document key; wait until its initial focus completes.
+                      if (milkdownController === controller) setTagEditorController(controller);
+                    });
                     refreshEditorHistoryAvailability();
                     refreshEditorFormatState();
                   }}

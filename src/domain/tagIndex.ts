@@ -24,6 +24,7 @@ export interface TagIndexOccurrence {
   readonly date: IsoDate;
   /** UTF-16 source offset; recompute against the current note before navigation. */
   readonly offset: number;
+  readonly endOffset: number;
   readonly excerpt: string;
 }
 
@@ -94,7 +95,7 @@ export function extractTagIndexOccurrences(date: IsoDate, source: string, maxCha
         && plainText(inline(candidate, Infinity)).trim() && plainText(inline(candidate, Infinity)).trim() !== "Tags:");
       context = previous ? inline(previous, Infinity) : [];
     }
-    return [{ tag, date, offset, excerpt: serializeExcerpt(context, maxCharacters) }];
+    return [{ tag, date, offset, endOffset: node.position?.end.offset ?? offset, excerpt: serializeExcerpt(context, maxCharacters) }];
   }).sort((a, b) => a.offset - b.offset);
 }
 

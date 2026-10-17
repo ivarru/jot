@@ -8,6 +8,8 @@ describe("FakeRemoteStorageProvider", () => {
     window.localStorage.setItem("jot.fakeRemoteUnavailable", "true");
     try {
       await expect(provider.loadDailyNote("2030-02-02")).rejects.toThrow("Fake remote storage is unavailable.");
+      await expect(provider.listTagIndexes()).rejects.toThrow("Fake remote storage is unavailable.");
+      await expect(provider.loadTagIndex("work")).rejects.toThrow("Fake remote storage is unavailable.");
       await expect(provider.listDailyNoteDates()).rejects.toThrow("Fake remote storage is unavailable.");
       await expect(provider.saveDailyNote({
         date: "2030-02-02", markdown: "offline", expectedRevisionId: null
@@ -52,5 +54,8 @@ it("keeps fake derived indexes separate and rebuilds them from saved settings an
   await provider.maintainTagIndex(new AbortController().signal);
   expect(await withStore("settings", "readonly", (store) => store.get("fake-tag-index")))
     .toEqual({ id: "fake-tag-index", files: { "work.md": "2030-02-01 Ori…  \n" } });
+  await expect(provider.listTagIndexes()).resolves.toEqual(["work"]);
+  await expect(provider.loadTagIndex("work")).resolves.toBe("2030-02-01 Ori…  \n");
+  await expect(provider.loadTagIndex("missing")).rejects.toThrow("no longer available");
   expect((await provider.loadDailyNote("2030-02-01"))?.markdown).toBe("Original [#work](jot:tag/work)");
 });

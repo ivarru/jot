@@ -69,7 +69,7 @@ as the tag identity; the visible link label is presentation.
 Jot maintains derived Markdown files under `jot/tag-index/` in Google Drive, one `<canonical-name>.md` per tag.
 Daily Note Markdown remains the source of truth. Index files are generated and may be replaced or trashed during
 maintenance; do not use them to edit tags or store additional content. The Tag Suggestion Catalog remains separate.
-Browsing these indexes and jumping to occurrences is planned separately in local issue #0019.
+Use **Browse tags** in the app menu to browse these indexes and jump to a tag instance.
 
 Each occurrence occupies one physical line, starting with the note's `YYYY-MM-DD` date and a space followed by its
 excerpt. Two trailing spaces make entries render on separate lines in Markdown. Date-only entries are permitted.
@@ -116,3 +116,27 @@ fresh source/target metadata, with up to three attempts per pass; continued chan
 Indexes are therefore eventually consistent while a signed-in page can reach Drive. They can temporarily be stale
 or partially rebuilt, particularly while offline or during concurrent edits. Reopening Jot or rebuilding reconciles
 all app-visible synced notes with the current saved limit. Drive's existing `drive.file` access rules still apply.
+
+## Browsing tag instances
+
+Open **Browse tags** from the menu, optionally filter the tag names, then choose a tag. The list shows ISO dates,
+formatted excerpts, and an instance number within each date, in index order. Every row is a button that opens the
+Daily Note and selects/scrolls to that particular Reference Tag. Excerpt links retain their styling but do not
+navigate; activating them opens the row's tag instance. The list works with keyboard Tab/Enter and on narrow screens.
+Escape or the close button returns focus to the menu button. Refresh reloads tag names; choosing a tag reloads its
+index. Empty or unavailable data has a message and retry controls; missing indexes can be rebuilt in Settings.
+
+Opening a row goes through normal Daily Note navigation and preserves pending edits. It also works within the
+already open note and in both WYSIWYG and raw Markdown modes. The indexed list still describes synced content;
+target resolution uses the current loaded note, which may include local edits. If a clean cached note is still
+refreshing from Drive, navigation waits for that existing refresh before resolving the instance; it does not consume
+the target against the older cached content or start a duplicate refresh. WYSIWYG navigation also waits for the
+target editor to finish its initial focus, so initialization cannot override the jump.
+
+The resolver compares the current tag/excerpt sequence with the indexed sequence for that date. If they match,
+the row's ordinal selects the instance, including repeated identical excerpts. If the sequence changed, it can
+relocate a uniquely matching context, allowing formatting changes and the excerpt's original clipping limit. It
+refuses to guess when matching contexts are ambiguous or an indexed duplicate may have been removed. The note
+still opens, with an explicit notice when the selected instance cannot be resolved. Refresh/rebuild the index or
+locate the tag in that note. The plain index format cannot distinguish an undetectable reorder of identical
+instances whose count and excerpt sequence remain identical; their current document order defines their ordinals.

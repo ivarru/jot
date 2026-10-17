@@ -45,6 +45,29 @@ describe("Daily Note Replication lifecycle", () => {
     });
   });
 
+  it("lets navigation await a cached note's refresh without starting another remote load", async () => {
+    const drafts = new MemoryDraftStore();
+    await drafts.save(createDraft(DATE, "cached", "cached", "revision-1", false));
+    const remote = new DelayedLoadRemoteStorageProvider({
+      date: DATE, markdown: "refreshed", revisionId: "revision-2", updatedAt: "2030-01-02T00:00:00Z"
+    });
+    const harness = createHarness({ drafts, remote });
+    const loading = harness.sync.loadSelectedDateFromLocalDraft(DATE);
+    await remote.loadStarted.promise;
+    let complete = false;
+    const waiting = harness.sync.waitForCleanRefresh(DATE).then(() => { complete = true; });
+    await Promise.resolve();
+    expect(complete).toBe(false);
+    expect(harness.state.markdown).toBe("cached");
+    await harness.sync.waitForCleanRefresh("2030-02-03");
+    expect(complete).toBe(false);
+    remote.finishLoad();
+    await Promise.all([loading, waiting]);
+    expect(complete).toBe(true);
+    expect(harness.state.markdown).toBe("refreshed");
+    expect(remote.loadInputs).toEqual([DATE]);
+  });
+
   it("refreshes a selectively retained caret line through its canonical snapshot", async () => {
     const drafts = new MemoryDraftStore();
     await drafts.save(createDraft(DATE, "before", "before", "revision-1", false));

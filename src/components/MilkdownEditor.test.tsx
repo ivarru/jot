@@ -140,6 +140,7 @@ describe("MilkdownEditor", () => {
     try {
       await waitForEditable(host);
       await animationFrame();
+      expect(controller.documentKey).toBe("2030-02-02");
       const selection = controller.getSelection();
       expect(selection?.start).toBe(cursor);
       setMarkdown(`${before}* Last phone edit\n`);

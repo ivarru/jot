@@ -102,6 +102,33 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     private readonly fetchFn: FetchLike = globalThis.fetch.bind(globalThis)
   ) {}
 
+  private async tagIndexFolders(): Promise<DriveFile[]> {
+    // Browsing is read-only: no folder or instruction-file creation.
+    const jot = await this.findSingleFile({ parentId: "root", name: JOT_FOLDER_NAME,
+      mimeType: FOLDER_MIME_TYPE, description: "Jot Folder" });
+    return jot ? await this.listFiles(jot.id, "tag-index", FOLDER_MIME_TYPE) : [];
+  }
+
+  async listTagIndexes(): Promise<readonly string[]> {
+    const tags = new Set<string>();
+    for (const folder of await this.tagIndexFolders()) {
+      for (const file of await this.listFilesByQuery({ parentId: folder.id, mimeType: MARKDOWN_MIME_TYPE })) {
+        const tag = file.name.endsWith(".md") ? file.name.slice(0, -3) : "";
+        if (tag && normalizeJotTagName(tag) === tag) tags.add(tag);
+      }
+    }
+    return [...tags].sort();
+  }
+
+  async loadTagIndex(tag: string): Promise<string> {
+    if (!tag || normalizeJotTagName(tag) !== tag) throw new Error("Invalid tag name.");
+    const files: DriveFile[] = [];
+    for (const folder of await this.tagIndexFolders()) files.push(...await this.listFiles(folder.id, `${tag}.md`, MARKDOWN_MIME_TYPE));
+    const file = files.sort((a, b) => a.id.localeCompare(b.id))[0];
+    if (!file) throw new Error("This tag index is no longer available. Refresh the tag list and try again.");
+    return await this.downloadText(file.id);
+  }
+
   async maintainTagIndex(signal: AbortSignal): Promise<void> {
     signal.throwIfAborted();
     const { jotFolderId, dailyNotesFolderId } = await this.ensureFolders();
