@@ -18,11 +18,12 @@ This directory records durable architecture decisions for Jot. ADRs explain why 
 | [0004: Reference Image Attachments with markdown image syntax](0004-photo-attachment-references.md) | Accepted | Image Attachment references, metadata, and storage-provider identity separation. |
 | [0005: Host the static app on GitHub Pages](0005-github-pages-hosting.md) | Accepted | Hosting target and no-backend deployment constraints. |
 | [0006: Render List Bullets with CSS](0006-render-list-bullets-with-css.md) | Accepted | WYSIWYG list marker rendering and cross-platform font consistency. |
-| [0007: Reference Tags as Markdown Links](0007-reference-tags-as-markdown-links.md) | Accepted | Portable tag syntax, structural association, and suggestion-state boundaries. |
+| [0007: Reference Tags as Markdown Links](0007-reference-tags-as-markdown-links.md) | Partially superseded by 0012 | Portable tag syntax and structural association remain; suggestion-state boundaries replaced. |
 | [0008: Normalize Whitespace-Only Notes Prospectively](0008-normalize-whitespace-notes-prospectively.md) | Accepted | Whitespace normalization boundary and deliberate absence of a data migration. |
 | [0009: Concentrate Daily Note Replication](0009-concentrate-daily-note-replication.md) | Accepted | One public sync module with internal protocol, editor-session, and lifecycle seams. |
 | [0010: Use explicit export packages and safe restore](0010-explicit-export-and-safe-restore.md) | Deferred | Export/recovery programme postponed; original design retained for reconsideration, with follow-up issues blocked. |
 | [0011: Reconcile derived tag indexes independently](0011-reconcile-derived-tag-indexes.md) | Accepted | Rebuildable Markdown projections, safe clipping, independent retries, and eventual consistency. |
+| [0012: Share an index-backed tag catalog](0012-shared-index-backed-tag-catalog.md) | Accepted | Shared cached names, index-modification ordering, refresh and sign-out boundaries. |
 
 ## Maintenance
 

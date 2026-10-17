@@ -1,5 +1,5 @@
 This is the source template for the automatically managed Google Drive `jot/AGENTS.md` file; it is not repository guidance for coding agents.
-Template modified: 2026-10-16T19:00:00.000Z
+Template modified: 2026-10-17T12:00:00.000Z
 The generated Google Drive file starts after this marker.
 
 --- jot-drive-agents-content ---
@@ -14,7 +14,7 @@ Do not add personal agent directions here. They may be replaced by a future temp
 
 - `Daily Notes/` contains daily note Markdown files named `YYYY-MM-DD.md`.
 - `Image Attachments/` contains one JSON metadata file per image attachment, named `<jot-image-id>.json`.
-- `tag-index/` contains generated per-tag Markdown indexes named `<canonical-name>.md`.
+- `daily-notes-tag-index/` contains generated per-tag Markdown indexes named `<canonical-name>.md`.
 - `settings.json` stores app settings, including the tag index excerpt limit (default 200 characters).
 - `image-album.json` stores metadata for the managed Google Photos album.
 

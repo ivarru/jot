@@ -36,7 +36,7 @@ export type SaveDailyNoteResult =
     };
 
 export interface RemoteStorageProvider {
-  listTagIndexes?(): Promise<readonly string[]>;
+  listTagIndexes?(): Promise<readonly TagIndexSummary[]>;
   loadTagIndex?(tag: string): Promise<string>;
   maintainTagIndex?(signal: AbortSignal): Promise<void>;
   loadDailyNote(date: IsoDate): Promise<RemoteDailyNote | null>;
@@ -65,4 +65,9 @@ export interface LocalDraftStore {
   saveIfUnchanged(date: IsoDate, expected: LocalDraft | null, draft: LocalDraft): Promise<boolean>;
   remove(date: IsoDate): Promise<void>;
   clearAll(): Promise<void>;
+}
+
+export interface TagIndexSummary {
+  readonly tag: string;
+  readonly modifiedTime: string | null;
 }

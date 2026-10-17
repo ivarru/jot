@@ -53,9 +53,32 @@ it("keeps fake derived indexes separate and rebuilds them from saved settings an
   await provider.saveSettings({ ...DEFAULT_JOT_SETTINGS, tagIndexMaxCharacters: 4 });
   await provider.maintainTagIndex(new AbortController().signal);
   expect(await withStore("settings", "readonly", (store) => store.get("fake-tag-index")))
-    .toEqual({ id: "fake-tag-index", files: { "work.md": "2030-02-01 Ori…  \n" } });
-  await expect(provider.listTagIndexes()).resolves.toEqual(["work"]);
+    .toEqual({ id: "fake-tag-index", files: { "work.md": "2030-02-01 Ori…  \n" }, modifiedTimes: { "work.md": expect.any(String) } });
+  await expect(provider.listTagIndexes()).resolves.toEqual([{ tag: "work", modifiedTime: expect.any(String) }]);
   await expect(provider.loadTagIndex("work")).resolves.toBe("2030-02-01 Ori…  \n");
   await expect(provider.loadTagIndex("missing")).rejects.toThrow("no longer available");
   expect((await provider.loadDailyNote("2030-02-01"))?.markdown).toBe("Original [#work](jot:tag/work)");
+});
+
+it("preserves modification times for unchanged indexes and removes metadata with empty indexes", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    const provider = new FakeRemoteStorageProvider();
+    await withStore<undefined>("fakeRemoteNotes", "readwrite", (store) => store.clear());
+    vi.setSystemTime(new Date("2030-01-01T00:00:00Z"));
+    const saved = await provider.saveDailyNote({ date: "2030-02-01", markdown: "Work [#work](jot:tag/work)", expectedRevisionId: null });
+    await provider.maintainTagIndex(new AbortController().signal);
+    const before = await provider.listTagIndexes();
+    vi.setSystemTime(new Date("2030-01-02T00:00:00Z"));
+    await provider.maintainTagIndex(new AbortController().signal);
+    expect(await provider.listTagIndexes()).toEqual(before);
+    expect(saved.type).toBe("saved");
+    if (saved.type !== "saved") throw new Error("Expected note save");
+    await provider.saveDailyNote({ date: "2030-02-01", markdown: "Changed [#work](jot:tag/work)", expectedRevisionId: saved.note.revisionId });
+    await provider.maintainTagIndex(new AbortController().signal);
+    expect(await provider.listTagIndexes()).toEqual([{ tag: "work", modifiedTime: "2030-01-02T00:00:00.000Z" }]);
+    await withStore<undefined>("fakeRemoteNotes", "readwrite", (store) => store.clear());
+    await provider.maintainTagIndex(new AbortController().signal);
+    expect(await provider.listTagIndexes()).toEqual([]);
+  } finally { vi.useRealTimers(); }
 });

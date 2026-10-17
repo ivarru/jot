@@ -57,6 +57,7 @@ export interface DelayedDirtyList {
 
 const routeTestState = vi.hoisted(() => ({
   tagIndexFiles: {} as Record<string, string>,
+  tagIndexModifiedTimes: {} as Record<string, string>,
   maintainTagIndex: undefined as (() => Promise<void>) | undefined,
   drafts: new Map<string, LocalDraft>(),
   delayedDraftLoad: null as DelayedDraftLoad | null,
@@ -611,7 +612,7 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
 
   class FakeRemoteStorageProvider {
     get maintainTagIndex() { return routeTestState.maintainTagIndex; }
-    async listTagIndexes() { return Object.keys(routeTestState.tagIndexFiles).sort(); }
+    async listTagIndexes() { return Object.keys(routeTestState.tagIndexFiles).map((tag) => ({ tag, modifiedTime: routeTestState.tagIndexModifiedTimes[tag] ?? null })); }
     async loadTagIndex(tag: string) { return routeTestState.tagIndexFiles[tag] ?? ""; }
 
     async searchDailyNotes() {
@@ -718,6 +719,7 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
 
 export function resetRouteTestState(): void {
   routeTestState.tagIndexFiles = {};
+  routeTestState.tagIndexModifiedTimes = {};
   routeTestState.maintainTagIndex = undefined;
   routeTestState.drafts.clear();
   routeTestState.delayedDraftLoad = null;

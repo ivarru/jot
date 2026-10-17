@@ -89,17 +89,18 @@ _Avoid_: Hashtag, label metadata, custom inline node
 **Tag Index**:
 Derived, rebuildable Markdown files in the **Tag Index Folder**, one per canonical **Reference Tag**. Each dated
 entry describes an occurrence in synced **Daily Note** content, ordered by note date and source position. Indexes
-are eventually consistent and are separate from the browser-local **Tag Suggestion Catalog**.
+are eventually consistent. Their names and modification dates supply the shared **Tag Catalog**.
 _Avoid_: Source of truth, synced tag database, note metadata
 
 **Tag Index Folder**:
-The `tag-index` folder inside the **Jot Folder** containing generated per-tag Markdown files.
+The `daily-notes-tag-index` folder inside the **Jot Folder** containing generated per-tag Markdown files.
 
-**Tag Suggestion Catalog**:
-Browser-local convenience state containing previously encountered or inserted **Reference Tags**. Removing an entry
-from the catalog hides the suggestion without editing any **Daily Note**. Signing out clears the catalog so it cannot
-carry tag names or dismissals into another account.
-_Avoid_: Tag index, synced tag database, note metadata
+**Tag Catalog**:
+A browser-cached list of **Reference Tag** names and their index file modification dates, shared by browsing and
+insertion. It refreshes asynchronously from **Tag Index** metadata and defaults to most recently modified first,
+with alphabetical order available. Deleting an empty index removes the tag on refresh; individual suggestions
+cannot be dismissed. Signing out clears the cache and invalidates pending refreshes.
+_Avoid_: Source of truth, synced tag database, note metadata
 
 **Sync Conflict**:
 A state where the local and remote versions of a **Daily Note** have both changed since the last successful save. A **Sync Conflict** preserves both versions in the **Daily Note** text using Git-style conflict markers.

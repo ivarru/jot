@@ -77,3 +77,65 @@ test("a tag added immediately before leaving a note is indexed without editing t
   await expect(page.getByLabel("Selected date", { exact: true })).toHaveValue("2030-02-02");
   await expect.poll(async () => (await readFakeRemoteNote(page, "2030-02-02"))?.markdown ?? "").toBe("");
 });
+
+test("tag dialogs share cached ordering, refresh modified indexes, and drop deleted tags", async ({ page }) => {
+  await openDevelopmentStorage(page, "/#/date/2030-02-04", "disabled");
+  await seedDailyNoteState(page, { remote: { date: "2030-02-01", markdown: "Alpha [#alpha](jot:tag/alpha)", revisionId: "a", updatedAt: "2030-01-01T00:00:00Z" } });
+  await seedDailyNoteState(page, { remote: { date: "2030-02-02", markdown: "Zebra [#zebra](jot:tag/zebra)", revisionId: "z", updatedAt: "2030-01-01T00:00:00Z" } });
+  const config = await settings(page);
+  await config.getByRole("button", { name: "Rebuild tag index" }).click();
+  await expect.poll(async () => Object.keys(await readIndex(page)).sort()).toEqual(["alpha.md", "zebra.md"]);
+  await expect(config.getByRole("status")).toHaveText("Tag index is up to date.");
+  await page.getByRole("button", { name: "Close settings" }).click();
+  // Set distinct index modification dates independently of the note dates.
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve) => { const r = indexedDB.open("jot", 2); r.onsuccess = () => resolve(r.result); });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("settings", "readwrite"); const store = tx.objectStore("settings");
+      const read = store.get("fake-tag-index");
+      read.onsuccess = () => store.put({ ...read.result, modifiedTimes: { "alpha.md": "2020-01-01T00:00:00Z", "zebra.md": "2021-01-01T00:00:00Z" } });
+      tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+    }); db.close();
+  });
+  const browse = async () => {
+    await page.getByRole("button", { name: "Open menu" }).click();
+    await page.getByRole("menuitem", { name: "Browse tags", exact: true }).click();
+    return page.getByRole("dialog", { name: "Browse tags" });
+  };
+  const tags = await browse();
+  const indexed = tags.getByRole("navigation", { name: "Indexed tags" }).getByRole("button");
+  await expect(indexed).toHaveText(["#zebra", "#alpha"]);
+  await tags.getByRole("checkbox", { name: "Alphabetical order" }).check();
+  await expect(indexed).toHaveText(["#alpha", "#zebra"]);
+  await tags.getByRole("button", { name: "Close tags" }).click();
+  await page.getByRole("button", { name: "Add tag", exact: true }).click();
+  const add = page.getByRole("dialog", { name: "Add tag", exact: true });
+  await expect(add.getByRole("checkbox", { name: "Alphabetical order" })).toBeChecked();
+  await expect(add.locator(".tag-suggestion button")).toHaveText(["#alpha", "#zebra"]);
+  await expect(add.getByRole("button", { name: /Remove #/ })).toHaveCount(0);
+  await add.getByRole("checkbox", { name: "Alphabetical order" }).uncheck();
+  await expect(add.locator(".tag-suggestion button")).toHaveText(["#zebra", "#alpha"]);
+  await add.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.evaluate(() => localStorage.setItem("jot.fakeRemoteUnavailable", "true"));
+  await browse();
+  await expect(tags.getByRole("alert")).toContainText("unavailable");
+  await expect(indexed).toHaveText(["#zebra", "#alpha"]);
+  await tags.getByRole("button", { name: "Close tags" }).click();
+  await page.getByRole("button", { name: "Add tag", exact: true }).click();
+  await expect(add.getByRole("alert")).toContainText("unavailable");
+  await expect(add.locator(".tag-suggestion button")).toHaveText(["#zebra", "#alpha"]);
+  await add.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.evaluate(() => localStorage.removeItem("jot.fakeRemoteUnavailable"));
+  await seedDailyNoteState(page, { remote: { date: "2030-02-01", markdown: "Changed Alpha [#alpha](jot:tag/alpha)", revisionId: "a2", updatedAt: "2030-01-02T00:00:00Z" } });
+  await seedDailyNoteState(page, { remote: { date: "2030-02-02", markdown: "Removed", revisionId: "z2", updatedAt: "2030-01-02T00:00:00Z" } });
+  await settings(page); await config.getByRole("button", { name: "Rebuild tag index" }).click();
+  await expect.poll(() => readIndex(page)).toEqual({ "alpha.md": "2030-02-01 Changed Alpha  \n" });
+  await expect(config.getByRole("status")).toHaveText("Tag index is up to date.");
+  await page.getByRole("button", { name: "Close settings" }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("jot.tagIndexCatalog.v1") ?? "[]").map((entry: { tag: string }) => entry.tag))).toEqual(["alpha"]);
+  await browse(); await expect(indexed).toHaveText(["#alpha"]);
+  await tags.getByRole("button", { name: "Close tags" }).click();
+  await page.getByRole("button", { name: "Add tag", exact: true }).click();
+  await expect(add.locator(".tag-suggestion button")).toHaveText(["#alpha"]);
+  await add.getByRole("button", { name: "Cancel", exact: true }).click();
+});

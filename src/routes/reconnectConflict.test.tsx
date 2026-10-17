@@ -920,7 +920,7 @@ describe("Home reconnect and conflict handling", () => {
     }
   });
 
-  it("discovers suggestions on note load without parsing tag-like edits on every keystroke", async () => {
+  it("does not suggest unsynced tags typed into the current note", async () => {
     testState.remoteNote = {
       date: "2030-02-02",
       markdown: "Review",
@@ -948,41 +948,29 @@ describe("Home reconnect and conflict handling", () => {
     dispose();
   });
 
-  it("suggests tags from notes and can hide a mistaken suggestion without editing the note", async () => {
-    const source = "Review [#research](jot:tag/research) [#mistake](jot:tag/mistake)";
-    testState.remoteNote = {
-      date: "2030-02-02",
-      markdown: source,
-      revisionId: "remote-revision",
-      updatedAt: "2030-01-01T00:00:00.000Z"
-    };
-    const host = document.createElement("div");
-    document.body.append(host);
-
+  it("shares indexed suggestions with browsing and offers no suggestion deletion", async () => {
+    testState.remoteNote = { date: "2030-02-02", markdown: "Review", revisionId: "a", updatedAt: "2030-01-01T00:00:00Z" };
+    testState.tagIndexFiles = { research: "2030-02-01 Context  \n", mistake: "2030-02-01 Context  \n" };
+    testState.tagIndexModifiedTimes = { research: "2030-02-01T00:00:00Z", mistake: "2030-01-01T00:00:00Z" };
+    const host = document.createElement("div"); document.body.append(host);
     const dispose = render(() => <Home />, host);
-    await settle();
-    clickButton(host, "Add tag");
-    await settle();
-
-    expect(button(host, "#research")).not.toBeNull();
-    expect(button(host, "#mistake")).not.toBeNull();
-    clickButton(host, "Remove #mistake from suggestions");
-    await settle();
-
-    expect(host.querySelector("button[aria-label='#mistake']")).toBeNull();
-    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']");
-    expect(editor?.value).toBe(source);
-
-    clickButton(host, "Cancel");
-    clickButton(host, "Add tag");
-    await settle();
-    expect(host.querySelector("button[aria-label='#mistake']")).toBeNull();
-    expect(button(host, "#research")).not.toBeNull();
-
-    dispose();
+    try {
+      await settle(); clickButton(host, "Add tag"); await settle();
+      expect([...host.querySelectorAll(".tag-suggestion button")].map((b) => b.textContent?.trim())).toEqual(["#research", "#mistake"]);
+      expect(host.querySelector("[aria-label^='Remove #']")).toBeNull();
+      const toggle = host.querySelector<HTMLInputElement>(".tag-order-toggle input")!;
+      toggle.checked = true; toggle.dispatchEvent(new Event("change", { bubbles: true }));
+      expect([...host.querySelectorAll(".tag-suggestion button")].map((b) => b.textContent?.trim())).toEqual(["#mistake", "#research"]);
+      clickButton(host, "Cancel"); clickButton(host, "Open menu"); clickButton(host, "Browse tags"); await settle();
+      expect(host.querySelector<HTMLInputElement>(".tag-order-toggle input")?.checked).toBe(true);
+      expect([...host.querySelectorAll("nav[aria-label='Indexed tags'] button")].map((b) => b.textContent)).toEqual(["#mistake", "#research"]);
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("Review");
+    } finally { dispose(); host.remove(); }
   });
 
   it("filters tag suggestions by prefix and selects them with the arrow keys", async () => {
+    testState.tagIndexFiles = { research: "", "release-notes": "", testing: "" };
+    testState.tagIndexModifiedTimes = { research: "2030-02-01T00:00:00Z" };
     const source = [
       "Tags: [#research](jot:tag/research) [#release-notes](jot:tag/release-notes)",
       "[#testing](jot:tag/testing)"

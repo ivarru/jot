@@ -9,7 +9,7 @@ import {
   switchToWysiwygMode,
   wysiwygEditor
 } from "../helpers/editor";
-import { seedLocalDraft } from "../helpers/idb";
+import { seedDailyNoteState, readFakeRemoteNote } from "../helpers/idb";
 
 test("inserts a tag in the trailing empty WYSIWYG paragraph", async ({ page }) => {
   await openDevelopmentStorage(page, "/", "enabled");
@@ -40,14 +40,21 @@ test("inserts a tag in the trailing empty WYSIWYG paragraph", async ({ page }) =
   await expectRawMarkdown(page, "abcd\n\nefgh\n\n[#tail](jot:tag/tail)");
 });
 
-test("tags can be inserted, rendered, suggested, and removed from suggestions", async ({ page }) => {
+test("tags can be inserted, rendered, and suggested from synced indexes", async ({ page }) => {
   await openDevelopmentStorage(page, "/", "disabled");
   const initial = "Lead paragraph\n\n# Plan [#research](jot:tag/research)\n\nReview";
   const date = await page.getByRole("textbox", { name: "Selected date", exact: true }).inputValue();
-  await seedLocalDraft(page, date, initial);
+  await seedDailyNoteState(page, { remote: { date, markdown: initial, revisionId: "initial", updatedAt: "2030-01-01T00:00:00Z" } });
   await page.reload();
   await expect(wysiwygEditor(page)).toBeVisible();
   await expectRawMarkdown(page, initial);
+  await expect.poll(async () => (await readFakeRemoteNote(page, date))?.markdown).toBe(initial);
+  await page.getByRole("button", { name: "Open menu" }).click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("button", { name: "Rebuild tag index" }).click();
+  await expect(settings.getByRole("status")).toHaveText("Tag index is up to date.");
+  await page.getByRole("button", { name: "Close settings" }).click();
   const modal = page.locator(".tag-modal");
 
   const headingStart = initial.indexOf("#");
@@ -105,14 +112,18 @@ test("tags can be inserted, rendered, suggested, and removed from suggestions", 
     `Add tag (${process.platform === "darwin" ? "Cmd+Option+K" : "Ctrl+Alt+K"})`
   );
   await addTagButton.click();
-  await modal.getByRole("button", { name: "Remove #research from suggestions", exact: true }).click();
-  await expect(modal.getByRole("button", { name: "#research", exact: true })).toHaveCount(0);
+  await expect(modal.getByRole("button", { name: /Remove #/ })).toHaveCount(0);
+  await expect(modal.getByRole("button", { name: "#research", exact: true })).toBeVisible();
   await modal.getByRole("button", { name: "Cancel", exact: true }).click();
-
+  await expect.poll(async () => (await readFakeRemoteNote(page, date))?.markdown).toBe(expected);
+  await page.getByRole("button", { name: "Open menu" }).click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  await settings.getByRole("button", { name: "Rebuild tag index" }).click();
+  await expect(settings.getByRole("status")).toHaveText("Tag index is up to date.");
+  await page.getByRole("button", { name: "Close settings" }).click();
   await addTagButton.click();
-  await expect(modal.getByRole("button", { name: "#research", exact: true })).toHaveCount(0);
   await modal.getByRole("button", { name: "#follow-up", exact: true }).click();
-  await expect(modal.locator("input")).toHaveValue("follow-up");
+  await expect(tagInput).toHaveValue("follow-up");
   await modal.getByRole("button", { name: "Cancel", exact: true }).click();
   await expectRawMarkdown(page, expected);
 });

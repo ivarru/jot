@@ -48,7 +48,6 @@ import {
   normalizeDailyNoteMarkdownAtCaret
 } from "~/domain/dailyNoteMarkdown";
 import {
-  extractJotTags,
   filterJotTagSuggestions,
   insertJotTagAtSelection,
   normalizeJotTagName
@@ -142,7 +141,7 @@ import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fake
 import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
 import { SessionGuardedDraftStore } from "~/storage/sessionGuardedDraftStore";
-import { TagSuggestionCatalog } from "~/storage/tagSuggestionCatalog";
+import { createTagIndexCatalog } from "~/storage/tagIndexCatalog";
 import type { RemoteStorageProvider, SyncStatus } from "~/storage/types";
 import {
   createDailyNoteReplication,
@@ -242,7 +241,9 @@ export default function Home() {
   const shortcutLabels = shortcutLabelsForPlatform(globalThis.navigator?.platform ?? "");
   const browserLocalStorage = getLocalStorage();
   const drafts = new SessionGuardedDraftStore(new IndexedDbLocalDraftStore(), browserLocalStorage);
-  const tagSuggestionCatalog = new TagSuggestionCatalog(browserLocalStorage);
+  const tagCatalog = createTagIndexCatalog({ storage: browserLocalStorage,
+    list: () => runtime.remote.listTagIndexes?.() ?? Promise.reject(new Error("Tag listing is unavailable for this connection."))
+  });
   const initialRoute = routeFromHash();
   onMount(() => {
     const visualViewport = window.visualViewport;
@@ -358,8 +359,9 @@ export default function Home() {
   const [tagModalQuery, setTagModalQuery] = createSignal("");
   const [activeTagSuggestionIndex, setActiveTagSuggestionIndex] = createSignal(-1);
   const [tagModalError, setTagModalError] = createSignal<string | null>(null);
-  const [tagSuggestions, setTagSuggestions] = createSignal<readonly string[]>(tagSuggestionCatalog.suggestions());
+  const tagSuggestions = tagCatalog.tags;
   const filteredTagSuggestions = createMemo(() => filterJotTagSuggestions(tagSuggestions(), tagModalQuery()));
+  createEffect(on(tagSuggestions, () => setActiveTagSuggestionIndex(-1)));
   const [pendingShareTargetLink, setPendingShareTargetLink] = createSignal<ClipboardLinkData | null>(
     parseShareTargetLinkData(new URLSearchParams(window.location.search))
   );
@@ -706,13 +708,6 @@ export default function Home() {
 
   createEffect(on(syncStatus, (status) => {
     syncDiagnostics.record({ event: "sync-status", status });
-  }));
-
-  createEffect(on(loadedDate, (date) => {
-    if (date === null) return;
-
-    tagSuggestionCatalog.recordExisting(extractJotTags(untrack(markdown)));
-    setTagSuggestions(tagSuggestionCatalog.suggestions());
   }));
 
   const flushCurrentVisibleEditorSnapshot = (): {
@@ -1080,7 +1075,10 @@ export default function Home() {
         maintain: (signal) => runtime.remote.maintainTagIndex!(signal),
         intervalMs: () => settings().cleanPollingIntervalMs,
         retryMs: () => settings().retryInitialDelayMs,
-        onStatus: setTagIndexStatus
+        onStatus: (status) => {
+          setTagIndexStatus(status);
+          if (status === "current" || status === "retrying") void tagCatalog.refresh();
+        }
       });
       tagIndexMaintenance = worker;
       const online = () => worker.request();
@@ -2029,7 +2027,7 @@ export default function Home() {
     setTagModalQuery("");
     setActiveTagSuggestionIndex(-1);
     setTagModalError(null);
-    setTagSuggestions(tagSuggestionCatalog.suggestions());
+    void tagCatalog.refresh();
     requestAnimationFrame(() => tagNameInput?.focus());
   };
 
@@ -2068,17 +2066,8 @@ export default function Home() {
     }
 
     const result = insertJotTagAtSelection(session.baseMarkdown, session.selection, name);
-    tagSuggestionCatalog.recordUse(name);
-    setTagSuggestions(tagSuggestionCatalog.suggestions());
     applyUndoableMarkdownTransform(session.date, result.markdown, result.selection);
     closeTagModal();
-  };
-
-  const dismissTagSuggestion = (name: string) => {
-    tagSuggestionCatalog.dismiss(name);
-    setTagSuggestions(tagSuggestionCatalog.suggestions());
-    setActiveTagSuggestionIndex(-1);
-    setTagModalName(tagModalQuery());
   };
 
   const moveActiveTagSuggestion = (direction: 1 | -1) => {
@@ -3296,8 +3285,6 @@ export default function Home() {
     dailyNoteReplication.cancelInFlightWork();
     browserLocalStorage?.removeItem("jot.fakeAuth");
     await drafts.clearForSignOut();
-    tagSuggestionCatalog.clear();
-    setTagSuggestions([]);
     if (runtime.kind === "google") {
       await runtime.tokenProvider.revoke?.();
     }
@@ -3305,6 +3292,7 @@ export default function Home() {
     setAuthReconnectRequired(false);
     setReconnectPromptPostponed(false);
     setReconnectMessage("Jot is keeping edits on this device until Google access is refreshed.");
+    tagCatalog.clear();
     setAuthenticated(false);
     setCleanEditorMarkdown(null);
     setMarkdown("");
@@ -3321,6 +3309,7 @@ export default function Home() {
       dailyNoteReplication.cancelInFlightWork();
       if (runtime.kind === "google") runtime.tokenProvider.invalidateAccessToken?.();
       clearStoredActiveImagePicker();
+      tagCatalog.clear();
       setAuthenticated(false);
       setPendingSyncConflictWithDiagnostics(null);
       setCleanEditorMarkdown(null);
@@ -3957,6 +3946,10 @@ export default function Home() {
                     />
                   </span>
                 </label>
+                <label class="tag-order-toggle"><input type="checkbox" checked={tagCatalog.alphabetical()}
+                  onChange={(event) => { tagCatalog.setAlphabetical(event.currentTarget.checked); setActiveTagSuggestionIndex(-1); }} /> Alphabetical order</label>
+                <Show when={tagCatalog.refreshing()}><p role="status">Refreshing tags…</p></Show>
+                <Show when={tagCatalog.error()}>{(error) => <p role="alert">{error()} <button type="button" onClick={() => void tagCatalog.refresh()}>Retry tags</button></p>}</Show>
                 <Show when={filteredTagSuggestions().length > 0}>
                   <div
                     id="tag-suggestion-list"
@@ -3985,15 +3978,6 @@ export default function Home() {
                             }}
                           >
                             #{name}
-                          </button>
-                          <button
-                            type="button"
-                            class="tag-suggestion-remove"
-                            aria-label={`Remove #${name} from suggestions`}
-                            data-tooltip={`Remove #${name} from suggestions`}
-                            onClick={() => dismissTagSuggestion(name)}
-                          >
-                            ×
                           </button>
                         </span>
                       )}
@@ -4235,7 +4219,12 @@ export default function Home() {
 
           <Show when={tagIndexOpen()}>
             <TagIndexDialog
-              listTags={() => runtime.remote.listTagIndexes?.() ?? Promise.reject(new Error("Tag browsing is unavailable for this connection."))}
+              tags={tagCatalog.tags()}
+              alphabetical={tagCatalog.alphabetical()}
+              onAlphabeticalChange={tagCatalog.setAlphabetical}
+              refreshing={tagCatalog.refreshing()}
+              listError={tagCatalog.error()}
+              onRefresh={tagCatalog.refresh}
               loadIndex={(tag) => runtime.remote.loadTagIndex?.(tag) ?? Promise.reject(new Error("Tag browsing is unavailable for this connection."))}
               onSelect={(target) => void navigateToDate(target.date, null, target)}
               onClose={(restoreFocus = true) => {

@@ -78,7 +78,7 @@ function fixture() {
   const provider = new GoogleDriveStorageProvider({ getAccessToken: async () => "test-token" }, fetch as typeof globalThis.fetch);
   const maintain = () => provider.maintainTagIndex(new AbortController().signal);
   const indexes = () => [...files.values()].filter((file) => !file.trashed && file.name.endsWith(".md")
-    && file.parents.some((id) => files.get(id)?.name === "tag-index"));
+    && file.parents.some((id) => files.get(id)?.name === "daily-notes-tag-index"));
   return { files, add, requests, fetch, provider, maintain, indexes, setOnPut: (fn: typeof onPut) => { onPut = fn; },
     paginate: () => { paginate = true; } };
 }
@@ -92,7 +92,7 @@ it("creates a separate folder and Markdown indexes with authenticated scoped met
   await f.maintain();
   expect(f.indexes().map((file) => [file.name, file.content])).toEqual([["work.md", "2030-02-01 A  \n2030-02-02 B  \n"]]);
   expect(f.requests.every((request) => request.headers.get("Authorization") === "Bearer test-token")).toBe(true);
-  const folder = f.requests.find((request) => request.method === "POST" && request.body.includes('"name":"tag-index"'))!;
+  const folder = f.requests.find((request) => request.method === "POST" && request.body.includes('"name":"daily-notes-tag-index"'))!;
   expect(folder.url.pathname).toBe("/drive/v3/files");
   expect(JSON.parse(folder.body)).toMatchObject({ mimeType: folderType, parents: ["jot"] });
   const create = f.requests.find((request) => request.url.pathname === "/upload/drive/v3/files")!;
@@ -155,8 +155,8 @@ it("retries 412 races and uses current settings when regenerating all excerpts",
 
 it("repairs duplicates across concurrently created folders without touching Daily Notes", async () => {
   const f = fixture();
-  f.add("folder-a", "tag-index", "jot", "", folderType);
-  f.add("folder-b", "tag-index", "jot", "", folderType);
+  f.add("folder-a", "daily-notes-tag-index", "jot", "", folderType);
+  f.add("folder-b", "daily-notes-tag-index", "jot", "", folderType);
   f.add("index-a", "work.md", "folder-a", "stale");
   f.add("index-b", "work.md", "folder-b", "other");
   f.add("note", "2030-02-01.md", "daily", "Source [#work](jot:tag/work)");
@@ -220,13 +220,13 @@ it("concurrent provider instances converge without losing another date's entries
 
 it("browses tag files read-only across duplicate folders and reads the maintenance-canonical match", async () => {
   const f = fixture();
-  f.add("folder-a", "tag-index", "jot", "", folderType);
-  f.add("folder-b", "tag-index", "jot", "", folderType);
+  f.add("folder-a", "daily-notes-tag-index", "jot", "", folderType);
+  f.add("folder-b", "daily-notes-tag-index", "jot", "", folderType);
   f.add("work-z", "work.md", "folder-a", "2030-02-02 Later  \n");
   f.add("work-a", "work.md", "folder-b", "2030-02-01 Canonical  \n");
   f.add("api", "api.md", "folder-a", "2030-02-01 API  \n");
   f.add("invalid", "../work.md", "folder-a", "ignored");
-  await expect(f.provider.listTagIndexes()).resolves.toEqual(["api", "work"]);
+  await expect(f.provider.listTagIndexes()).resolves.toEqual([{ tag: "work", modifiedTime: "2099-01-01T00:00:00Z" }, { tag: "api", modifiedTime: "2099-01-01T00:00:00Z" }]);
   await expect(f.provider.loadTagIndex("work")).resolves.toBe("2030-02-01 Canonical  \n");
   expect(f.requests.every((request) => request.method === "GET")).toBe(true);
   expect(f.requests.every((request) => request.headers.get("Authorization") === "Bearer test-token")).toBe(true);

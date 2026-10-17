@@ -1020,18 +1020,11 @@ select {
 
 .tag-suggestion button {
   min-height: 30px;
-  padding: 4px 4px 4px 10px;
+  padding: 4px 10px;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--accent);
-}
-
-.tag-suggestion .tag-suggestion-remove {
-  padding: 4px 9px 4px 5px;
-  color: var(--muted);
-  font-size: 17px;
-  line-height: 1;
 }
 
 .tag-suggestion button:hover,
@@ -1833,3 +1826,6 @@ select {
   .tag-index-tags { flex-direction: row; flex-wrap: wrap; max-height: 9rem; overflow: auto; }
   .tag-index-occurrence { gap: .65rem; }
 }
+
+.tag-order-toggle { display: flex; align-items: center; gap: .4rem; margin: .5rem 0; font-size: .9rem; }
+.tag-order-toggle input { width: auto; margin: 0; }

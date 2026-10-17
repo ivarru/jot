@@ -1,3 +1,4 @@
+import type { TagIndexSummary } from "./types";
 import { normalizeJotTagName } from "~/domain/jotTags";
 import { reconcileTagIndex, type TagIndexFile } from "~/features/tagIndex/reconcileTagIndex";
 import { dailyNoteSearchTerms, inDailyNoteSearchRange, validateDailyNoteSearch, type DailyNoteSearch, type DailyNoteSearchResult } from "~/domain/dailyNoteSearch";
@@ -28,6 +29,7 @@ const JSON_MIME_TYPE = "application/json";
 const JOT_FOLDER_NAME = "jot";
 const DAILY_NOTES_FOLDER_NAME = "Daily Notes";
 const IMAGE_ATTACHMENTS_FOLDER_NAME = "Image Attachments";
+const TAG_INDEX_FOLDER_NAME = "daily-notes-tag-index";
 const SETTINGS_FILE_NAME = "settings.json";
 const IMAGE_ALBUM_FILE_NAME = "image-album.json";
 const AGENTS_FILE_NAME = "AGENTS.md";
@@ -106,18 +108,19 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     // Browsing is read-only: no folder or instruction-file creation.
     const jot = await this.findSingleFile({ parentId: "root", name: JOT_FOLDER_NAME,
       mimeType: FOLDER_MIME_TYPE, description: "Jot Folder" });
-    return jot ? await this.listFiles(jot.id, "tag-index", FOLDER_MIME_TYPE) : [];
+    return jot ? await this.listFiles(jot.id, TAG_INDEX_FOLDER_NAME, FOLDER_MIME_TYPE) : [];
   }
 
-  async listTagIndexes(): Promise<readonly string[]> {
-    const tags = new Set<string>();
+  async listTagIndexes(): Promise<readonly TagIndexSummary[]> {
+    const tags = new Map<string, DriveFile>();
     for (const folder of await this.tagIndexFolders()) {
       for (const file of await this.listFilesByQuery({ parentId: folder.id, mimeType: MARKDOWN_MIME_TYPE })) {
         const tag = file.name.endsWith(".md") ? file.name.slice(0, -3) : "";
-        if (tag && normalizeJotTagName(tag) === tag) tags.add(tag);
+        // Match loadTagIndex and maintenance's canonical duplicate selection.
+        if (tag && normalizeJotTagName(tag) === tag && (!tags.has(tag) || file.id.localeCompare(tags.get(tag)!.id) < 0)) tags.set(tag, file);
       }
     }
-    return [...tags].sort();
+    return [...tags].map(([tag, file]) => ({ tag, modifiedTime: file.modifiedTime ?? null }));
   }
 
   async loadTagIndex(tag: string): Promise<string> {
@@ -133,10 +136,10 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
     signal.throwIfAborted();
     const { jotFolderId, dailyNotesFolderId } = await this.ensureFolders();
     signal.throwIfAborted();
-    let folders = await this.listFiles(jotFolderId, "tag-index", FOLDER_MIME_TYPE);
+    let folders = await this.listFiles(jotFolderId, TAG_INDEX_FOLDER_NAME, FOLDER_MIME_TYPE);
     if (!folders.length) {
       signal.throwIfAborted();
-      folders = [await this.findOrCreateFolder(jotFolderId, "tag-index", "Tag Index Folder", signal)];
+      folders = [await this.findOrCreateFolder(jotFolderId, TAG_INDEX_FOLDER_NAME, "Tag Index Folder", signal)];
     }
     // Concurrent first creation can produce duplicate folders. Read all of them and converge their files.
     folders.sort((a, b) => a.id.localeCompare(b.id));

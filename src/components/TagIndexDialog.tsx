@@ -3,24 +3,25 @@ import { parseTagIndexRows, tagIndexTarget, type TagIndexRow, type TagIndexTarge
 import { TagIndexExcerpt } from "./TagIndexExcerpt";
 
 export function TagIndexDialog(props: {
-  readonly listTags: () => Promise<readonly string[]>;
+  readonly tags: readonly string[];
+  readonly alphabetical: boolean;
+  readonly onAlphabeticalChange: (value: boolean) => void;
+  readonly refreshing: boolean;
+  readonly listError: string | null;
+  readonly onRefresh: () => Promise<void>;
   readonly loadIndex: (tag: string) => Promise<string>;
   readonly onSelect: (target: TagIndexTarget) => void;
   readonly onClose: (restoreFocus?: boolean) => void;
 }) {
   let dialog!: HTMLDialogElement;
   let filterInput!: HTMLInputElement;
-  let listRequest = 0;
   let indexRequest = 0;
-  const [tags, setTags] = createSignal<readonly string[]>([]);
   const [filter, setFilter] = createSignal("");
   const [selected, setSelected] = createSignal<string | null>(null);
   const [rows, setRows] = createSignal<readonly TagIndexRow[]>([]);
-  const [listing, setListing] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
-  const [listError, setListError] = createSignal<string | null>(null);
   const [indexError, setIndexError] = createSignal<string | null>(null);
-  const filteredTags = createMemo(() => tags().filter((tag) => tag.includes(filter().trim().toLowerCase().replace(/^#/, ""))));
+  const filteredTags = createMemo(() => props.tags.filter((tag) => tag.includes(filter().trim().toLowerCase().replace(/^#/, ""))));
   const load = async (tag: string) => {
     const request = ++indexRequest;
     setSelected(tag); setRows([]); setIndexError(null); setLoading(true);
@@ -31,20 +32,9 @@ export function TagIndexDialog(props: {
       if (request === indexRequest) setIndexError(cause instanceof Error ? cause.message : "Could not load this tag. Please retry.");
     } finally { if (request === indexRequest) setLoading(false); }
   };
-  const refresh = async () => {
-    const request = ++listRequest;
-    indexRequest++;
-    setSelected(null); setRows([]); setLoading(false); setIndexError(null); setListError(null); setListing(true);
-    try {
-      const result = await props.listTags();
-      if (request === listRequest) setTags([...new Set(result)].sort());
-    } catch (cause) {
-      if (request === listRequest) { setTags([]); setListError(cause instanceof Error ? cause.message : "Could not load tags. Please retry."); }
-    } finally { if (request === listRequest) setListing(false); }
-  };
-  const close = (restoreFocus = true) => { listRequest++; indexRequest++; dialog.close?.(); props.onClose(restoreFocus); };
-  onMount(() => { dialog.showModal?.(); filterInput.focus(); void refresh(); });
-  onCleanup(() => { listRequest++; indexRequest++; });
+  const close = (restoreFocus = true) => { indexRequest++; dialog.close?.(); props.onClose(restoreFocus); };
+  onMount(() => { dialog.showModal?.(); filterInput.focus(); void props.onRefresh(); });
+  onCleanup(() => { indexRequest++; });
   return <dialog ref={dialog} class="settings-dialog tag-index-dialog" aria-label="Browse tags" aria-modal="true"
     onCancel={(event) => { event.preventDefault(); close(); }}>
     <header class="settings-panel-header">
@@ -54,12 +44,14 @@ export function TagIndexDialog(props: {
     <p class="tag-index-help">Occurrences from synced notes. Recent changes may take time to appear. Excerpt links do not navigate.</p>
     <div class="tag-index-filter">
       <label>Filter tags<input ref={filterInput} type="search" value={filter()} onInput={(event) => setFilter(event.currentTarget.value)} /></label>
-      <button type="button" onClick={() => void refresh()} disabled={listing()}>Refresh tags</button>
+      <button type="button" onClick={() => void props.onRefresh()} disabled={props.refreshing}>Refresh tags</button>
     </div>
-    <Show when={listing()}><p role="status">Loading tags…</p></Show>
-    <Show when={listError()}>{(error) => <p role="alert">{error()}</p>}</Show>
-    <Show when={!listing() && !listError() && !tags().length}><p>No indexed tags yet. Add tags to a note and sync it, or rebuild the index in Settings.</p></Show>
-    <Show when={!listing() && tags().length > 0}>
+    <label class="tag-order-toggle"><input type="checkbox" checked={props.alphabetical}
+      onChange={(event) => props.onAlphabeticalChange(event.currentTarget.checked)} /> Alphabetical order</label>
+    <Show when={props.refreshing}><p role="status">Refreshing tags…</p></Show>
+    <Show when={props.listError}>{(error) => <p role="alert">{error()}</p>}</Show>
+    <Show when={!props.refreshing && !props.listError && !props.tags.length}><p>No indexed tags yet. Add tags to a note and sync it, or rebuild the index in Settings.</p></Show>
+    <Show when={props.tags.length > 0}>
       <div class="tag-index-layout">
         <nav class="tag-index-tags" aria-label="Indexed tags">
           <For each={filteredTags()}>{(tag) => <button type="button" aria-pressed={selected() === tag}

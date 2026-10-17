@@ -23,8 +23,10 @@ export class FakeRemoteStorageProvider implements RemoteStorageProvider {
     const index = await withStore<{ files: Record<string, string> } | undefined>("settings", "readonly", (store) => store.get("fake-tag-index"));
     return index?.files ?? {};
   }
-  async listTagIndexes(): Promise<readonly string[]> {
-    return Object.keys(await this.tagIndexFiles()).map((name) => name.slice(0, -3)).sort();
+  async listTagIndexes() {
+    const files = await this.tagIndexFiles();
+    const index = await withStore<{ modifiedTimes?: Record<string, string> } | undefined>("settings", "readonly", (store) => store.get("fake-tag-index"));
+    return Object.keys(files).map((name) => ({ tag: name.slice(0, -3), modifiedTime: index?.modifiedTimes?.[name] ?? null }));
   }
   async loadTagIndex(tag: string): Promise<string> {
     const content = (await this.tagIndexFiles())[`${tag}.md`];
@@ -39,9 +41,15 @@ export class FakeRemoteStorageProvider implements RemoteStorageProvider {
     // Fake-provider derived files live in the existing settings store; Daily Notes remain separate.
     const notes = await withStore<RemoteDailyNote[]>("fakeRemoteNotes", "readonly", (store) => store.getAll());
     const files = buildTagIndexFiles(notes, settings.tagIndexMaxCharacters);
+    const previous = await withStore<{ files: Record<string, string>; modifiedTimes?: Record<string, string> } | undefined>("settings", "readonly", (store) => store.get("fake-tag-index"));
+    const now = new Date().toISOString();
+    const modifiedTimes = Object.fromEntries([...files].map(([tag, markdown]) => {
+      const name = `${tag}.md`;
+      return [name, previous?.files[name] === markdown ? previous.modifiedTimes?.[name] ?? now : now];
+    }));
     signal.throwIfAborted();
     await withStore<IDBValidKey>("settings", "readwrite", (store) => store.put({
-      id: "fake-tag-index", files: Object.fromEntries([...files].map(([tag, markdown]) => [`${tag}.md`, markdown]))
+      id: "fake-tag-index", modifiedTimes, files: Object.fromEntries([...files].map(([tag, markdown]) => [`${tag}.md`, markdown]))
     }));
   }
 

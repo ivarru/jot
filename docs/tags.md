@@ -50,13 +50,15 @@ In WYSIWYG mode, tags render as tinted chips. The stored text is still the ordin
 
 ## Suggestions
 
-The tag picker suggests tags encountered in Daily Notes opened in the current browser and tags inserted through the
-picker. The suggestion catalog is browser-local convenience state; it is not synced, is cleared on sign-out, and is not
-part of any Daily Note.
+**Add tag** and **Browse tags** share a browser-cached list of tags from the synced index files, ordered by
+index modification date (newest first). **Alphabetical order** toggles alphabetical sorting in both dialogs;
+the toggle is shared for the current page session. Equal or unknown modification dates use tag-name order.
 
-Use the × control on a suggestion to hide a mistaken or unwanted entry. Hiding a suggestion never edits tag links
-already present in Daily Notes. If the tag is deliberately inserted again through the tag picker, it returns to the
-suggestion catalog.
+Opening either dialog refreshes the list asynchronously while cached tags stay available. Index maintenance
+from this page also refreshes the list, including after partial failures. Failed refreshes retain cached tags
+and show an error with retry controls. The cache is cleared on sign-out. Unsynced insertions are suggested
+only after their index file has been generated. There is no suggestion-dismissal control: removing a tag's
+last synced occurrence deletes its empty index, and the tag disappears on the next catalog refresh.
 
 ## Compatibility
 
@@ -66,9 +68,9 @@ as the tag identity; the visible link label is presentation.
 
 ## Synced tag indexes
 
-Jot maintains derived Markdown files under `jot/tag-index/` in Google Drive, one `<canonical-name>.md` per tag.
+Jot maintains derived Markdown files under `jot/daily-notes-tag-index/` in Google Drive, one `<canonical-name>.md` per tag.
 Daily Note Markdown remains the source of truth. Index files are generated and may be replaced or trashed during
-maintenance; do not use them to edit tags or store additional content. The Tag Suggestion Catalog remains separate.
+maintenance; do not use them to edit tags or store additional content. Their metadata supplies the shared Tag Catalog.
 Use **Browse tags** in the app menu to browse these indexes and jump to a tag instance.
 
 Each occurrence occupies one physical line, starting with the note's `YYYY-MM-DD` date and a space followed by its

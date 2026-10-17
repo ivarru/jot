@@ -224,3 +224,8 @@ index pass without editing or reopening either note. This wiring is outside the 
 model, which does not model the derived tag-index worker. The tag-index browser workflow also
 checks immediate A-to-B navigation with an untouched destination and verifies A's remote content
 and index date.
+
+Shared tag-catalog tests cover metadata ordering, cached startup, failed refreshes, deletions, overlapping
+responses, sign-out cancellation, and stable keyboard selection across unchanged refreshes. Mocked Drive coverage verifies index modification metadata and
+folder discovery under `daily-notes-tag-index`. Browser tag workflows verify the shared alphabetical
+toggle, cached offline lists in both dialogs, and refreshed suggestions after maintenance and deletion.
