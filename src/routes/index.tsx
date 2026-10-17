@@ -595,6 +595,8 @@ export default function Home() {
           normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
         })
       });
+      // Departed saves do not update the selected note's sync status.
+      tagIndexMaintenance?.request();
     } catch (error: unknown) {
       if (isCancelledDailyNoteSyncError(error)) return;
       setLastSyncError({ message: errorMessage(error), retry: "save-current-note", date });

@@ -83,3 +83,29 @@ it.each([
     expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.selectionStart).toBe(refreshed.indexOf(tag));
   } finally { finish.resolve(); dispose(); host.remove(); }
 });
+
+it("requests tag maintenance after a departed A save finishes while B stays untouched", async () => {
+  const maintained: string[] = [];
+  state.maintainTagIndex = async () => { maintained.push(state.remoteNote?.markdown ?? ""); };
+  const started = deferred(); const finish = deferred();
+  state.delayedRemoteSave = { date: "2030-02-02", started, finish, consumed: false };
+  const host = document.createElement("div"); document.body.append(host);
+  const dispose = render(() => <Home />, host);
+  try {
+    await wait(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")).not.toBeNull());
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+    editor.value = `Leaving A ${tag}`; editor.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    click(host, "Next day");
+    await started.promise;
+    await wait(() => expect(host.querySelector<HTMLInputElement>("[aria-label='Selected date']")?.value).toBe("2030-02-03"));
+    // Let the destination's synced-status maintenance finish before A's upload.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(maintained).not.toContain(`Leaving A ${tag}`);
+    finish.resolve();
+    await wait(() => expect(state.remoteNote?.markdown).toBe(`Leaving A ${tag}`));
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(maintained).toContain(`Leaving A ${tag}`);
+    expect(state.remoteSaveInputs).toEqual(["2030-02-02"]);
+    expect(host.querySelector<HTMLInputElement>("[aria-label='Selected date']")?.value).toBe("2030-02-03");
+  } finally { finish.resolve(); dispose(); host.remove(); }
+});

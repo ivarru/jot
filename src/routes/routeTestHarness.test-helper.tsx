@@ -57,6 +57,7 @@ export interface DelayedDirtyList {
 
 const routeTestState = vi.hoisted(() => ({
   tagIndexFiles: {} as Record<string, string>,
+  maintainTagIndex: undefined as (() => Promise<void>) | undefined,
   drafts: new Map<string, LocalDraft>(),
   delayedDraftLoad: null as DelayedDraftLoad | null,
   delayedClearAll: null as DelayedClearAll | null,
@@ -609,6 +610,7 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
   const { GoogleAccessTokenUnavailableError } = await vi.importActual<typeof import("~/auth/googleIdentity")>("~/auth/googleIdentity");
 
   class FakeRemoteStorageProvider {
+    get maintainTagIndex() { return routeTestState.maintainTagIndex; }
     async listTagIndexes() { return Object.keys(routeTestState.tagIndexFiles).sort(); }
     async loadTagIndex(tag: string) { return routeTestState.tagIndexFiles[tag] ?? ""; }
 
@@ -716,6 +718,7 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
 
 export function resetRouteTestState(): void {
   routeTestState.tagIndexFiles = {};
+  routeTestState.maintainTagIndex = undefined;
   routeTestState.drafts.clear();
   routeTestState.delayedDraftLoad = null;
   routeTestState.delayedClearAll = null;

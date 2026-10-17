@@ -98,7 +98,7 @@ and formatting syntax. Clipped excerpts end with `…`, which counts toward the 
 not count. Changing the saved limit regenerates all excerpts on the next maintenance pass. **Rebuild tag index**
 requests an immediate reconciliation and the status reports pending, updating, up to date, or retrying.
 
-Maintenance runs after sign-in/settings load, after selected-note sync or uploads, when connectivity returns, and
+Maintenance runs after sign-in/settings load, after selected-note sync, departed-note background saves, or uploads, when connectivity returns, and
 periodically at the clean-polling interval (minimum five seconds). Only successfully synced content is indexed;
 Local Drafts and editor changes awaiting sync do not contribute. No page needs to open each historical note.
 Unchanged note media is cached by Drive file ID and revision for the page lifetime; metadata scans still detect

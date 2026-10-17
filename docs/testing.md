@@ -217,3 +217,10 @@ Cached-note tag navigation coverage waits for the existing clean-refresh barrier
 Route tests cover tags added/moved remotely and cancellation during cached/uncached loads; the focused lifecycle
 observer test ensures no duplicate load and no cross-date wait. Browse-tag browser workflows cover clean cached
 content being refreshed before selection in both raw and WYSIWYG modes.
+
+The departed-note tag-maintenance route regression holds A's remote save pending until B's
+selected-note maintenance has finished, then verifies that A's completed save requests another
+index pass without editing or reopening either note. This wiring is outside the bounded sync
+model, which does not model the derived tag-index worker. The tag-index browser workflow also
+checks immediate A-to-B navigation with an untouched destination and verifies A's remote content
+and index date.

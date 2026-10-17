@@ -63,3 +63,17 @@ test("pending date A edits are indexed under A after navigation to B and index m
   await expect.poll(() => readIndex(page)).toEqual({ "work.md": "2030-02-01 Date A  \n2030-02-02 Date B  \n2030-02-03 Date C  \n" });
   await expect(page.getByLabel("Selected date", { exact: true })).toHaveValue("2030-02-02");
 });
+
+test("a tag added immediately before leaving a note is indexed without editing the destination", async ({ page }) => {
+  await openDevelopmentStorage(page, "/#/date/2030-02-01", "disabled");
+  const dialog = await settings(page);
+  await expect(dialog.getByRole("status")).toHaveText("Tag index is up to date.");
+  await page.getByRole("button", { name: "Close settings" }).click();
+  await setRawMarkdown(page, "Leaving A [#departure](jot:tag/departure)");
+  await page.getByRole("button", { name: "Next day", exact: true }).click();
+  await expect(page.getByLabel("Selected date", { exact: true })).toHaveValue("2030-02-02");
+  await expect.poll(async () => (await readFakeRemoteNote(page, "2030-02-01"))?.markdown).toBe("Leaving A [#departure](jot:tag/departure)");
+  await expect.poll(() => readIndex(page), { timeout: 4000 }).toEqual({ "departure.md": "2030-02-01 Leaving A  \n" });
+  await expect(page.getByLabel("Selected date", { exact: true })).toHaveValue("2030-02-02");
+  await expect.poll(async () => (await readFakeRemoteNote(page, "2030-02-02"))?.markdown ?? "").toBe("");
+});
