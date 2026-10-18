@@ -64,3 +64,11 @@ error or alter application transaction handling to compensate for a test fake.
 Verification: `npm run verify` passed (754 tests, typecheck, build) with no
 unhandled errors. The upgraded Playwright runner passed the preview-assets
 check using the Chrome-configured fake-provider preview.
+
+## Diff engine (0.33.4)
+
+Update `diff` from 8.0.4 to 9.0.0 independently of framework changes because
+its line/character diffs participate in conflict merging and source selections.
+The existing public APIs need no adaptation. `npm run verify` passed all 754
+tests (including merge properties, replication traces, and editor selections),
+type checking, and the production build.
