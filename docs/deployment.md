@@ -135,3 +135,9 @@ proof containing only a token digest, account identifier, and epoch allows an ex
 token to reopen local notes offline. An unverified replacement token still needs online identity verification; sign-out
 or invalidation clears the proof, and an epoch/account mismatch makes old proof unusable. No live
 provider identity or account-switch validation has been performed; the maintained checks mock Google's responses.
+
+Image imports retain their originating auth session through preparation, download, upload, album creation, and metadata
+writes. Sign-out clears image operation state and stops camera streams; new sign-in/reconnect attempts retire older
+UI continuations. A canceled operation cannot continue with replacement-session credentials. Google may already have
+accepted a submitted request, so cancellation does not promise remote rollback; a partial import can leave an app-created
+image or album without a note reference. Routine coverage uses mocks and Chrome workflows, not live provider writes.

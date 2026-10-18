@@ -141,6 +141,10 @@ vi.mock("~/auth/googleIdentity", async () => {
 
   class GoogleIdentityTokenProvider {
     initialize = async () => undefined;
+    captureSession = () => {
+      const generation = routeTestState.googleTokenInvalidations;
+      return () => generation === routeTestState.googleTokenInvalidations;
+    };
     consumeRedirectAccessToken = () => routeTestState.useGoogleRuntime
       ? { type: "authenticated" as const }
       : { type: "none" as const };

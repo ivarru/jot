@@ -1,3 +1,4 @@
+import { captureTokenSession } from "~/auth/sessionScopedProvider";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import {
   googlePhotosImageContentUrl,
@@ -217,7 +218,10 @@ export class GooglePhotosAttachmentProvider {
   }
 
   private async request(url: string, init: RequestInit = {}): Promise<Response> {
+    const check = captureTokenSession(this.tokenProvider);
+    check();
     const token = await this.tokenProvider.getAccessToken();
+    check();
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${token}`);
 
@@ -225,9 +229,11 @@ export class GooglePhotosAttachmentProvider {
       ...init,
       headers
     });
+    check();
 
     if (!response.ok) {
       const responseBody = await response.text();
+      check();
       if (isGoogleAuthFailure(response.status, responseBody)) {
         this.tokenProvider.invalidateAccessToken?.();
       }

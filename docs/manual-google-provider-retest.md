@@ -109,3 +109,24 @@ Google access tokens normally expire after about one hour. Jot schedules renewal
 ## Expiry/Refresh
 
 Google Photos media item `baseUrl` values expire. For a targeted check, leave a note with a rendered image open for at least 55 minutes and confirm the preview remains visible after the automatic refresh window.
+
+## Security boundary retest (0.34.1)
+
+These cases supplement the routine mocked regressions from local issues #0028–#0030. They have not been run against
+live Google accounts. Use disposable accounts and synthetic notes/images; record outcomes without tokens, provider
+identifiers, or account details.
+
+1. Verify popup and blocked-popup redirect sign-in, consent denial, selective Drive/Photos consent, and URL fragment
+   cleanup. Older unbound Local Drafts require ownership confirmation before editor entry; cancel must preserve them.
+2. Keep an unsynced synthetic note under A, expire access/reload, then select B at reconnect. B must be rejected before
+   notes open or synchronize; selecting A must recover the draft. Verify a still-valid previously verified token can
+   reopen local notes offline; a new/unverified token requires online identity verification.
+3. Sign out A with pending auth work in another tab, complete that obsolete popup/redirect afterward, and verify both
+   pages remain signed out. A suspended tab resuming after sign-out must not restore the old token or draft writes.
+4. Sign out A, then sign in B in the same page. Verify subsequent note/settings/image requests use B's own folders and
+   album. Existing sign-out warnings and clearing apply; account changes do not implicitly transfer drafts.
+5. Hold a Photos import/download or device-image preparation while another tab signs out. Re-enter on the same date
+   and a different date, start a new image action, and finish the old one. It must not populate the new image chooser,
+   insert a reference, or start a later upload/metadata request. A fresh new-session upload must still work.
+6. Verify expiry during Photos picking/import still shows reconnect. Already accepted provider writes may complete
+   and leave an orphaned image/album; do not interpret local cancellation as guaranteed remote rollback.

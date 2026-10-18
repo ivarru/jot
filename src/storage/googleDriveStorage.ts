@@ -1,3 +1,4 @@
+import { captureTokenSession } from "~/auth/sessionScopedProvider";
 import type { TagIndexSummary } from "./types";
 import { normalizeJotTagName } from "~/domain/jotTags";
 import { reconcileTagIndex, type TagIndexFile } from "~/features/tagIndex/reconcileTagIndex";
@@ -901,7 +902,10 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
   }
 
   private async request(url: string, init: RequestInit = {}): Promise<Response> {
+    const check = captureTokenSession(this.tokenProvider);
+    check();
     const token = await this.tokenProvider.getAccessToken();
+    check();
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${token}`);
 
@@ -909,9 +913,11 @@ export class GoogleDriveStorageProvider implements RemoteStorageProvider {
       ...init,
       headers
     });
+    check();
 
     if (!response.ok) {
       const responseBody = await response.text();
+      check();
       if (isGoogleAuthFailure(response.status, responseBody)) {
         this.tokenProvider.invalidateAccessToken?.();
       }

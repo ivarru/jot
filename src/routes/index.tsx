@@ -495,8 +495,8 @@ export default function Home() {
     return runtime.imageAttachments.getAvailableResolutions(picked);
   });
   const imageAttachmentFlowActive = createMemo(() => imageAttachmentStatus() !== "idle");
-  const canApplyImageAttachmentAsyncResult = (date: IsoDate): boolean => {
-    return imageAttachmentDate() === date && canApplyEditorAsyncResult(dateBoundEditorState(), date);
+  const canApplyImageAttachmentAsyncResult = (date: IsoDate, authIsCurrent: () => boolean = () => true): boolean => {
+    return authIsCurrent() && authenticated() && drafts.hasCurrentEpoch() && imageAttachmentDate() === date && canApplyEditorAsyncResult(dateBoundEditorState(), date);
   };
   const syncDelayed = createMemo(() => {
     syncWarningTick();
@@ -509,6 +509,21 @@ export default function Home() {
       stopCameraStream(stream);
     }
     setCameraStream(null);
+  };
+
+  const clearImageSession = () => {
+    clearCameraStream();
+    clearStoredActiveImagePicker();
+    setImageAttachmentStatus("idle");
+    setImageAttachmentDate(null);
+    setImagePickingSession(null);
+    setPickedImage(null);
+    setLocalImageSource(null);
+    setReusableImageAttachment(null);
+    setImageAttachmentAltText("");
+    setImageAttachmentError(null);
+    setImageAttachmentDisplays({});
+    setImportingImageResolutionName(null);
   };
 
   const replaceMarkdownFromStorage = (value: string) => {
@@ -1690,8 +1705,9 @@ export default function Home() {
     cameraVideo.srcObject = stream;
     if (stream !== null) {
       const date = imageAttachmentDate();
+      const authIsCurrent = captureAuthLifecycle();
       void cameraVideo.play().catch((error: unknown) => {
-        if (date === null || !canApplyImageAttachmentAsyncResult(date)) return;
+        if (date === null || !canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
         setImageAttachmentError(errorMessage(error));
       });
     }
@@ -2870,6 +2886,7 @@ export default function Home() {
   };
 
   const startGooglePhotosImagePick = async () => {
+    const authIsCurrent = captureAuthLifecycle();
     if (runtime.imageAttachments === null) return;
     const date = selectedDate();
     if (editorReadOnly() || !canEditDailyNoteDate(date, dateBoundEditorState())) return;
@@ -2892,14 +2909,14 @@ export default function Home() {
 
     try {
       const session = await runtime.imageAttachments.startPicking();
-      if (!canApplyImageAttachmentAsyncResult(date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       storeActiveImagePicker({ date, session, createdAtMs: Date.now() });
       setImagePickingSession(session);
       setImageAttachmentStatus("waiting");
       navigatePickerWindow(pickerWindow, session.pickerUri);
       void waitForPickedImage(session.id, date);
     } catch (error: unknown) {
-      if (!canApplyImageAttachmentAsyncResult(date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("idle");
         return;
@@ -2911,30 +2928,31 @@ export default function Home() {
   };
 
   const waitForPickedImage = async (sessionId: string, date: IsoDate) => {
+    const authIsCurrent = captureAuthLifecycle();
     if (runtime.kind !== "google" || runtime.imageAttachments === null) return;
 
     try {
       for (let attempt = 0; attempt < 90; attempt += 1) {
         await delay(2000);
-        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date)) return;
+        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
 
         const refreshedSession = preservePickerUri(
           imagePickingSession(),
           await runtime.imageAttachments.getPickingSession(sessionId)
         );
-        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date)) return;
+        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
         storeActiveImagePicker({ date, session: refreshedSession, createdAtMs: Date.now() });
         setImagePickingSession(refreshedSession);
         if (!refreshedSession.mediaItemsSet) continue;
 
         const picked = await runtime.imageAttachments.getFirstPickedImage(sessionId);
-        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date)) return;
+        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
         if (picked === null) {
           throw new Error("No image was selected in Google Photos.");
         }
 
         const reusable = await runtime.imageAttachments.findReusablePickedImage(picked);
-        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date)) return;
+        if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
         setPickedImage(picked);
         setLocalImageSource(null);
         setReusableImageAttachment(reusable);
@@ -2945,7 +2963,7 @@ export default function Home() {
 
       throw new Error("Timed out waiting for a selected Google Photos image.");
     } catch (error: unknown) {
-      if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date)) return;
+      if (imagePickingSession()?.id !== sessionId || !canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("idle");
         return;
@@ -2956,6 +2974,7 @@ export default function Home() {
   };
 
   const insertSelectedImage = async (selectedResolution: ImageAttachmentResolution) => {
+    const authIsCurrent = captureAuthLifecycle();
     const picked = pickedImage();
     const local = localImageSource();
     const date = imageAttachmentDate();
@@ -2981,7 +3000,7 @@ export default function Home() {
             selectedResolution,
             altText: imageAttachmentAltText()
           });
-      if (!canApplyImageAttachmentAsyncResult(date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       const insertion = commitImageAttachmentReferenceInsertion({
         editorState: dateBoundEditorState(),
         date,
@@ -3004,7 +3023,7 @@ export default function Home() {
       setImageAttachmentStatus("idle");
       await dailyNoteReplication.saveAndSyncSnapshot(insertion.saveSnapshot);
     } catch (error: unknown) {
-      if (!canApplyImageAttachmentAsyncResult(date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("choosing");
         setImportingImageResolutionName(null);
@@ -3017,6 +3036,7 @@ export default function Home() {
   };
 
   const insertReusablePickedImage = async () => {
+    const authIsCurrent = captureAuthLifecycle();
     const reusable = reusableImageAttachment();
     const date = imageAttachmentDate();
     if (
@@ -3056,6 +3076,7 @@ export default function Home() {
       setImageAttachmentStatus("idle");
       await dailyNoteReplication.saveAndSyncSnapshot(insertion.saveSnapshot);
     } catch (error: unknown) {
+      if (!authIsCurrent()) return;
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("choosing");
         setImportingImageResolutionName(null);
@@ -3085,6 +3106,7 @@ export default function Home() {
   };
 
   const handleLocalImageFile = async (file: File | undefined, kind: LocalImageSourceKind) => {
+    const authIsCurrent = captureAuthLifecycle();
     if (runtime.imageAttachments === null || file === undefined) return;
     const date = imageAttachmentDate();
     if (editorReadOnly() || !canEditDailyNoteDate(date, dateBoundEditorState())) return;
@@ -3099,14 +3121,14 @@ export default function Home() {
         filename: file.name || "image",
         lastModified: file.lastModified
       });
-      if (!canApplyImageAttachmentAsyncResult(date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       setPickedImage(null);
       setLocalImageSource(source);
       setReusableImageAttachment(null);
       setImageAttachmentAltText(defaultLocalImageAltText(source));
       setImageAttachmentStatus("choosing");
     } catch (error: unknown) {
-      if (!canApplyImageAttachmentAsyncResult(date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       if (handleRemoteError(error)) {
         setImageAttachmentStatus("idle");
         return;
@@ -3137,6 +3159,7 @@ export default function Home() {
   };
 
   const startCameraCapture = async () => {
+    const authIsCurrent = captureAuthLifecycle();
     if (runtime.imageAttachments === null) return;
     const date = selectedDate();
     if (editorReadOnly() || !canEditDailyNoteDate(date, dateBoundEditorState())) return;
@@ -3164,26 +3187,28 @@ export default function Home() {
           facingMode: { ideal: "environment" }
         }
       });
-      if (!canApplyImageAttachmentAsyncResult(date)) {
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) {
         stopCameraStream(stream);
         return;
       }
       setCameraStream(stream);
       setImageAttachmentStatus("waiting");
     } catch (error: unknown) {
-      if (!canApplyImageAttachmentAsyncResult(date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       setImageAttachmentError(errorMessage(error));
       setImageAttachmentStatus("idle");
     }
   };
 
   const captureCameraImage = async () => {
+    const authIsCurrent = captureAuthLifecycle();
     const date = imageAttachmentDate();
     if (runtime.imageAttachments === null || cameraVideo === undefined) return;
     if (editorReadOnly() || !canEditDailyNoteDate(date, dateBoundEditorState())) return;
 
     try {
       const blob = await captureVideoFrame(cameraVideo);
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       clearCameraStream();
       const source = await runtime.imageAttachments.prepareLocalImageSource({
         kind: "device-camera",
@@ -3191,14 +3216,14 @@ export default function Home() {
         filename: `camera-${date}-${Date.now()}.jpg`,
         lastModified: Date.now()
       });
-      if (!canApplyImageAttachmentAsyncResult(date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       setPickedImage(null);
       setLocalImageSource(source);
       setReusableImageAttachment(null);
       setImageAttachmentAltText(defaultLocalImageAltText(source));
       setImageAttachmentStatus("choosing");
     } catch (error: unknown) {
-      if (!canApplyImageAttachmentAsyncResult(date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       setImageAttachmentError(errorMessage(error));
       setImageAttachmentStatus("waiting");
     }
@@ -3212,6 +3237,7 @@ export default function Home() {
   };
 
   const preparePastedImageForDate = async (file: File, date: IsoDate) => {
+    const authIsCurrent = captureAuthLifecycle();
     if (runtime.imageAttachments === null) return;
     if (editorReadOnly() || !canEditDailyNoteDate(date, dateBoundEditorState())) {
       setImageAttachmentStatus("idle");
@@ -3238,12 +3264,12 @@ export default function Home() {
         filename: file.name || `clipboard-image${extensionForMimeType(file.type)}`,
         lastModified: file.lastModified
       });
-      if (!canApplyImageAttachmentAsyncResult(date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       setLocalImageSource(source);
       setImageAttachmentAltText(defaultLocalImageAltText(source));
       setImageAttachmentStatus("choosing");
     } catch (error: unknown) {
-      if (!canApplyImageAttachmentAsyncResult(date)) return;
+      if (!canApplyImageAttachmentAsyncResult(date, authIsCurrent)) return;
       setImageAttachmentError(errorMessage(error));
       setImageAttachmentStatus("idle");
     }
@@ -3252,6 +3278,8 @@ export default function Home() {
   const reconnectGoogle = async () => {
     if (runtime.kind !== "google" || reconnectingAuth()) return;
 
+    // Retire old image/UI continuations before a replacement auth attempt starts.
+    authLifecycle += 1;
     const authIsCurrent = captureAuthLifecycle();
     setReconnectingAuth(true);
     recordSyncRequest("reconnect");
@@ -3291,6 +3319,7 @@ export default function Home() {
     }
 
     authLifecycle += 1;
+    clearImageSession();
     const revocation = runtime.kind === "google" ? runtime.tokenProvider.revoke?.() : undefined;
     datePicker.reset();
     existingNoteDates.reset();
@@ -3316,6 +3345,7 @@ export default function Home() {
     const onOtherTabSignOut = (event: StorageEvent) => {
       if (event.key !== "jot.accountEpoch" || drafts.hasCurrentEpoch()) return;
       authLifecycle += 1;
+      clearImageSession();
       setSigningIn(false);
       setReconnectingAuth(false);
       datePicker.reset();
@@ -3353,6 +3383,7 @@ export default function Home() {
                 type="button"
                 disabled={signingIn() || preparingAuth()}
                 onClick={() => {
+                  authLifecycle += 1;
                   setSigningIn(true);
                   setRedirectAuthErrorActive(false);
                   clearStoredActiveImagePicker();
@@ -4496,7 +4527,7 @@ function createStorageRuntime(): StorageRuntime {
       kind: "google",
       tokenProvider,
       remote,
-      imageAttachments: new ImageAttachmentFlow(new FakePhotosAttachmentProvider(), remote)
+      imageAttachments: new ImageAttachmentFlow(new FakePhotosAttachmentProvider(), remote, tokenProvider)
     };
   }
 
@@ -4507,7 +4538,7 @@ function createStorageRuntime(): StorageRuntime {
       kind: "google",
       tokenProvider,
       remote,
-      imageAttachments: new ImageAttachmentFlow(new GooglePhotosAttachmentProvider(tokenProvider), remote)
+      imageAttachments: new ImageAttachmentFlow(sessionScopedProvider(tokenProvider, scoped => new GooglePhotosAttachmentProvider(scoped)), remote, tokenProvider)
     };
   }
 
@@ -4516,7 +4547,10 @@ function createStorageRuntime(): StorageRuntime {
   return {
     kind: "fake",
     remote,
-    imageAttachments: new ImageAttachmentFlow(fakePhotos, remote),
+    imageAttachments: new ImageAttachmentFlow(fakePhotos, remote, { captureSession: () => {
+      const epoch = localStorage.getItem("jot.accountEpoch");
+      return () => epoch === localStorage.getItem("jot.accountEpoch");
+    } }),
     fakePhotos
   };
 }

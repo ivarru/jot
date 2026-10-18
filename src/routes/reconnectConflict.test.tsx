@@ -26,6 +26,22 @@ describe("Home reconnect and conflict handling", () => {
     cleanupRouteTestDom();
   });
 
+  it("a Photos authentication failure still opens reconnect after invalidating its own token", async () => {
+    testState.useGoogleRuntime = true;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("invalid_token", {status: 401}));
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const host = document.createElement("div"); document.body.append(host);
+    const dispose = render(() => <Home />, host);
+    try {
+      await waitFor(() => expect(host.querySelector<HTMLButtonElement>("button[aria-label='Insert image']")?.disabled).toBe(false));
+      host.querySelector<HTMLButtonElement>("button[aria-label='Insert image']")!.click();
+      await settle();
+      clickButton(host, "Google Photos");
+      await waitFor(() => expect(host.querySelector(".sync-status")?.getAttribute("aria-label")).toContain("Reconnect required"));
+      expect(fetchSpy).toHaveBeenCalled();
+    } finally { dispose(); fetchSpy.mockRestore(); open.mockRestore(); }
+  });
+
   it("retries production renewal for date B after date A's renewal save finishes stale", async () => {
     testState.useGoogleRuntime = true;
     testState.remoteNote = {

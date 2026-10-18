@@ -1,3 +1,5 @@
+import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
+import { captureTokenSession } from "~/auth/sessionScopedProvider";
 import { createImageAttachmentReference } from "~/domain/attachmentReferences";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
 import {
@@ -69,19 +71,31 @@ export interface LocalImageAttachmentSource {
 export class ImageAttachmentFlow {
   constructor(
     private readonly photos: ImageAttachmentPhotosProvider,
-    private readonly drive: ImageAttachmentMetadataStore
+    private readonly drive: ImageAttachmentMetadataStore,
+    private readonly sessionTokens: Pick<AccessTokenProvider, "captureSession"> = {}
   ) {}
 
   async startPicking(): Promise<GooglePhotosPickingSession> {
-    return await this.photos.createPickingSession();
+    const check = captureTokenSession(this.sessionTokens);
+    check();
+    const session = await this.photos.createPickingSession();
+    check();
+    return session;
   }
 
   async getPickingSession(sessionId: string): Promise<GooglePhotosPickingSession> {
-    return await this.photos.getPickingSession(sessionId);
+    const check = captureTokenSession(this.sessionTokens);
+    check();
+    const session = await this.photos.getPickingSession(sessionId);
+    check();
+    return session;
   }
 
   async getFirstPickedImage(sessionId: string): Promise<PickedGooglePhotosMediaItem | null> {
+    const check = captureTokenSession(this.sessionTokens);
+    check();
     const picked = (await this.photos.listPickedMediaItems(sessionId)).find(isPickedImage);
+    check();
     return picked ?? null;
   }
 
@@ -106,12 +120,15 @@ export class ImageAttachmentFlow {
     readonly filename?: string;
     readonly lastModified?: number;
   }): Promise<LocalImageAttachmentSource> {
+    const check = captureTokenSession(this.sessionTokens);
+    check();
     const mimeType = input.bytes.type || "application/octet-stream";
     if (!mimeType.startsWith("image/")) {
       throw new Error("Jot can only attach image files.");
     }
 
     const dimensions = await readImageDimensions(input.bytes);
+    check();
     return {
       kind: input.kind,
       bytes: input.bytes,
@@ -124,7 +141,10 @@ export class ImageAttachmentFlow {
   }
 
   async findReusablePickedImage(picked: PickedGooglePhotosMediaItem): Promise<ReusableImageAttachment | null> {
-    const metadata = await this.findReusableAttachment(picked);
+    const check = captureTokenSession(this.sessionTokens);
+    check();
+    const metadata = await this.findReusableAttachment(picked, check);
+    check();
     return metadata === null ? null : { metadata };
   }
 
@@ -133,9 +153,13 @@ export class ImageAttachmentFlow {
     readonly selectedResolution: ImageAttachmentResolution;
     readonly altText: string;
   }): Promise<InsertedImageAttachment> {
+    const check = captureTokenSession(this.sessionTokens);
+    check();
     const id = createImageAttachmentId();
-    const album = await this.ensureJotImageAlbum();
+    const album = await this.ensureJotImageAlbum(check);
+    check();
     const bytes = await this.photos.downloadPickedImage(input.picked, input.selectedResolution);
+    check();
     const mimeType = input.picked.mediaFile?.mimeType ?? bytes.type;
     const copy = await this.photos.uploadImageToAlbum({
       albumId: album.albumId,
@@ -143,6 +167,7 @@ export class ImageAttachmentFlow {
       mimeType,
       bytes
     });
+    check();
     const metadata = createImageAttachmentMetadata({
       id,
       selectedResolution: input.selectedResolution.name,
@@ -156,6 +181,7 @@ export class ImageAttachmentFlow {
     });
 
     await this.drive.saveImageAttachmentMetadata(metadata);
+    check();
 
     return {
       metadata,
@@ -168,18 +194,23 @@ export class ImageAttachmentFlow {
     readonly selectedResolution: ImageAttachmentResolution;
     readonly altText: string;
   }): Promise<InsertedImageAttachment> {
+    const check = captureTokenSession(this.sessionTokens);
+    check();
     const id = createImageAttachmentId();
-    const album = await this.ensureJotImageAlbum();
+    const album = await this.ensureJotImageAlbum(check);
+    check();
     const bytes = await resizeImageBlob(input.source.bytes, input.selectedResolution, {
       ...defined("width", input.source.width),
       ...defined("height", input.source.height)
     });
+    check();
     const copy = await this.photos.uploadImageToAlbum({
       albumId: album.albumId,
       filename: imageAttachmentFilenameForLocalSource(id, input.source),
       mimeType: input.source.mimeType,
       bytes
     });
+    check();
     const metadata = createLocalImageAttachmentMetadata({
       id,
       selectedResolution: input.selectedResolution.name,
@@ -193,6 +224,7 @@ export class ImageAttachmentFlow {
     });
 
     await this.drive.saveImageAttachmentMetadata(metadata);
+    check();
 
     return {
       metadata,
@@ -211,11 +243,14 @@ export class ImageAttachmentFlow {
   }
 
   async resolveImageAttachmentDisplay(id: string): Promise<ImageAttachmentDisplay> {
+    const check = captureTokenSession(this.sessionTokens);
+    check();
     const metadata = await this.drive.loadImageAttachmentMetadata(id).catch((error: unknown) => {
       return {
         error
       };
     });
+    check();
     if (isMetadataLoadError(metadata)) {
       return {
         id,
@@ -233,6 +268,7 @@ export class ImageAttachmentFlow {
 
     try {
       const mediaItem = await this.photos.getMediaItem(metadata.copy.mediaItemId);
+      check();
       const baseUrl = mediaItem.baseUrl;
       if (baseUrl === undefined) {
         return {
@@ -249,6 +285,7 @@ export class ImageAttachmentFlow {
         ...defined("expiresAtMs", displayUrlExpiresAtMs(baseUrl))
       };
     } catch (error: unknown) {
+      check();
       return {
         id,
         status: "error",
@@ -257,17 +294,20 @@ export class ImageAttachmentFlow {
     }
   }
 
-  private async findReusableAttachment(picked: PickedGooglePhotosMediaItem): Promise<ImageAttachmentMetadata | null> {
+  private async findReusableAttachment(picked: PickedGooglePhotosMediaItem, check: () => void): Promise<ImageAttachmentMetadata | null> {
     const existingByMediaItemId = await this.drive.findImageAttachmentMetadataByMediaItemId(picked.id);
+    check();
     if (existingByMediaItemId !== null) return existingByMediaItemId;
 
     const idFromFilename = imageAttachmentIdFromFilename(picked.mediaFile?.filename);
     if (idFromFilename === null) return null;
 
     const existingById = await this.drive.loadImageAttachmentMetadata(idFromFilename);
+    check();
     if (existingById !== null) return existingById;
 
     const album = await this.drive.loadJotImageAlbum();
+    check();
     if (album === null) return null;
 
     const metadata = createImageAttachmentMetadata({
@@ -281,14 +321,17 @@ export class ImageAttachmentFlow {
       ...defined("copiedHeight", picked.mediaFile?.mediaFileMetadata?.height)
     });
     await this.drive.saveImageAttachmentMetadata(metadata);
+    check();
     return metadata;
   }
 
-  private async ensureJotImageAlbum(): Promise<JotImageAlbumMetadata> {
+  private async ensureJotImageAlbum(check: () => void): Promise<JotImageAlbumMetadata> {
     const existing = await this.drive.loadJotImageAlbum();
+    check();
     if (existing !== null) return existing;
 
     const album = await this.photos.createAlbum(JOT_IMAGE_ALBUM_TITLE);
+    check();
     const metadata: JotImageAlbumMetadata = {
       version: IMAGE_ATTACHMENT_METADATA_VERSION,
       albumId: album.id,
@@ -297,6 +340,7 @@ export class ImageAttachmentFlow {
       createdAt: new Date().toISOString()
     };
     await this.drive.saveJotImageAlbum(metadata);
+    check();
     return metadata;
   }
 }

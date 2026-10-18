@@ -1,7 +1,7 @@
 import type { AccessTokenProvider } from "./accessTokenProvider";
 import { GoogleAuthCancelledError } from "./googleIdentity";
 
-export function captureTokenSession(tokens: AccessTokenProvider): () => void {
+export function captureTokenSession(tokens: Pick<AccessTokenProvider, "captureSession">): () => void {
   const current = tokens.captureSession?.() ?? (() => true);
   return () => { if (!current()) throw new GoogleAuthCancelledError(); };
 }
