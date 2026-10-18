@@ -118,7 +118,9 @@ describe("milkdown structural tab editing", () => {
       view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, headingPosition!)));
 
       expect(pressTab(view)).toBe(true);
-      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("before\n\n");
+      // Milkdown 7.22 omits an empty paragraph from serialized Markdown;
+      // the live document and caret must still retain that paragraph.
+      expect(editor.ctx.get(serializerCtx)(view.state.doc)).toBe("before\n");
       expect(view.state.selection.$from.parent.type.name).toBe("paragraph");
       expect(view.state.selection.$from.parent.textContent).toBe("");
     } finally {

@@ -1021,6 +1021,19 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("renders canonical Jot tag links while retaining unsafe-scheme sanitization", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <MilkdownEditor documentKey="2030-02-02"
+      value={'[#work](jot:tag/work) [bad](javascript:alert%281%29) [data](data:text/html,hello) [invalid](jot:tag/INVALID)'}
+      onChange={() => undefined} onBlur={() => undefined} />, host);
+    try {
+      await waitForEditable(host);
+      const links = Array.from(host.querySelectorAll("a"));
+      expect(links.map((link) => link.getAttribute("href"))).toEqual(["jot:tag/work", "", "", ""]);
+    } finally { dispose(); host.remove(); }
+  });
+
   it("opens a rendered Markdown link through the app handler on plain click", async () => {
     const host = document.createElement("div");
     document.body.append(host);

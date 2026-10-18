@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.33.0",
+  "version": "0.33.1",
   "description": "A static progressive web app for personal Daily Notes.",
   "private": true,
   "license": "MIT",
@@ -41,18 +41,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@milkdown/kit": "^7.21.2",
-    "@milkdown/plugin-automd": "7.21.2",
+    "@milkdown/kit": "^7.22.3",
+    "@milkdown/plugin-automd": "7.22.3",
     "@solidjs/meta": "^0.29.4",
     "@solidjs/router": "^0.15.3",
-    "@solidjs/start": "^1.1.0",
+    "@solidjs/start": "^1.4.0",
     "diff": "^8.0.4",
-    "dompurify": "^3.4.11",
+    "dompurify": "^3.4.17",
     "katex": "^0.17.0",
     "remark": "^15.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
-    "solid-js": "^1.9.9",
+    "solid-js": "^1.9.17",
     "ulid": "^3.0.1",
     "vinxi": "^0.5.8"
   },

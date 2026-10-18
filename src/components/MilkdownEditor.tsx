@@ -20,6 +20,7 @@ import {
 } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 import { markdownLinkAtOffset } from "~/domain/dailyNoteLinks";
+import { JOT_TAG_DESTINATION_PREFIX, normalizeJotTagName } from "~/domain/jotTags";
 import { createMarkdownProtectedLineScanner } from "~/domain/dailyNoteMarkdown";
 import {
   inactiveBlockFormatState,
@@ -490,6 +491,26 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .config((ctx) => {
             ctx.set(rootCtx, root);
             ctx.set(defaultValueCtx, props.value);
+            // Jot's DOM/source affinity plugin controls entry and exit at code
+            // boundaries. Retain inclusive marks so toolbar toggles and source
+            // selections keep that behavior after Milkdown 7.22.
+            ctx.update(inlineCodeSchema.key, (schema) => (ctx) => ({ ...schema(ctx), inclusive: true }));
+            ctx.update(linkSchema.key, (factory) => (ctx) => {
+              const schema = factory(ctx);
+              return {
+                ...schema,
+                toDOM: (mark, inline) => {
+                  const dom = schema.toDOM!(mark, inline);
+                  const href: unknown = mark.attrs.href;
+                  if (typeof href !== "string" || !href.startsWith(JOT_TAG_DESTINATION_PREFIX)) return dom;
+                  const name = href.slice(JOT_TAG_DESTINATION_PREFIX.length);
+                  if (normalizeJotTagName(name) !== name || !Array.isArray(dom) || dom[0] !== "a") return dom;
+                  // Preserve only canonical app-owned tag destinations. All
+                  // other schemes retain Milkdown's upstream sanitizer.
+                  return ["a", { ...dom[1] as Record<string, unknown>, href }, 0];
+                }
+              };
+            });
             ctx.update(editorViewOptionsCtx, (options) => ({
               ...options,
               editable: () => !currentReadOnly
