@@ -5,7 +5,7 @@ import {
   scheduleMilkdownCodeBlockViewportLayout
 } from "./milkdownCodeBlockLayout";
 import type { ImageAttachmentDisplayMap } from "./milkdownImages";
-import { createMilkdownImageViewDom, updateMilkdownImageViewDom } from "./milkdownImages";
+import { createMilkdownImageClipboardDom, createMilkdownImageViewDom, revokeMilkdownExternalImagePermission, updateMilkdownImageViewDom } from "./milkdownImages";
 import { shouldSyncMilkdownInlineMarkdown } from "./milkdownInlineSync";
 import { preserveParagraphTrailingSpaces } from "~/editor/markdownTrailingSpaces";
 import { applyListTightnessUpdates, createListTightnessPlugin } from "./milkdownListTightness";
@@ -223,7 +223,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
   let removeCodeBlockViewportLayout: (() => void) | null = null;
   const [error, setError] = createSignal<string | null>(null);
   let imageAttachmentDisplays: ImageAttachmentDisplayMap = {};
-  const imageAttachmentDisplayListeners = new Set<() => void>();
+  const imageAttachmentDisplayListeners = new Set<(resetExternalPermission?: boolean) => void>();
   let activeSession: MilkdownEditorSession | null = null;
 
   onCleanup(() => {
@@ -236,6 +236,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
       listener();
     }
   });
+
+  createEffect(on(() => props.focusEnabled, enabled => {
+    if (enabled === false) for (const listener of imageAttachmentDisplayListeners) listener(true);
+  }));
 
   createEffect(
     on(
@@ -472,7 +476,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         const jotImageView = $view(imageSchema.node, () => (node) => {
           let attrs = node.attrs;
           const dom = createMilkdownImageViewDom(attrs, imageAttachmentDisplays);
-          const refresh = () => updateMilkdownImageViewDom(dom, attrs, imageAttachmentDisplays);
+          const refresh = (resetExternalPermission = false) => {
+            if (resetExternalPermission) revokeMilkdownExternalImagePermission(dom);
+            updateMilkdownImageViewDom(dom, attrs, imageAttachmentDisplays);
+          };
           imageAttachmentDisplayListeners.add(refresh);
 
           return {
@@ -497,6 +504,21 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             // boundaries. Retain inclusive marks so toolbar toggles and source
             // selections keep that behavior after Milkdown 7.22.
             ctx.update(inlineCodeSchema.key, (schema) => (ctx) => ({ ...schema(ctx), inclusive: true }));
+            ctx.update(imageSchema.key, (factory) => (ctx) => {
+              const schema = factory(ctx);
+              return {
+                ...schema,
+                toDOM: (node) => createMilkdownImageClipboardDom(node.attrs),
+                parseDOM: [{
+                  tag: "span[data-jot-image-src]",
+                  getAttrs: (dom) => dom instanceof HTMLElement ? {
+                    src: dom.dataset.jotImageSrc ?? "",
+                    alt: dom.dataset.jotImageAlt ?? "",
+                    title: dom.dataset.jotImageTitle ?? ""
+                  } : false
+                }, ...(schema.parseDOM ?? [])]
+              };
+            });
             ctx.update(linkSchema.key, (factory) => (ctx) => {
               const schema = factory(ctx);
               return {

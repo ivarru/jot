@@ -34,6 +34,10 @@ _Avoid_: Notes directory, markdown folder
 A Jot-owned copy of an image included from an external source at a user-selected resolution. An **Image Attachment** belongs to the **Jot Image Album**, and removing it from a **Daily Note** does not delete it.
 _Avoid_: Photo attachment, linked image, embedded original, Google Photos reference
 
+Ordinary network-target Markdown images are not **Image Attachments**. They require an explicit loading decision for
+each image in the current view, without changing the Markdown source. That permission is not shared across dates,
+editor mode switches, or reloads. Managed **Image Attachments** retain their authorized provider display workflow.
+
 **Image Attachment ID**:
 A stable Jot-generated ULID for an **Image Attachment**. It is used in `jot:image:<id>` references and is independent of storage-provider identifiers.
 _Avoid_: Google Photos ID, media item ID, file ID

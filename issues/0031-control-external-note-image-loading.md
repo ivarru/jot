@@ -1,7 +1,7 @@
 ---
 id: "0031"
 title: "Control loading of external images in notes"
-status: open
+status: closed
 type: feature
 priority: medium
 created: "2026-10-18"
@@ -30,12 +30,22 @@ Markdown source and ordinary editing; distinguish app-managed Photos attachments
 paste and protocol-relative URLs as well as Markdown image syntax. Coordinate any clipboard-only resource fetches
 with #0024. Do not add an image proxy or silently rewrite external URLs as part of this issue.
 
+## Chosen loading policy
+
+Arbitrary network image URLs (including relative and protocol-relative URLs) start blocked. Each image has an explicit
+Load control identifying the destination host. Permission belongs to that exact URL/node view only, expires on mode/date
+switch or reload, and is never persisted or shared with another note. Refreshes of the same view may retain permission
+for the same URL; changing the URL resets it. Managed `jot:image:` attachments keep the authorized Photos workflow.
+Local data-image and same-origin blob sources do not contact an external host. Other schemes are unsupported.
+Permitted requests use no-referrer and no manually supplied Authorization header; normal browser image-cookie policy
+still applies after consent. Markdown stays unchanged. Clipboard serialization must not construct a live external img.
+
 ## Acceptance criteria
 
-- [ ] Define the default and permission scope for external image loading, including managed Photos images and reloads.
-- [ ] Imported, remotely loaded, pasted, and raw-edited notes make no arbitrary image request before the required user decision.
-- [ ] The explicit loading workflow displays the image and preserves Markdown; declining loading keeps editing usable.
-- [ ] Record referrer/credential policy and actual browser request evidence; update the existing characterization test to verify the intended privacy boundary.
+- [x] Define the default and permission scope for external image loading, including managed Photos images and reloads.
+- [x] Imported, remotely loaded, pasted, and raw-edited notes make no arbitrary image request before the required user decision.
+- [x] The explicit loading workflow displays the image and preserves Markdown; declining loading keeps editing usable.
+- [x] Record referrer/credential policy and actual browser request evidence; update the existing characterization test to verify the intended privacy boundary.
 
 ## Verification
 
@@ -51,4 +61,18 @@ No hard dependency. Originated in [#0023](0023-review-untrusted-content.md). Coo
 
 ## Resolution
 
-Pending. Review evidence only; no loading policy has been implemented or accepted.
+Implemented in app `0.35.0` under the chosen policy above. Network images render a host-labelled Load control;
+permission is exact-URL/node-view scoped, never persisted, reset on hidden/raw mode, and cannot transfer between dates.
+Harmless refreshes retain the same node's permission without repeating requests. Unsupported schemes/userinfo are not
+offered a load action. Managed Photos, local image data and same-origin blob displays retain their existing behavior.
+All displayed images use no-referrer; ordinary browser cookie rules remain explicit after a user's load decision.
+
+Image serialization uses inert span metadata so plain-Markdown paste/clipboard DOM creation cannot fetch before consent.
+Native HTML and Markdown clipboard workflows both preserve image source/title and require permission. No image load
+callback modifies Markdown; an in-flight date-A image cannot grant date B permission or change B's Local Draft.
+This rendering/browser boundary is outside the bounded sync model.
+
+The initial permission browser regression failed before production changes. Twenty Chrome workflows now pass, covering
+five new permission workflows, adversarial content, managed upload, stale-session images, reconnect/conflict and diagnostic
+copying. Routine `npm run verify` passed 842 tests, typechecking and the production build. The Pages build and all six artifact checks passed. Servers stopped after verification. No live account or untrusted endpoint
+was contacted; probe requests were intercepted locally.

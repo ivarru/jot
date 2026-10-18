@@ -82,7 +82,7 @@ test('HTML clipboard admits schema content without executable attributes', async
   await expectInert(page);
 });
 
-test('external Markdown images make automatic unauthenticated requests', async ({ page }) => {
+test('external Markdown images require permission and omit referrers', async ({ page }) => {
   const requests: { url: string; headers: Record<string, string> }[] = [];
   await page.route('https://probe.invalid/**', async route => {
     requests.push({ url: route.request().url(), headers: await route.request().allHeaders() });
@@ -91,10 +91,13 @@ test('external Markdown images make automatic unauthenticated requests', async (
   await openDevelopmentStorage(page, '/', 'disabled');
   await setRawMarkdown(page, '![remote](https://probe.invalid/unique-note-marker.png)');
   await switchToWysiwygMode(page);
+  await expect(wysiwygEditor(page).getByRole('button', { name: /Load external image/ })).toBeVisible();
+  expect(requests).toEqual([]);
+  await wysiwygEditor(page).getByRole('button', { name: /Load external image/ }).click();
   await expect.poll(() => requests.length).toBeGreaterThan(0);
   expect(requests[0]?.url).toBe('https://probe.invalid/unique-note-marker.png');
   expect(requests[0]?.headers.authorization).toBeUndefined();
-  expect(requests[0]?.headers.referer).toBe(new URL(page.url()).origin + '/');
+  expect(requests[0]?.headers.referer).toBeUndefined();
 });
 
 test('bounded large Markdown and nested math leave the editor usable', async ({ page }) => {

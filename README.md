@@ -121,6 +121,12 @@ See [Tags](docs/tags.md) for format and consistency details.
 
 Jot copies selected images into a Jot-created Google Photos album named `jot` at the chosen resolution. The Daily Note stores only a normal Markdown image reference with a `jot:image:<id>` target. Attachment metadata lives separately in Drive under `jot/Image Attachments`.
 
+Ordinary Markdown images pointing to a web address start blocked. Use **Load image** beside an image to contact the
+shown host and display it. Permission applies to that image in the current view and resets when you switch editor
+modes, change dates, or reload. Jot does not save a host allowlist. Loading omits the referrer; the browser's usual image
+cookie rules still apply. Local data images and Jot-managed Photos attachments keep their existing display behavior.
+Your Markdown is preserved whether or not you load the image.
+
 Manual Google OAuth, Drive, and Photos validation is tracked in
 [docs/manual-google-provider-retest.md](docs/manual-google-provider-retest.md).
 

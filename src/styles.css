@@ -1794,3 +1794,9 @@ select {
 
 .tag-order-toggle { display: flex; align-items: center; gap: .4rem; margin: .5rem 0; font-size: .9rem; }
 .tag-order-toggle input { width: auto; margin: 0; }
+
+.jot-external-image {
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
