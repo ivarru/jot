@@ -6,7 +6,9 @@ import { EditorState, Plugin, TextSelection } from "@milkdown/kit/prose/state";
 import { commonmark, inlineCodeSchema, linkSchema, strongSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { automd, inlineSyncConfig } from "@milkdown/plugin-automd";
-import { toggleMark } from "@milkdown/kit/prose/commands";
+import { toggleMark, wrapIn } from "@milkdown/kit/prose/commands";
+import { listItemBlockComponent, listItemBlockView } from "@milkdown/kit/component/list-item-block";
+import { guardListItemBlockView } from "./milkdownListItemView";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import {
   applyMilkdownUpdatedMarkdown,
@@ -131,6 +133,43 @@ describe("MilkdownEditor", () => {
     } finally { dispose(); host.remove(); }
   });
 
+  it.each([false, true])("does not replay pending focus after newer selection or content (edit %s)", async (edit) => {
+    const host = document.createElement("div"); document.body.append(host);
+    let controller!: MilkdownEditorController;
+    let refocus!: (selection: { start: number; end: number }) => void;
+    const dispose = render(() => {
+      const [selection, setSelection] = createSignal({ start: 0, end: 0 });
+      refocus = setSelection;
+      return <MilkdownEditor documentKey="2030-02-02" value="Alpha beta" focusSelection={selection()}
+        onChange={() => {}} onBlur={() => {}} onController={(value) => { if (value) controller = value; }} />;
+    }, host);
+    try {
+      await waitForEditable(host); await animationFrame();
+      refocus({ start: 0, end: 0 });
+      if (edit) controller.applyRawMarkdown("Alpha beta edited");
+      controller.focusSelection({ start: 6, end: 6 });
+      await animationFrame();
+      expect(controller.getSelection()).toEqual({ start: 6, end: 6 });
+    } finally { dispose(); host.remove(); }
+  });
+
+  it("does not let a mounted list item restore its pre-edit caret", async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    const editor = await Editor.make().config((ctx) => { ctx.set(rootCtx, host); ctx.set(defaultValueCtx, ""); })
+      .use(commonmark).use(gfm)
+      .use(listItemBlockComponent.map((plugin) => plugin === listItemBlockView ? guardListItemBlockView(plugin) : plugin)).create();
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      view.focus();
+      expect(wrapIn(view.state.schema.nodes.bullet_list!)(view.state, view.dispatch, view)).toBe(true);
+      view.dispatch(view.state.tr.insertText("foo"));
+      const typedSelection = view.state.selection;
+      expect(typedSelection.from).toBe(6);
+      await animationFrame();
+      expect(view.state.selection.eq(typedSelection)).toBe(true);
+    } finally { await editor.destroy(); host.remove(); }
+  });
+
   it.each(["Afternoon", "Morning"])("keeps the caret above a remote append with heading %s", async (secondHeading) => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -251,7 +290,7 @@ describe("MilkdownEditor", () => {
     }
   });
 
-  it("does not let delayed callbacks from an old document affect the active blur snapshot", async () => {
+  it.each(["", "\n\n<br />"])("does not let old-date callbacks affect the active blur snapshot (suffix %j)", async (suffix) => {
     const host = document.createElement("div");
     document.body.append(host);
     const blurs: Array<readonly [string, string]> = [];
@@ -262,7 +301,7 @@ describe("MilkdownEditor", () => {
       () => {
         const [document, innerSetDocument] = createSignal({
           documentKey: "2030-02-01",
-          markdown: "# Morning\n\n* A old\n\n# Evening\n\n* A last"
+          markdown: `# Morning\n\n* A old\n\n# Evening\n\n* A last${suffix}`
         });
         setDocument = innerSetDocument;
 
@@ -283,7 +322,7 @@ describe("MilkdownEditor", () => {
 
       setDocument({
         documentKey: "2030-02-01",
-        markdown: "# Morning\n\n* A old\n\n# Evening\n\n* A last\n* A remote"
+        markdown: `# Morning\n\n* A old\n\n# Evening\n\n* A last\n* A remote${suffix}`
       });
       await animationFrame();
       setDocument({
@@ -1840,6 +1879,19 @@ describe("MilkdownEditor", () => {
     } finally {
       dispose();
     }
+  });
+
+  it("retains the paragraph boundary in a trailing empty-paragraph insertion snapshot", async () => {
+    const editor = await createMilkdownTestEditor("before");
+    try {
+      const view = editor.ctx.get(editorViewCtx);
+      const transaction = view.state.tr.insert(view.state.doc.content.size, view.state.schema.nodes.paragraph!.create());
+      view.dispatch(transaction.setSelection(TextSelection.atEnd(transaction.doc)));
+      expect(serializedMarkdownSelectionSnapshot(view, editor.ctx.get(serializerCtx), TextSelection, true)).toEqual({
+        markdown: "before\n\n",
+        selection: { start: "before\n\n".length, end: "before\n\n".length }
+      });
+    } finally { await editor.destroy(); }
   });
 
   it("maps an empty list-item caret by serializing selection markers instead of recognizing placeholders", async () => {

@@ -73,7 +73,7 @@ async function assertWysiwygEmptyListItemClipboardAutofill(page: Page): Promise<
     url: "https://www.google.com/"
   });
   await clickLinkModalButton(page, "Insert");
-  await expectRawMarkdown(page, "abcd\n\n* efgh\n\n* [Google](https://www.google.com/)\n");
+  await expectRawMarkdown(page, "abcd\n\n* efgh\n* [Google](<https://www.google.com/>)");
 }
 
 async function assertWysiwygTrailingEmptyParagraphInsert(page: Page): Promise<void> {
@@ -102,7 +102,7 @@ async function assertWysiwygTrailingEmptyListItemInsert(page: Page): Promise<voi
   const variants = [
     {
       markdown: "abcd\n\n* efgh",
-      expected: "abcd\n\n* efgh\n\n* [www.google.com](https://www.google.com/)\n"
+      expected: "abcd\n\n* efgh\n* [www.google.com](<https://www.google.com/>)"
     },
     {
       markdown: "abcd\n\n1. efgh",
@@ -110,7 +110,7 @@ async function assertWysiwygTrailingEmptyListItemInsert(page: Page): Promise<voi
     },
     {
       markdown: "abcd\n\n* [ ] efgh",
-      expected: "abcd\n\n* [ ] efgh\n\n* [ ] [www.google.com](https://www.google.com/)\n"
+      expected: "abcd\n\n* [ ] efgh\n* [ ] [www.google.com](<https://www.google.com/>)"
     }
   ];
 

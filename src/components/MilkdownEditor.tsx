@@ -10,6 +10,7 @@ import { shouldSyncMilkdownInlineMarkdown } from "./milkdownInlineSync";
 import { preserveParagraphTrailingSpaces } from "~/editor/markdownTrailingSpaces";
 import { applyListTightnessUpdates, createListTightnessPlugin } from "./milkdownListTightness";
 import { renderMilkdownListItemLabel } from "./milkdownListItems";
+import { guardListItemBlockView } from "./milkdownListItemView";
 import { createPlainUrlLinkBoundaryPlugin } from "./milkdownPlainUrl";
 import { createMilkdownStructuralTabKeymap, milkdownStructuralTabAvailability } from "./milkdownStructuralTab";
 import { createMilkdownTableBoundaryNavigation } from "./milkdownTableBoundaryNavigation";
@@ -246,6 +247,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
         const markdownState = createMilkdownMarkdownSyncState(props.value);
         let currentReadOnly = props.readOnly === true;
         let disposed = false;
+        let focusRevision = 0;
         let editor: MilkdownEditorInstance | null = null;
         let session: MilkdownEditorSession | null = null;
         let lastPointerMarkdownSelection: MarkdownSelection | null = null;
@@ -293,7 +295,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           { clipboard },
           { history, historyProviderPlugin },
           { listener, listenerCtx },
-          { listItemBlockComponent, listItemBlockConfig },
+          { listItemBlockComponent, listItemBlockConfig, listItemBlockView },
           { Plugin, TextSelection, EditorState: EditorStateConstructor },
           { closeHistory, redo, redoDepth, undo, undoDepth },
           { isInTable, selectedRect },
@@ -556,7 +558,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           .use(inlineFormatStateTracker)
           .use(blockFormatStateTracker)
           .use(pointerBlockQuoteSelectionTracker)
-          .use(listItemBlockComponent)
+          .use(listItemBlockComponent.map((plugin) => plugin === listItemBlockView ? guardListItemBlockView(plugin) : plugin))
           .use(preserveListTightness)
           .use(history)
           .use(listener);
@@ -598,6 +600,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
               }
 
               let replacedMarkdown = markdown;
+              focusRevision++;
               let updatedView: EditorView | null = null;
               editor.action((ctx) => {
                 if (undoable) {
@@ -631,6 +634,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             },
             applyStructuralTab: (shiftKey) => {
               if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
+              const revision = ++focusRevision;
               lastStructuralTabSelection = null;
               const view = editor.ctx.get(editorViewCtx);
               flushPendingEditorDomChanges(view);
@@ -679,7 +683,8 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 if (restoredEmptyTextblockIndex === null) view.focus();
                 if (restoredEmptyTextblockIndex !== null) {
                   placeDomSelectionAtEmptyTextblock(view.dom, restoredEmptyTextblockIndex);
-                  scheduleDomSelectionAtEmptyTextblock(view.dom, restoredEmptyTextblockIndex);
+                  scheduleDomSelectionAtEmptyTextblock(view, restoredEmptyTextblockIndex,
+                    () => !disposed && activeSession === session && focusRevision === revision);
                 }
                 notifyHistoryAvailability(view);
               }
@@ -782,6 +787,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             },
             focus: (placement, onFocusApplied) => {
               if (disposed || activeSession !== session || editor === null) return;
+              const revision = ++focusRevision;
               const view = editor.ctx.get(editorViewCtx);
               focusEditable(
                 root,
@@ -790,11 +796,12 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 TextSelection,
                 markdownState.currentMarkdown,
                 onFocusApplied,
-                () => !disposed && activeSession === session && editor !== null
+                () => !disposed && activeSession === session && editor !== null && focusRevision === revision
               );
             },
             focusSelection: (selection) => {
               if (disposed || activeSession !== session || editor === null) return;
+              focusRevision++;
               const view = editor.ctx.get(editorViewCtx);
               const source = editableLiveMarkdown(view, serializeMilkdownMarkdown(editor.ctx.get(serializerCtx), view.state.doc));
               placeSelectionAtMarkdownSourceSelection(view, TextSelection, source, selection);
@@ -803,6 +810,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             },
             focusCurrentSelection: () => {
               if (disposed || activeSession !== session || editor === null) return;
+              focusRevision++;
               editor.ctx.get(editorViewCtx).dom.focus();
             },
             redo: () => {
@@ -1011,11 +1019,18 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           event.stopImmediatePropagation();
           props.onPasteImage(documentKey, file);
         };
+        const cancelPendingFocus = () => { focusRevision++; };
+        root.addEventListener("keydown", cancelPendingFocus, true);
+        root.addEventListener("beforeinput", cancelPendingFocus, true);
+        root.ownerDocument.addEventListener("pointerdown", cancelPendingFocus, true);
         root.addEventListener("focusout", blurListener);
         root.addEventListener("click", clickLinkListener, { capture: true });
         root.addEventListener("keydown", openLinkShortcutListener, { capture: true });
         root.addEventListener("paste", pasteListener, { capture: true });
         removeRootListeners = () => {
+          root.removeEventListener("keydown", cancelPendingFocus, true);
+          root.removeEventListener("beforeinput", cancelPendingFocus, true);
+          root.ownerDocument.removeEventListener("pointerdown", cancelPendingFocus, true);
           root.removeEventListener("focusout", blurListener);
           root.removeEventListener("click", clickLinkListener, { capture: true });
           root.removeEventListener("keydown", openLinkShortcutListener, { capture: true });
@@ -1120,7 +1135,13 @@ function isOpenLinkShortcut(event: KeyboardEvent): boolean {
 }
 
 function serializeMilkdownMarkdown(serializer: MarkdownSerializer, doc: ProseNode): string {
-  return serializer(doc).replaceAll("\u00a0", " ");
+  const markdown = serializer(doc).replaceAll("\u00a0", " ");
+  // Milkdown 7.22 omits a final empty paragraph. Keep its block boundary
+  // in source snapshots so inserting a link/tag cannot join the preceding
+  // paragraph. An explicit placeholder already represents that boundary.
+  if (doc.childCount > 1 && doc.lastChild?.type.name === "paragraph" && doc.lastChild.content.size === 0
+    && !markdown.endsWith("\n\n") && !/<br\s*\/?\s*>\n$/i.test(markdown)) return `${markdown}\n`;
+  return markdown;
 }
 
 function normalizeMilkdownListTightness(
@@ -2258,15 +2279,17 @@ function placeDomSelectionAtEmptyTextblock(root: HTMLElement, targetIndex: numbe
   }
 }
 
-function scheduleDomSelectionAtEmptyTextblock(root: HTMLElement, targetIndex: number): void {
-  queueMicrotask(() => {
+function scheduleDomSelectionAtEmptyTextblock(view: EditorView, targetIndex: number, isActive: () => boolean): void {
+  const root = view.dom;
+  const expectedDoc = view.state.doc;
+  const expectedSelection = view.state.selection;
+  const restore = () => {
+    if (!isActive() || !root.isConnected || view.state.doc !== expectedDoc || !view.state.selection.eq(expectedSelection)) return;
     root.focus();
     placeDomSelectionAtEmptyTextblock(root, targetIndex);
-  });
-  requestAnimationFrame(() => {
-    root.focus();
-    placeDomSelectionAtEmptyTextblock(root, targetIndex);
-  });
+  };
+  queueMicrotask(restore);
+  requestAnimationFrame(restore);
 }
 
 function emptyTextblockPositionAtIndex(doc: ProseNode, targetIndex: number): number | null {

@@ -110,3 +110,33 @@ Use JSON import attributes in the Vite config for native Node compatibility.
 
 Verification: all 754 tests, TypeScript 7 checking, and the production static
 build passed. Type checking/build are repeated after the JSON import cleanup.
+
+## Editor snapshot compatibility (0.33.7)
+
+The complete Chrome run exposed three additional compatibility regressions.
+Preserve a final empty paragraph's block boundary in source snapshots so link
+and tag insertion cannot join the preceding paragraph. A focused snapshot test
+failed before this fix. Keep the new canonical tight-list/angle-URL output for
+explicit link insertions; browser tests still assert the exact resulting text.
+
+Deferred app focus now belongs to a focus revision: newer input, pointer
+activity, content replacement, or an explicit selection cancels it. Two focused
+tests first reproduced old-caret overwrites. Empty-block DOM retries also retain
+their document/selection and active-session guards.
+
+A transaction trace identified Milkdown's list-item node view restoring its
+mount-time caret after the first typed character. Guard only that node view's
+selection-only dispatches against a newer document/selection; keep the upstream
+rendering, task interaction, cleanup, and shared per-editor batching. A real
+ProseMirror wrap/insert test fails with the upstream view and passes with the
+guard. The unmodified native typing workflow failed twice in five repetitions
+before the fix and passed all five afterward, without sleeps or retries.
+
+Extend the old-date callback regression to include a trailing empty paragraph
+while A changes to B. These editor DOM/snapshot behaviors are outside the bounded
+replication model; existing replication/date-bound tests remain in the full run.
+
+Verification: 78 editor component tests, type checking, and all 14 affected
+Chrome list/link/tag workflows passed. Routine verification is repeated against
+the dependency tree from the preceding commit before committing this fix.
+That run passed all 759 tests, type checking, and the production static build.
