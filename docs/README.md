@@ -22,6 +22,7 @@ take precedence over historical investigations and private working notes.
 | [Dependency maintenance](dependency-maintenance.md) | Dependency migration decisions, compatibility notes, and verification evidence. |
 | [OAuth and account boundary review](security-oauth-review.md) | Dated security assessment, reproduction evidence, open remediation work, and provider verification limits. |
 | [Untrusted content review](security-content-review.md) | Dated rendering, link, math, and image-network assessment, retained payload tests, findings, and limits. |
+| [Local data privacy review](security-privacy-review.md) | Dated storage, retention, cleanup, diagnostics, and outbound-data assessment with cache findings and verification limits. |
 | [Sync and Connection Statuses](sync-and-connection-statuses.md) | Current behavioral reference for authentication, selected-note synchronization, refreshes, queued work, and conflicts. |
 | [Sync Model](sync-model.md) | Scope, events, invariants, and lifecycle assumptions of the bounded Daily Note Replication model. It does not describe every provider or UI workflow. |
 | [Daily Note Replication Safety](sync-safety.md) | Safety contract, threat model, diagnostics, established reliability work, and deferred sync hardening. |

@@ -54,6 +54,12 @@ including import/open, HTML paste, raw-mode round trips, math, and intercepted i
 image requests is evidence of the exposure, not an established privacy control. Native drop/context-menu behavior,
 broader payload fuzzing, and live provider/deployment policy remain unverified.
 
+The [privacy assessment](../docs/security-privacy-review.md) adds Chrome cache/cleanup evidence and confirms
+[#0032](0032-exclude-private-requests-from-shell-cache.md) and
+[#0033](0033-preserve-unrelated-origin-caches.md). Both cache probes currently characterize unsafe behavior;
+remediation must reverse their assertions. Shared-device, physical-erasure, HTTP-cache and live-provider limits
+remain explicit, alongside the existing #0031 disclosure.
+
 ## Resolution
 
 Pending. Record review evidence, findings or no-finding results, and limitations on closure.

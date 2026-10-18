@@ -1,7 +1,7 @@
 ---
 id: "0024"
 title: "Review local data retention and privacy"
-status: open
+status: closed
 type: investigation
 priority: high
 created: "2026-10-18"
@@ -26,10 +26,10 @@ limitations. New encryption, backups, and recovery workflows are out of scope.
 
 ## Acceptance criteria
 
-- [ ] Record a data inventory showing purpose, storage/transmission location, lifetime, and cleanup behavior for notes, credentials, provider identifiers, and diagnostics.
-- [ ] Assess sign-out/account-change cleanup and delayed writes against intended privacy and durability behavior, including other tabs.
-- [ ] Verify diagnostic/log redaction and service-worker cache boundaries; identify any unexpected third-party disclosure or sensitive cached responses.
-- [ ] Record findings or explicit no-finding results with reviewed commit and evidence; document intentional retention and residual limitations without including private data.
+- [x] Record a data inventory showing purpose, storage/transmission location, lifetime, and cleanup behavior for notes, credentials, provider identifiers, and diagnostics.
+- [x] Assess sign-out/account-change cleanup and delayed writes against intended privacy and durability behavior, including other tabs.
+- [x] Verify diagnostic/log redaction and service-worker cache boundaries; identify any unexpected third-party disclosure or sensitive cached responses.
+- [x] Record findings or explicit no-finding results with reviewed commit and evidence; document intentional retention and residual limitations without including private data.
 
 ## Verification
 
@@ -49,5 +49,17 @@ resource behavior in the outbound-data inventory; the content review does not es
 
 ## Resolution
 
-Pending. Record review evidence, findings or no-finding results, and limitations on closure.
+Completed against `cb8e70e` (app `0.34.2`). The [assessment](../docs/security-privacy-review.md) records the
+sensitive-data inventory, storage lifetimes, cleanup, network destinations, diagnostic exclusions, origin assumptions,
+and explicit shared-device/verification limits.
+
+Confirmed cache findings are tracked separately: [#0032](0032-exclude-private-requests-from-shell-cache.md) for retained
+share-query data and [#0033](0033-preserve-unrelated-origin-caches.md) for unrelated origin-cache deletion. Existing
+[#0031](0031-control-external-note-image-loading.md) remains open. Closing the investigation does not fix or accept them.
+
+Verification: 47 focused unit cases, 12 Chrome privacy/account/image/offline workflows and two Chrome diagnostics-copy
+workflows passed. Routine `npm run verify` passed 820 tests, typechecking and the production static build. Three new
+Chrome probes are retained; two characterize the confirmed unsafe behavior and must change during remediation.
+All data and accounts were synthetic; no live provider/deployment, physical erasure or HTTP-cache retention was tested.
+Only documentation/tests changed, so no app version bump was required. Preview servers stopped after the runs.
 
