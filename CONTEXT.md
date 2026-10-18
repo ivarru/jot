@@ -142,3 +142,11 @@ _Avoid_: User preferences, note settings, config cache
 **Daily Note Upload**:
 Importing external Plain Markdown Files named `YYYY-MM-DD.md` into their matching **Daily Notes**. Upload planning compares against visible editor content, Local Drafts, and Drive Sync state before applying a conflict choice.
 _Avoid_: Bulk sync, restore, migration
+
+## Account continuity
+
+One browser storage area belongs to one verified Google account at a time. Jot verifies account continuity before
+opening retained Local Drafts or making their content available to remote providers. Reconnecting with a different
+account cannot implicitly transfer those drafts. Switching accounts uses sign-out and its existing unsynced-data
+warning/clearing behavior. Older Local Drafts without an account association require the user's explicit ownership
+confirmation before association; canceling preserves them and keeps the editor closed.

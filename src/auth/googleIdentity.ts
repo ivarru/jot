@@ -85,11 +85,13 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
   private accessToken: string | null = null;
   private accessTokenExpiresAtMs = 0;
   private readonly scopes: string;
+  private validatedToken: string | null = null;
 
   constructor(
     private readonly clientId: string,
     scopes: readonly string[],
-    private readonly documentRef: Document = document
+    private readonly documentRef: Document = document,
+    private readonly validateToken: (token: string, isCurrent: () => boolean) => Promise<void> = async () => {}
   ) {
     this.scopes = scopes.join(" ");
     this.restoreStoredAccessToken();
@@ -162,6 +164,16 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
   async getAccessToken(request: AccessTokenRequest = {}): Promise<string> {
     const cachedToken = this.getUsableCachedToken();
     if (cachedToken !== null && request.prompt !== "consent" && request.prompt !== "select_account") {
+      if (this.validatedToken !== cachedToken) {
+        const current = this.captureSession();
+        try { await this.validateToken(cachedToken, current); }
+        catch (error) {
+          if (current() && this.accessToken === cachedToken) this.clearStoredAccessToken();
+          throw error;
+        }
+        if (!current() || this.accessToken !== cachedToken) throw new GoogleAuthCancelledError();
+        this.validatedToken = cachedToken;
+      }
       return cachedToken;
     }
 
@@ -249,8 +261,15 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
         }
 
         const accessToken = response.access_token;
-        this.storeAccessToken(accessToken, response.expires_in ?? 3600);
-        finish(() => resolve(accessToken));
+        void this.validateToken(accessToken, () => !settled && isCurrent()).then(() => {
+          if (settled) return;
+          if (!isCurrent()) { cancel(); return; }
+          finish(() => {
+            this.storeAccessToken(accessToken, response.expires_in ?? 3600);
+            this.validatedToken = accessToken;
+            resolve(accessToken);
+          });
+        }).catch((error: unknown) => finish(() => reject(error)));
       };
       client.error_callback = (error) => {
         if (!isCurrent()) { cancel(); return; }
@@ -267,6 +286,7 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
       return await inFlight;
     } catch (error: unknown) {
       if (error instanceof GoogleAuthCancelledError) throw error;
+      if (error instanceof Error && error.name === "GoogleAccountBoundaryError") throw error;
       if (mapFailureToReconnect) throw new GoogleAccessTokenUnavailableError();
       throw error;
     }
@@ -289,6 +309,7 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
     this.tokenClient = null;
     this.clearStoredAccessToken();
     const storage = getSessionStorage();
+    storage?.removeItem("jot.googleAccountProof");
     if (storage) for (const key of Object.keys(storage)) {
       if (key.startsWith(REDIRECT_STATE_STORAGE_PREFIX)) storage.removeItem(key);
     }
@@ -340,6 +361,7 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
   }
 
   private clearStoredAccessToken(): void {
+    this.validatedToken = null;
     this.accessToken = null;
     this.accessTokenExpiresAtMs = 0;
     getSessionStorage()?.removeItem(accessTokenStorageKey(this.clientId));

@@ -26,6 +26,7 @@ export class SessionGuardedDraftStore implements LocalDraftStore {
     await this.withMutationLock(async () => {
       this.storage?.setItem(EPOCH_KEY, crypto.randomUUID());
       await this.base.clearAll();
+      this.storage?.removeItem("jot.googleAccountId");
     });
   }
 

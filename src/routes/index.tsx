@@ -7,6 +7,8 @@ import { DailyNoteSearchDialog } from "~/components/DailyNoteSearchDialog";
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { ImageAttachmentFlow, type LocalImageAttachmentSource, type ReusableImageAttachment } from "~/attachments/imageAttachmentFlow";
 import { commitImageAttachmentReferenceInsertion } from "~/attachments/imageAttachmentInsertionSession";
+import { googleAccountValidator } from "~/auth/googleAccountBoundary";
+import { sessionScopedProvider } from "~/auth/sessionScopedProvider";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { GoogleAccessTokenUnavailableError, GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
 import {
@@ -285,7 +287,6 @@ export default function Home() {
   let settingsReturnFocus: HTMLButtonElement | undefined;
   let searchReturnFocus: HTMLElement | undefined;
   const [authenticated, setAuthenticated] = createSignal(
-    redirectAuthResult.type === "authenticated" ||
     runtime.kind === "fake" && ENABLE_FAKE_AUTH && browserLocalStorage?.getItem("jot.fakeAuth") === "true"
   );
   const [authError, setAuthError] = createSignal<string | null>(
@@ -1079,14 +1080,22 @@ export default function Home() {
     }
 
     setPreparingAuth(true);
+    const authIsCurrent = captureAuthLifecycle();
     void runtime.tokenProvider.initialize()
-      .then(() => {
+      .then(async () => {
+        if (!authIsCurrent()) return;
+        if (redirectAuthResult.type === "authenticated") {
+          await runtime.tokenProvider.getAccessToken();
+          if (!authIsCurrent()) return;
+          drafts.adoptCurrentEpoch();
+          setAuthenticated(true);
+        }
         if (!redirectAuthErrorActive()) setAuthError(null);
       })
       .catch((error: unknown) => {
-        if (!redirectAuthErrorActive()) setAuthError(errorMessage(error));
+        if (authIsCurrent() && !redirectAuthErrorActive()) setAuthError(errorMessage(error));
       })
-      .finally(() => setPreparingAuth(false));
+      .finally(() => { if (authIsCurrent()) setPreparingAuth(false); });
   });
 
   const [tagIndexStatus, setTagIndexStatus] = createSignal<TagIndexMaintenanceStatus>("waiting");
@@ -4481,7 +4490,7 @@ function createStorageRuntime(): StorageRuntime {
     GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE
   ];
   if (FORCE_FAKE_STORAGE && window.__JOT_TEST_GOOGLE_AUTH__ === true) {
-    const tokenProvider = new GoogleIdentityTokenProvider("test-google-client-id", scopes);
+    const tokenProvider = new GoogleIdentityTokenProvider("test-google-client-id", scopes, document, googleAccountValidator());
     const remote = new FakeRemoteStorageProvider();
     return {
       kind: "google",
@@ -4492,8 +4501,8 @@ function createStorageRuntime(): StorageRuntime {
   }
 
   if (GOOGLE_CLIENT_ID && !FORCE_FAKE_STORAGE) {
-    const tokenProvider = new GoogleIdentityTokenProvider(GOOGLE_CLIENT_ID, scopes);
-    const remote = new GoogleDriveStorageProvider(tokenProvider);
+    const tokenProvider = new GoogleIdentityTokenProvider(GOOGLE_CLIENT_ID, scopes, document, googleAccountValidator());
+    const remote = sessionScopedProvider(tokenProvider, scoped => new GoogleDriveStorageProvider(scoped));
     return {
       kind: "google",
       tokenProvider,

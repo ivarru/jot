@@ -1,7 +1,7 @@
 ---
 id: "0029"
 title: "Bind retained drafts and runtime state to the Google account"
-status: open
+status: closed
 type: bug
 priority: high
 created: "2026-10-18"
@@ -28,11 +28,11 @@ workflow or storage migration must be explicitly designed and versioned under re
 
 ## Acceptance criteria
 
-- [ ] First add a failing regression for A authentication and draft creation, token loss/reload, B authentication, and attempted replication; assert no A content reaches B requests or editor.
-- [ ] Document the provider identity source, validation/continuity rules, and treatment of legacy unbound drafts before implementation; avoid unnecessary identity scopes or private identifiers in evidence.
-- [ ] Isolate local drafts/baselines and account-scoped provider/runtime caches across sign-in, reconnect, renewal, reload, and multiple tabs.
-- [ ] Handle account mismatch without silently dropping unsynced notes or automatically transferring them; define any intentional transfer as an explicit user decision.
-- [ ] Add Chrome account-switch workflows and mocked provider tests asserting URLs, credentials, metadata/media bodies, and resulting local/remote state; preserve same-account reconnect and conflict behavior.
+- [x] First add a failing regression for A authentication and draft creation, token loss/reload, B authentication, and attempted replication; assert no A content reaches B requests or editor.
+- [x] Document the provider identity source, validation/continuity rules, and treatment of legacy unbound drafts before implementation; avoid unnecessary identity scopes or private identifiers in evidence.
+- [x] Isolate local drafts/baselines and account-scoped provider/runtime caches across sign-in, reconnect, renewal, reload, and multiple tabs.
+- [x] Handle account mismatch without silently dropping unsynced notes or automatically transferring them; define any intentional transfer as an explicit user decision.
+- [x] Add Chrome account-switch workflows and mocked provider tests asserting URLs, credentials, metadata/media bodies, and resulting local/remote state; preserve same-account reconnect and conflict behavior.
 
 ## Verification
 
@@ -50,4 +50,30 @@ No hard dependencies for investigation/design. Coordinate auth-generation work w
 
 ## Resolution
 
-Pending. Reproduced during #0022; no production fix has been applied.
+Fixed in app 0.34.0. The Chrome regression first authenticated A, saved an unsynced draft, removed the token/reloaded,
+and authenticated B; before the fix B entered the editor rather than being rejected. It now rejects B, preserves A's
+note, and lets A recover. The real token/IndexedDB/replication/Drive integration asserts no data request receives A's
+note with B credentials. Identity requests assert exact URL/method/auth headers and no-store semantics. Existing Drive
+request/conflict/settings suites remain part of routine verification.
+
+Candidate popup/redirect/restored/renewed tokens are verified before data-provider access. Provider sessions retain
+caches only within their credential lifetime; old method continuations cannot use a replacement session's tokens.
+The identity/credential boundary is outside the bounded replication model; focused provider tests and Chrome workflows
+cover it. Existing pending date A-to-B renewal, selected-load, and shared-tab cases remain in the routine/browser suites.
+
+Verification: npm run verify passed 775 tests, type checking, and production build. A subsequent focused run passed all
+eight account-boundary tests, including rejected restored-token recovery. All 12 Chrome account/auth/renewal/shared-tab workflows passed. Final type checking also passed. An additional regression first reproduced the offline-reopen limitation; exact-token,
+account-and-epoch-bound digest proof preserves offline reopening without trusting an unverified replacement token.
+All 28 focused account/token tests and the Chrome offline-reopen workflow passed after that refinement; the final nine-workflow auth/image run passed.
+No live Google account was used; #0026 retains the provider-level limitations.
+
+Implementation decision (recorded before production changes):
+
+Use Drive about.get user.permissionId, requested with the candidate token and the existing drive.file scope, as the
+account continuity key. Validate before making any candidate token available to data providers. One browser storage
+area belongs to one verified account at a time; a mismatch blocks entry/reconnect while preserving drafts. Switching
+accounts requires signing out of the original account using the existing unsynced-data warning/clearing workflow.
+Legacy unbound drafts remain untouched and inaccessible until the user explicitly confirms they belong to the selected
+account. No automatic transfer or destructive database migration is introduced. This recovery confirmation is a new
+user-visible workflow and will use a minor version bump. Provider caches and operations will be scoped to the verified
+session, so an old operation cannot borrow a later account's credentials.

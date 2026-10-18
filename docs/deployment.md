@@ -119,3 +119,19 @@ After the first Pages deployment:
 
 Use [manual-google-provider-retest.md](manual-google-provider-retest.md) for the fuller real-account OAuth, token-renewal,
 Drive, and Google Photos checks.
+
+## Account-bound local notes
+
+Before accepting a candidate Google token, Jot requests only `user.permissionId` from Drive `about.get`, using the
+existing `drive.file` scope. The opaque identifier binds this browser's local notes to one account. It is not an email
+address or a new authorization scope. See Google's [about.get reference](https://developers.google.com/workspace/drive/api/reference/rest/v3/about/get)
+and [User resource](https://developers.google.com/workspace/drive/api/reference/rest/v3/User).
+A different account is rejected before editor entry or sync. To switch, sign in with the original account and use
+Sign out, including its warning about deleting unsynced local data. Account binding is removed with successful draft
+clearing. Notes from before this check require an explicit ownership confirmation; canceling leaves them untouched.
+Provider instances/caches and their pending methods are bound to their initiating token session. Candidate tokens
+from popup, redirect, cache restore, and renewal must pass account verification before data-provider use. Tab-scoped
+proof containing only a token digest, account identifier, and epoch allows an exact previously verified, still-valid
+token to reopen local notes offline. An unverified replacement token still needs online identity verification; sign-out
+or invalidation clears the proof, and an epoch/account mismatch makes old proof unusable. No live
+provider identity or account-switch validation has been performed; the maintained checks mock Google's responses.

@@ -7,6 +7,8 @@ const backgroundMarkdown = "Saved with the still-valid token before renewal\n";
 const tokenStorageKey = "jot.googleAccessToken.test-google-client-id";
 
 test("Google renewal saves pending edits, invalidates a failed silent token, and reconnects interactively", async ({ page }) => {
+  await page.route("https://www.googleapis.com/drive/v3/about?*", route => route.fulfill({json: {user: {permissionId: "synthetic-renewal-account"}}}));
+  page.on("dialog", dialog => void dialog.accept());
   await page.addInitScript(() => {
     const testWindow = window as Window & {
       __JOT_TEST_GOOGLE_AUTH__?: boolean;

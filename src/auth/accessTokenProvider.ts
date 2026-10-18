@@ -4,6 +4,7 @@ export interface AccessTokenRequest {
 }
 
 export interface AccessTokenProvider {
+  captureSession?(): () => boolean;
   getAccessToken(request?: AccessTokenRequest): Promise<string>;
   invalidateAccessToken?(): void;
   revoke?(): Promise<void>;

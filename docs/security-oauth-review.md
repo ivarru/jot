@@ -98,3 +98,8 @@ The investigation can close with its findings recorded while the three remediati
 Issue #0028 is fixed in 0.33.9: request/session-bound callbacks and route continuations prevent late auth from restoring
 a signed-out session; stored token/redirect epochs reject stale navigation. Maintained regression-first coverage includes
 an actual second-tab sign-out in Chrome. The findings above describe the reviewed revision; #0029/#0030 remain open.
+
+Issue #0029 is fixed in 0.34.0: Drive-verified account continuity precedes token use/editor entry; account mismatch
+preserves drafts and blocks access. Older unbound notes require an explicit ownership confirmation. Account changes
+use sign-out clearing, and Drive provider instances/caches are scoped to their credential session. See deployment's
+account-bound note policy and the issue's regression/verification evidence. #0030 remains open.
