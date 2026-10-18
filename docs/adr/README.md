@@ -23,7 +23,8 @@ This directory records durable architecture decisions for Jot. ADRs explain why 
 | [0009: Concentrate Daily Note Replication](0009-concentrate-daily-note-replication.md) | Accepted | One public sync module with internal protocol, editor-session, and lifecycle seams. |
 | [0010: Use explicit export packages and safe restore](0010-explicit-export-and-safe-restore.md) | Deferred | Export/recovery programme postponed; original design retained for reconsideration, with follow-up issues blocked. |
 | [0011: Reconcile derived tag indexes independently](0011-reconcile-derived-tag-indexes.md) | Accepted | Rebuildable Markdown projections, safe clipping, independent retries, and eventual consistency. |
-| [0012: Share an index-backed tag catalog](0012-shared-index-backed-tag-catalog.md) | Accepted | Shared cached names, index-modification ordering, refresh and sign-out boundaries. |
+| [0012: Share an index-backed tag catalog](0012-shared-index-backed-tag-catalog.md) | Partially superseded by 0013 | Shared cached names, index-modification ordering, refresh and sign-out boundaries. |
+| [0013: Include local tags in the Tag Catalog](0013-include-local-tags-in-catalog.md) | Accepted | Local suggestions before sync, timestamp merging, and refresh boundaries. |
 
 ## Maintenance
 

@@ -68,3 +68,8 @@ export function resolveTagIndexTarget(source: string, target: TagIndexTarget):
   const hit = current[index]!;
   return { status: "found", selection: { start: hit.offset, end: hit.endOffset } };
 }
+
+/** Presentation order only; per-date ordinals and source sequences remain unchanged. */
+export function newestTagIndexRows(rows: readonly TagIndexRow[]): TagIndexRow[] {
+  return [...rows].sort((a, b) => b.date.localeCompare(a.date) || a.ordinal - b.ordinal);
+}

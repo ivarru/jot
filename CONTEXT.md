@@ -97,9 +97,11 @@ The `daily-notes-tag-index` folder inside the **Jot Folder** containing generate
 
 **Tag Catalog**:
 A browser-cached list of **Reference Tag** names and their index file modification dates, shared by browsing and
-insertion. It refreshes asynchronously from **Tag Index** metadata and defaults to most recently modified first,
-with alphabetical order available. Deleting an empty index removes the tag on refresh; individual suggestions
-cannot be dismissed. Signing out clears the cache and invalidates pending refreshes.
+insertion. It refreshes asynchronously from **Tag Index** metadata, augmented by tags from the captured open-note
+snapshot, dirty **Local Drafts**, and notes seen by the catalog in the current session. Local suggestions need not have a synced index yet. Ordering defaults to most
+recently changed first, using index timestamps and local-note timestamps for local-only tags, with alphabetical order available. Deleting
+an empty index removes its tag on refresh unless local content still uses it; individual suggestions cannot be
+dismissed. Signing out clears the cache and local overlay and invalidates pending refreshes.
 _Avoid_: Source of truth, synced tag database, note metadata
 
 **Sync Conflict**:

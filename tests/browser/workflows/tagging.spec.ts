@@ -32,10 +32,10 @@ test("inserts a tag in the trailing empty WYSIWYG paragraph", async ({ page }) =
   });
   expect(focused, "Could not focus the trailing empty WYSIWYG paragraph.").toBe(true);
 
-  await page.getByRole("button", { name: "Add tag", exact: true }).click();
+  await page.getByRole("button", { name: "Tag", exact: true }).click();
   const modal = page.locator(".tag-modal");
-  await modal.getByRole("combobox", { name: "Tag" }).fill("tail");
-  await modal.getByRole("button", { name: "Add", exact: true }).click();
+  await modal.getByRole("combobox", { name: "Tag or filter" }).fill("tail");
+  await modal.getByRole("button", { name: "Create", exact: true }).click();
 
   await expectRawMarkdown(page, "abcd\n\nefgh\n\n[#tail](jot:tag/tail)");
 });
@@ -60,29 +60,41 @@ test("tags can be inserted, rendered, and suggested from synced indexes", async 
   const headingStart = initial.indexOf("#");
   await focusRawEditorRange(page, 0, headingStart);
   await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+K" : "Control+Alt+K");
-  await expect(modal).toBeHidden();
+  await expect(modal).toBeVisible();
+  await modal.getByRole("combobox").fill("work");
+  await expect(modal.locator(".tag-field-add")).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await expect(modal).toHaveCount(0);
 
   const headingTextOffset = initial.indexOf("Plan") + 2;
   await focusRawEditorRange(page, headingTextOffset, headingTextOffset);
   await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+K" : "Control+Alt+K");
-  await expect(modal).toBeHidden();
+  await expect(modal).toBeVisible();
+  await modal.getByRole("combobox").fill("work");
+  await expect(modal.locator(".tag-field-add")).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await expect(modal).toHaveCount(0);
 
   const tagLabelOffset = initial.indexOf("#research") + 2;
   await focusRawEditorRange(page, tagLabelOffset, tagLabelOffset);
   await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+K" : "Control+Alt+K");
-  await expect(modal).toBeHidden();
+  await expect(modal).toBeVisible();
+  await modal.getByRole("combobox").fill("work");
+  await expect(modal.locator(".tag-field-add")).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await expect(modal).toHaveCount(0);
 
   await focusRawEditorAtEnd(page);
 
   await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+K" : "Control+Alt+K");
   await expect(modal).toBeVisible();
-  await expect(modal.getByRole("button", { name: "#research", exact: true })).toBeVisible();
-  const tagInput = modal.getByRole("combobox", { name: "Tag" });
+  await expect(modal.getByRole("button", { name: "Use #research", exact: true })).toBeVisible();
+  const tagInput = modal.getByRole("combobox", { name: "Tag or filter" });
   await tagInput.fill("res");
-  await expect(modal.getByRole("button", { name: "#research", exact: true })).toBeVisible();
+  await expect(modal.getByRole("button", { name: "Use #research", exact: true })).toBeVisible();
   await tagInput.press("ArrowDown");
-  await expect(tagInput).toHaveValue("research");
-  await expect(modal.getByRole("option", { selected: true })).toContainText("#research");
+  await expect(tagInput).toHaveValue("res");
+  await expect(modal.locator(".tag-row-add.is-secondary-focus")).toHaveAttribute("aria-label", "Use #research");
   await tagInput.press("Enter");
 
   const selectedSuggestionMarkdown = `${initial} [#research](jot:tag/research)`;
@@ -91,7 +103,7 @@ test("tags can be inserted, rendered, and suggested from synced indexes", async 
   await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+K" : "Control+Alt+K");
   await expect(modal).toBeVisible();
   await tagInput.fill("Follow Up");
-  await modal.getByRole("button", { name: "Add", exact: true }).click();
+  await modal.getByRole("button", { name: "Create", exact: true }).click();
 
   const expected = `${selectedSuggestionMarkdown} [#follow-up](jot:tag/follow-up)`;
   await expectRawMarkdown(page, expected);
@@ -106,15 +118,15 @@ test("tags can be inserted, rendered, and suggested from synced indexes", async 
     await renderedTag.evaluate((element) => getComputedStyle(element).fontSize)
   );
 
-  const addTagButton = page.getByRole("button", { name: "Add tag", exact: true });
+  const addTagButton = page.getByRole("button", { name: "Tag", exact: true });
   await expect(addTagButton).toHaveAttribute(
     "data-tooltip",
-    `Add tag (${process.platform === "darwin" ? "Cmd+Option+K" : "Ctrl+Alt+K"})`
+    `Tag (${process.platform === "darwin" ? "Cmd+Option+K" : "Ctrl+Alt+K"})`
   );
   await addTagButton.click();
   await expect(modal.getByRole("button", { name: /Remove #/ })).toHaveCount(0);
-  await expect(modal.getByRole("button", { name: "#research", exact: true })).toBeVisible();
-  await modal.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(modal.getByRole("button", { name: "Use #research", exact: true })).toBeVisible();
+  await modal.getByRole("button", { name: "Close tags", exact: true }).click();
   await expect.poll(async () => (await readFakeRemoteNote(page, date))?.markdown).toBe(expected);
   await page.getByRole("button", { name: "Open menu" }).click();
   await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
@@ -122,8 +134,7 @@ test("tags can be inserted, rendered, and suggested from synced indexes", async 
   await expect(settings.getByRole("status")).toHaveText("Tag index is up to date.");
   await page.getByRole("button", { name: "Close settings" }).click();
   await addTagButton.click();
-  await modal.getByRole("button", { name: "#follow-up", exact: true }).click();
-  await expect(tagInput).toHaveValue("follow-up");
-  await modal.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(modal.getByRole("button", { name: "Use #follow-up", exact: true })).toBeVisible();
+  await modal.getByRole("button", { name: "Close tags", exact: true }).click();
   await expectRawMarkdown(page, expected);
 });

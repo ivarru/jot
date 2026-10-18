@@ -68,3 +68,47 @@ it("does not notify tag-list consumers when a refresh leaves the names and order
     dispose();
   });
 });
+
+it("shows local tags before a pending remote refresh, preserves index timestamps, and does not cache local entries", async () => {
+  await createRoot(async dispose => {
+    let finish!: (entries: readonly TagIndexSummary[]) => void;
+    const catalog = createTagIndexCatalog({ storage: localStorage,
+      list: () => new Promise(resolve => { finish = resolve; }),
+      listLocal: async () => [
+        { tag: "new-tag", modifiedTime: "2030-03-01T00:00:00Z" },
+        { tag: "new-tag", modifiedTime: "2030-01-01T00:00:00Z" },
+        { tag: "alpha", modifiedTime: "2030-04-01T00:00:00Z" }
+      ] });
+    const refresh = catalog.refresh(); await Promise.resolve(); await Promise.resolve();
+    expect(catalog.tags()).toEqual(["alpha", "new-tag"]);
+    expect(catalog.hasIndex("new-tag")).toBe(false);
+    finish(entries); await refresh;
+    expect(catalog.tags()).toEqual(["new-tag", "zebra", "alpha", "unknown"]);
+    expect(catalog.modifiedTime("alpha")).toBe("2030-01-01T00:00:00Z");
+    expect(catalog.modifiedTime("new-tag")).toBe("2030-03-01T00:00:00Z");
+    expect(catalog.hasIndex("alpha")).toBe(true);
+    expect(JSON.parse(localStorage.getItem("jot.tagIndexCatalog.v1")!)).toEqual(entries);
+    dispose();
+  });
+});
+it("refreshes local removals and retains local suggestions when Drive is unavailable", async () => {
+  await createRoot(async dispose => {
+    let local = [{ tag: "new-tag", modifiedTime: "2030-03-01T00:00:00Z" }];
+    const catalog = createTagIndexCatalog({ list: async () => { throw new Error("offline"); }, listLocal: async () => local });
+    await catalog.refresh(); expect(catalog.tags()).toEqual(["new-tag"]); expect(catalog.error()).toBe("offline");
+    local = []; await catalog.refresh(); expect(catalog.tags()).toEqual([]);
+    dispose();
+  });
+});
+it("ignores late local responses after refresh replacement and sign-out", async () => {
+  await createRoot(async dispose => {
+    const pending: Array<(entries: readonly TagIndexSummary[]) => void> = [];
+    const catalog = createTagIndexCatalog({ list: async () => [], listLocal: () => new Promise(resolve => pending.push(resolve)) });
+    const first = catalog.refresh(); const second = catalog.refresh();
+    pending[1]!([entries[0]!]); await second; pending[0]!([entries[1]!]); await first;
+    expect(catalog.tags()).toEqual(["alpha"]);
+    const last = catalog.refresh(); catalog.clear(); pending[2]!(entries); await last;
+    expect(catalog.tags()).toEqual([]);
+    dispose();
+  });
+});

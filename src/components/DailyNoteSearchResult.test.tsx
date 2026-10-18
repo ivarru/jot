@@ -19,8 +19,10 @@ it("loads only on expansion and ignores a pending A preview after results switch
   }</Show>, host);
   try {
     expect(load).not.toHaveBeenCalled();
+    expect(host.querySelector(".search-expand-icon")?.textContent).toBe("▸");
     host.querySelector<HTMLButtonElement>(".search-result-row")!.click();
     expect(load).toHaveBeenCalledWith(a);
+    expect(host.querySelector(".search-expand-icon")?.textContent).toBe("▾");
     expect(open).not.toHaveBeenCalled();
     setResult(b);
     pending[0]!("A late content"); await Promise.resolve();

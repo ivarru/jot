@@ -1,3 +1,4 @@
+import { newestTagIndexRows } from "./tagIndexNavigation";
 import { buildTagIndexFiles } from "./tagIndex";
 import { parseTagIndexRows, tagIndexTarget, resolveTagIndexTarget } from "./tagIndexNavigation";
 const date = "2030-02-01";
@@ -33,4 +34,12 @@ it("declines ambiguous duplicate survivors, new matching instances, and removed 
 it("does not let unrelated dates change a row's ordinal or comparison group", () => {
   const rows = parseTagIndexRows(`2030-02-01 A\n2030-02-01 B\n2030-02-02 C\n`);
   expect(tagIndexTarget("work", rows[1]!, rows)).toEqual({ tag: "work", date, ordinal: 1, excerpts: ["A", "B"] });
+});
+
+it("reverses date groups without reversing occurrence order or rewriting source rows", () => {
+  const source = parseTagIndexRows("2030-02-01 Old first  \n2030-02-01 Old second  \n2030-02-02 New first  \n2030-02-02 New second  \n");
+  const rows = newestTagIndexRows(source);
+  expect(rows.map((row) => row.excerpt)).toEqual(["New first", "New second", "Old first", "Old second"]);
+  expect(source[0]!.excerpt).toBe("Old first");
+  expect(tagIndexTarget("work", rows[3]!, source)).toEqual({ tag: "work", date: "2030-02-01", ordinal: 1, excerpts: ["Old first", "Old second"] });
 });

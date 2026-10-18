@@ -25,8 +25,8 @@ it("selects the second identical occurrence in the open note without replacing i
   const dispose = render(() => <Home />, host);
   try {
     await wait(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe(markdown));
-    click(host, "Open menu"); click(host, "Browse tags"); await settle();
-    click(host, "#work"); await settle();
+    click(host, "Tag"); await settle();
+    click(host, "Expand #work"); await settle();
     host.querySelectorAll<HTMLButtonElement>(".tag-index-occurrence")[1]!.click();
     await wait(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.selectionStart).toBe(markdown.lastIndexOf(tag)));
     expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe(markdown);
@@ -46,7 +46,7 @@ it.each([false, true])("cancels a pending B occurrence when navigating to C befo
     await wait(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("A content"));
     const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
     editor.value = "A pending edit"; editor.dispatchEvent(new InputEvent("input", { bubbles: true }));
-    click(host, "Open menu"); click(host, "Browse tags"); await settle(); click(host, "#work"); await settle();
+    click(host, "Tag"); await settle(); click(host, "Expand #work"); await settle();
     host.querySelector<HTMLButtonElement>(".tag-index-occurrence")!.click();
     await started.promise;
     click(host, "Next day");
@@ -73,7 +73,7 @@ it.each([
   const dispose = render(() => <Home />, host);
   try {
     await wait(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("A content"));
-    click(host, "Open menu"); click(host, "Browse tags"); await settle(); click(host, "#work"); await settle();
+    click(host, "Tag"); await settle(); click(host, "Expand #work"); await settle();
     host.querySelector<HTMLButtonElement>(".tag-index-occurrence")!.click();
     await started.promise;
     await wait(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe(cached));
@@ -107,5 +107,76 @@ it("requests tag maintenance after a departed A save finishes while B stays unto
     expect(maintained).toContain(`Leaving A ${tag}`);
     expect(state.remoteSaveInputs).toEqual(["2030-02-02"]);
     expect(host.querySelector<HTMLInputElement>("[aria-label='Selected date']")?.value).toBe("2030-02-03");
+  } finally { finish.resolve(); dispose(); host.remove(); }
+});
+
+it("does not insert or restore A's caret after the unified dialog outlives navigation to B", async () => {
+  state.remoteNote = { date: "2030-02-02", markdown: "A content", revisionId: "a", updatedAt: "2030-01-01T00:00:00Z" };
+  let releaseIndex!: (value: string) => void;
+  state.pendingTagIndex = { promise: new Promise((resolve) => { releaseIndex = resolve; }), resolve: (value) => releaseIndex(value as string) };
+  state.tagIndexFiles = { work: "" };
+  const host = document.createElement("div"); document.body.append(host);
+  const dispose = render(() => <Home />, host);
+  try {
+    await wait(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("A content"));
+    state.drafts.set("2030-02-03", { date: "2030-02-03", markdown: "B content", baselineMarkdown: "B content", baselineRevisionId: null,
+      dirty: true, updatedAt: "2030-01-01T00:00:00Z" });
+    const sourceEditor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+    sourceEditor.value = "A pending edit"; sourceEditor.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    click(host, "Tag"); await settle();
+    const query = host.querySelector<HTMLInputElement>("[role='combobox']")!;
+    query.value = "work"; query.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    click(host, "Expand #work");
+    window.location.hash = "#/date/2030-02-03"; window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await wait(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("B content"));
+    releaseIndex("2030-02-02 A content  \n"); await settle();
+    expect(host.querySelector<HTMLButtonElement>(".tag-field-add")?.disabled).toBe(true);
+    const editor = host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!;
+    editor.setSelectionRange(2, 2);
+    host.querySelector<HTMLButtonElement>(".tag-field-add")!.click();
+    click(host, "Close tags"); await settle();
+    expect(editor.value).toBe("B content"); expect(editor.selectionStart).toBe(2);
+    expect(state.drafts.get("2030-02-02")?.markdown).toBe("A pending edit");
+  } finally { releaseIndex(""); dispose(); host.remove(); }
+});
+
+it("suggests a newly created local tag on reopening before its index exists", async () => {
+  state.remoteNote = { date: "2030-02-02", markdown: "A content", revisionId: "a", updatedAt: "2030-01-01T00:00:00Z" };
+  const host = document.createElement("div"); document.body.append(host);
+  const dispose = render(() => <Home />, host);
+  try {
+    await wait(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("A content"));
+    click(host, "Tag"); await settle();
+    const input = host.querySelector<HTMLInputElement>("[role='combobox']")!;
+    input.value = "new-tag"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    click(host, "Create"); await settle();
+    click(host, "Tag");
+    await wait(() => expect(host.querySelector("[aria-label='Use #new-tag']")).not.toBeNull());
+    expect(state.tagIndexFiles["new-tag"]).toBeUndefined();
+    click(host, "Use #new-tag"); await settle();
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value.match(/jot:tag\/new-tag/g)).toHaveLength(2);
+  } finally { dispose(); host.remove(); }
+});
+
+it("keeps the captured A tag snapshot when a local catalog refresh finishes after navigation to B", async () => {
+  const source = "A [#local-a](jot:tag/local-a)";
+  state.remoteNote = { date: "2030-02-02", markdown: source, revisionId: "a", updatedAt: "2030-01-01T00:00:00Z" };
+  const host = document.createElement("div"); document.body.append(host);
+  const dispose = render(() => <Home />, host);
+  const started = deferred(); const finish = deferred();
+  try {
+    await wait(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe(source));
+    state.delayedDraftLoad = { date: "2030-02-02", result: state.drafts.get("2030-02-02") ?? null, started, finish, consumed: false };
+    state.drafts.set("2030-02-03", { date: "2030-02-03", markdown: "B content", baselineMarkdown: "B content", baselineRevisionId: null,
+      dirty: true, updatedAt: "2030-01-01T00:00:00Z" });
+    click(host, "Tag"); await started.promise;
+    window.location.hash = "#/date/2030-02-03"; window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await wait(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("B content"));
+    finish.resolve();
+    await wait(() => expect(host.querySelector("[aria-label='Use #local-a']")).not.toBeNull());
+    expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")!.value).toBe("B content");
+    expect(state.drafts.get("2030-02-02")?.markdown).toBe(source);
+    click(host, "Close tags"); await settle(); click(host, "Tag");
+    await wait(() => expect(host.querySelector("[aria-label='Use #local-a']")).not.toBeNull());
   } finally { finish.resolve(); dispose(); host.remove(); }
 });

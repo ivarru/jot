@@ -110,8 +110,9 @@ See [docs/deployment.md](docs/deployment.md) for GitHub Pages setup, Google OAut
 Jot maintains one generated Markdown file per Reference Tag under `jot/daily-notes-tag-index/` in Drive. Entries contain the note
 date and an excerpt from the beginning of the tagged element, sorted by date and occurrence order. Settings controls
 the excerpt limit (default 200 characters) and provides a rebuild button. Indexes use synced notes and update in the
-background. Use **Browse tags** in the menu to open a specific indexed instance in either editor mode.
-**Browse tags** and **Add tag** share cached suggestions, newest modified index first, with an alphabetical
+background. **Tag** in the editor toolbar opens a dialog for inserting tags
+and expanding their dated occurrences to open a specific instance in either editor mode.
+The dialog shows cached index suggestions plus recent local tags, newest changed first, with an alphabetical
 ordering toggle. The list refreshes in the background; empty indexes are deleted and tags cannot be dismissed
 from suggestions.
 See [Tags](docs/tags.md) for format and consistency details.

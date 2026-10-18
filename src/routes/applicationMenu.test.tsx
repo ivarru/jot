@@ -30,7 +30,6 @@ describe("application menu", () => {
 
     expect(Array.from(host.querySelectorAll(".top-menu-popover [role='menuitem']")).map((element) => element.textContent)).toEqual([
       "Search daily notes",
-      "Browse tags",
       "Upload daily notes",
       "Compactify lists",
       "Turn spellcheck off",

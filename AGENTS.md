@@ -42,6 +42,9 @@ For sync bugs, first try to refine `src/sync/dailyNoteReplication/syncModel.test
 The test layers, commands, browser environment, and CI matrix are documented in
 [docs/testing.md](docs/testing.md).
 
+Use one browser for local verification (Chrome by default, or the browser explicitly requested by the user).
+Do not spend time or tokens testing additional browsers unless the user explicitly asks for multi-browser testing.
+
 Run routine verification before finishing code changes:
 
 ```sh

@@ -49,6 +49,7 @@ export function DailyNoteSearchResult(props: {
       <button class="search-result-row" type="button" aria-label={label()} aria-describedby={`${id}-metadata`}
         title={expanded() ? "Click to close preview" : "Click to preview"}
         aria-expanded={expanded()} aria-controls={expanded() ? `${id}-preview` : undefined} onClick={toggle}>
+        <span class="search-expand-icon" aria-hidden="true">{expanded() ? "▾" : "▸"}</span>
         <span class="search-result-date">{props.result.date}<Show when={markers()}><span class="search-result-marker"> ({markers()})</span></Show></span>
         <span id={`${id}-metadata`} class="search-result-metadata">
           <span>

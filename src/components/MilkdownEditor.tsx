@@ -106,6 +106,7 @@ interface MilkdownEditorSession {
     readonly selectionIsCollapsed: boolean;
   } | null;
   readonly focus: (placement: FocusPlacement, onFocusApplied?: () => void) => void;
+  readonly focusSelection: (selection: MarkdownSelection) => void;
   readonly focusCurrentSelection: () => void;
   readonly redo: () => boolean;
   readonly scheduleCodeBlockViewportLayout: () => void;
@@ -154,6 +155,7 @@ export interface MilkdownEditorController {
     readonly selectionIsCollapsed: boolean;
   } | null;
   readonly getSelection: () => MarkdownSelection | null;
+  readonly focusSelection: (selection: MarkdownSelection) => void;
   readonly focusCurrentSelection: () => void;
   readonly redo: () => boolean;
   readonly toggleBlockQuoteAtSelection: (selection?: MarkdownSelection) => boolean;
@@ -770,6 +772,14 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 () => !disposed && activeSession === session && editor !== null
               );
             },
+            focusSelection: (selection) => {
+              if (disposed || activeSession !== session || editor === null) return;
+              const view = editor.ctx.get(editorViewCtx);
+              const source = editableLiveMarkdown(view, serializeMilkdownMarkdown(editor.ctx.get(serializerCtx), view.state.doc));
+              placeSelectionAtMarkdownSourceSelection(view, TextSelection, source, selection);
+              view.focus();
+              placeSelectionAtMarkdownSourceSelection(view, TextSelection, source, selection);
+            },
             focusCurrentSelection: () => {
               if (disposed || activeSession !== session || editor === null) return;
               editor.ctx.get(editorViewCtx).dom.focus();
@@ -922,6 +932,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             isMarkdownEquivalentToLive: (markdown) => session?.isMarkdownEquivalentToLive(markdown) ?? false,
             getLiveMarkdownSelection: () => session?.getLiveMarkdownSelection() ?? null,
             getSelection: () => session?.getSelection() ?? null,
+            focusSelection: (selection) => { session?.focusSelection(selection); },
             focusCurrentSelection: () => {
               session?.focusCurrentSelection();
             },

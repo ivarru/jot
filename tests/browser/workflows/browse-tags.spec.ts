@@ -17,10 +17,9 @@ async function buildIndex(page: Page) {
   await dialog.getByRole("button", { name: "Close settings" }).click();
 }
 async function browse(page: Page) {
-  await page.getByRole("button", { name: "Open menu" }).click();
-  await page.getByRole("menuitem", { name: "Browse tags", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Browse tags" });
-  await expect(dialog.getByLabel("Filter tags")).toBeFocused();
+  await page.getByRole("button", { name: "Tag", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Tags", exact: true });
+  await expect(dialog.getByRole("combobox", { name: "Tag or filter" })).toBeFocused();
   return dialog;
 }
 
@@ -37,11 +36,11 @@ for (const [mode, width] of [["raw", 960], ["wysiwyg", 360], ["wysiwyg", 960]] a
     await setRawMarkdown(page, "Date A pending text");
     if (mode === "wysiwyg") await switchToWysiwygMode(page);
     const dialog = await browse(page);
-    await dialog.getByLabel("Filter tags").fill("wor");
-    await dialog.getByRole("button", { name: "#work", exact: true }).press("Enter");
+    await dialog.getByRole("combobox", { name: "Tag or filter" }).fill("wor");
+    await dialog.getByRole("button", { name: "Expand #work", exact: true }).press("Enter");
     const rows = dialog.locator(".tag-index-occurrence");
     await expect(rows).toHaveCount(2);
-    await expect(rows.nth(1)).toContainText("Instance 2");
+    await expect(rows.nth(1)).not.toContainText("Instance");
     await expect.poll(() => dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     await rows.nth(1).press("Enter");
     await expect(dialog).toHaveCount(0);
@@ -64,7 +63,7 @@ for (const [mode, width] of [["raw", 960], ["wysiwyg", 360], ["wysiwyg", 960]] a
     }
     // The same already-open note can jump back to its first identical occurrence.
     const again = await browse(page);
-    await again.getByRole("button", { name: "#work", exact: true }).click();
+    await again.getByRole("button", { name: "Expand #work", exact: true }).click();
     await again.locator(".tag-index-occurrence").first().click();
     if (mode === "raw") await expect.poll(() => rawEditor(page).evaluate((element) => (element as HTMLTextAreaElement).selectionStart)).toBe(note.indexOf(tag));
     else await expect(page.locator('.milkdown-root [contenteditable="true"] a[href="jot:tag/work"]').first()).toBeInViewport();
@@ -79,8 +78,8 @@ test("tag browsing renders inline formatting, keeps excerpt links inert, and ret
   const dialog = await browse(page);
   await expect(dialog.getByRole("alert")).toContainText("unavailable");
   await page.evaluate(() => localStorage.removeItem("jot.fakeRemoteUnavailable"));
-  await dialog.getByRole("button", { name: "Refresh tags" }).click();
-  await dialog.getByRole("button", { name: "#work", exact: true }).click();
+  await dialog.getByRole("button", { name: "Retry tags" }).click();
+  await dialog.getByRole("button", { name: "Expand #work", exact: true }).click();
   await expect(dialog.locator("strong")).toHaveText("Target");
   await dialog.getByRole("link", { name: "external" }).click();
   await expect(page.getByLabel("Selected date", { exact: true })).toHaveValue("2030-02-02");
@@ -88,7 +87,7 @@ test("tag browsing renders inline formatting, keeps excerpt links inert, and ret
   const reopened = await browse(page);
   await page.keyboard.press("Escape");
   await expect(reopened).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Open menu" })).toBeFocused();
+  await expect(page.locator('.milkdown-root [contenteditable="true"]')).toBeFocused();
 });
 
 for (const scenario of ["ambiguous", "missing"] as const) {
@@ -97,7 +96,7 @@ for (const scenario of ["ambiguous", "missing"] as const) {
     await seedDailyNoteState(page, { remote: { date: "2030-02-02", markdown: `Same ${tag}\n\nSame ${tag}`, revisionId: "b1", updatedAt: "2030-01-01T00:00:00Z" } });
     await buildIndex(page);
     const dialog = await browse(page);
-    await dialog.getByRole("button", { name: "#work", exact: true }).click();
+    await dialog.getByRole("button", { name: "Expand #work", exact: true }).click();
     await expect(dialog.locator(".tag-index-occurrence")).toHaveCount(2);
     const updated = scenario === "ambiguous" ? `Same ${tag}` : "Tags removed";
     await seedDailyNoteState(page, { remote: { date: "2030-02-02", markdown: updated, revisionId: "b2", updatedAt: "2030-01-02T00:00:00Z" } });
@@ -122,7 +121,7 @@ for (const mode of ["raw", "wysiwyg"] as const) {
     await setRawMarkdown(page, "A edit before cached-note navigation");
     if (mode === "wysiwyg") await switchToWysiwygMode(page);
     const dialog = await browse(page);
-    await dialog.getByRole("button", { name: "#work", exact: true }).click();
+    await dialog.getByRole("button", { name: "Expand #work", exact: true }).click();
     await dialog.locator(".tag-index-occurrence").click();
     await expect(page.getByLabel("Selected date", { exact: true })).toHaveValue("2030-02-02");
     if (mode === "raw") {

@@ -107,7 +107,8 @@ deterministic. Failed checks retain a trace and capture a screenshot.
 
 ### Firefox checks
 
-The default browser remains Chrome. For a focused Firefox reproduction, install the Playwright-managed browser once
+Use one browser per local verification run, Chrome by default. Run additional browsers only when explicitly requested
+by the user (see [AGENTS.md](../AGENTS.md)). For an explicitly requested Firefox reproduction, install the Playwright-managed browser once
 and select it explicitly:
 
 ```sh
@@ -228,4 +229,24 @@ and index date.
 Shared tag-catalog tests cover metadata ordering, cached startup, failed refreshes, deletions, overlapping
 responses, sign-out cancellation, and stable keyboard selection across unchanged refreshes. Mocked Drive coverage verifies index modification metadata and
 folder discovery under `daily-notes-tag-index`. Browser tag workflows verify the shared alphabetical
-toggle, cached offline lists in both dialogs, and refreshed suggestions after maintenance and deletion.
+toggle, cached offline lists, refreshed suggestions after maintenance and deletion, and immediate local reuse
+before syncing. Catalog tests cover independent local/remote refreshes, authoritative index timestamps, local
+removals, and superseded/sign-out responses. Route coverage holds a local draft read across A-to-B navigation.
+
+## Unified tag dialog
+
+`tests/browser/workflows/unified-tags.spec.ts` covers toolbar and shortcut entry points and both close controls in both editor modes,
+collapsed and noncollapsed caret restoration, typed/row/keyboard Add actions, native undo, Tab completion/traversal,
+mobile date groups and repeated-date colors in both themes, stable top-edge geometry, stale dates, and read-only browsing.
+It also checks insertion after headings, links, inline code, and fenced code in both editor modes, including undo. Route tests hold an
+index load across an A-to-B URL transition and verify that A's pending edit is persisted while stale insertion and
+caret restoration cannot affect B. URL-transition draft flushing is route wiring outside the bounded sync model.
+
+The native fullscreen check uses actual Fullscreen and Keyboard Lock APIs in Chromium, granting `keyboardLock` through
+the browser test harness instead of mocking either API. That automated preservation check is currently Chromium-only:
+the Firefox DOM-fullscreen experiment consumed Escape before page delivery. This does not establish behavior across
+Firefox versions, platforms, or fullscreen modes; the user reports successful dialog-only Escape in macOS Firefox.
+Normal Escape/caret cases are browser-independent tests; run them in the selected browser, not multiple browsers by default.
+The isolated preview may use `BROWSER_TEST_BASE_URL` when another local preview is already running.
+The one-shot Milkdown selection controller has component coverage, and prefix completion and date-group ordering
+have focused domain tests. Existing tag-browsing regressions retain repeated-target and cached-refresh coverage.

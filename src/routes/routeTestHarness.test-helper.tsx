@@ -57,6 +57,7 @@ export interface DelayedDirtyList {
 
 const routeTestState = vi.hoisted(() => ({
   tagIndexFiles: {} as Record<string, string>,
+  pendingTagIndex: null as Deferred<string> | null,
   tagIndexModifiedTimes: {} as Record<string, string>,
   maintainTagIndex: undefined as (() => Promise<void>) | undefined,
   drafts: new Map<string, LocalDraft>(),
@@ -284,6 +285,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
           readonly selectionIsCollapsed: boolean;
         } | null;
         readonly getSelection: () => { readonly start: number; readonly end: number } | null;
+        readonly focusSelection: (selection: { readonly start: number; readonly end: number }) => void;
         readonly focusCurrentSelection: () => void;
         readonly redo: () => boolean;
         readonly toggleBlockQuoteAtSelection: (selection?: { readonly start: number; readonly end: number }) => boolean;
@@ -441,6 +443,10 @@ vi.mock("~/components/MilkdownEditor", async () => {
               start: textarea.selectionStart,
               end: textarea.selectionEnd
             },
+        focusSelection: (selection: { start: number; end: number }) => {
+          textarea?.focus(); textarea?.setSelectionRange(selection.start, selection.end);
+          routeTestState.focusSelectionApplyCount += 1;
+        },
         focusCurrentSelection: () => {
           routeTestState.focusCurrentSelectionCount += 1;
           textarea?.focus();
@@ -613,7 +619,7 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
   class FakeRemoteStorageProvider {
     get maintainTagIndex() { return routeTestState.maintainTagIndex; }
     async listTagIndexes() { return Object.keys(routeTestState.tagIndexFiles).map((tag) => ({ tag, modifiedTime: routeTestState.tagIndexModifiedTimes[tag] ?? null })); }
-    async loadTagIndex(tag: string) { return routeTestState.tagIndexFiles[tag] ?? ""; }
+    async loadTagIndex(tag: string) { return routeTestState.pendingTagIndex ? await routeTestState.pendingTagIndex.promise : routeTestState.tagIndexFiles[tag] ?? ""; }
 
     async searchDailyNotes() {
       return Array.from(routeTestState.drafts.keys()).sort().reverse().map((date) => ({
@@ -719,6 +725,7 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
 
 export function resetRouteTestState(): void {
   routeTestState.tagIndexFiles = {};
+  routeTestState.pendingTagIndex = null;
   routeTestState.tagIndexModifiedTimes = {};
   routeTestState.maintainTagIndex = undefined;
   routeTestState.drafts.clear();

@@ -115,6 +115,22 @@ describe("MilkdownEditor", () => {
     }
   });
 
+  it("restores a captured selection once without a delayed caret overwrite", async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    let controller!: MilkdownEditorController;
+    const dispose = render(() => <MilkdownEditor documentKey="2030-02-02" value="Alpha beta omega"
+      onChange={() => {}} onBlur={() => {}} onController={(value) => { if (value) controller = value; }} />, host);
+    try {
+      await waitForEditable(host); await animationFrame();
+      controller.focusSelection({ start: 6, end: 6 });
+      expect(controller.getSelection()).toEqual({ start: 6, end: 6 });
+      controller.focusSelection({ start: 11, end: 11 });
+      await animationFrame();
+      expect(controller.getSelection()).toEqual({ start: 11, end: 11 });
+      expect(controller.documentKey).toBe("2030-02-02");
+    } finally { dispose(); host.remove(); }
+  });
+
   it.each(["Afternoon", "Morning"])("keeps the caret above a remote append with heading %s", async (secondHeading) => {
     const host = document.createElement("div");
     document.body.append(host);

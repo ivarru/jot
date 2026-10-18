@@ -34,31 +34,53 @@ Do not put tags directly in heading text because doing so would affect the headi
 
 ## Adding Tags
 
-Place the cursor where the tag should be inserted, then use the **Add tag** toolbar button or
+Place the cursor where the tag should be inserted, then use the **Tag** toolbar button or
 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>K</kbd> on Windows/Linux or
 <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>K</kbd> on macOS. The extra Alt/Option modifier distinguishes tags from the
 corresponding <kbd>Ctrl</kbd>+<kbd>K</kbd> or <kbd>Cmd</kbd>+<kbd>K</kbd> link shortcut. Names are lowercased and spaces
 or underscores become hyphens.
 Canonical names contain letters and numbers separated by single hyphens.
-The cursor must be outside headings, existing links, and inline or fenced code.
+Inside a heading or code block, insertion creates a paragraph immediately after that element. Inside a link or
+inline code, insertion moves just after it. Enclosing list items and block quotes are retained.
+The unified **Tags** dialog still permits browsing when insertion is unavailable.
 
-As you type, the picker shows previously used tags whose canonical names start with the typed prefix. Use
-<kbd>Down</kbd> and <kbd>Up</kbd> to move through the matches; the highlighted match fills the input and can be added
-with <kbd>Enter</kbd>.
+The **Tag** toolbar button and its shortcut open the **Tags** dialog. One **Tag or filter** field accepts a new
+name and filters indexed tags by prefix. The dialog stays anchored near the top of the viewport as its contents
+change. Refresh progress appears in the title as **Tags (refreshing…)**. The button beside the field says **Create**
+for a new name or **Use** when the normalized name exactly matches an indexed tag;
+it inserts that name. The action is hidden when the field is empty and disabled when invalid.
+Each matching row has a separate **Use** for its exact tag. Successful insertion closes the dialog and returns the
+caret to the editor after the tag. The note date, source snapshot, and selection captured at opening guard insertion;
+if the note changes, adding is disabled while browsing remains available.
+
+<kbd>Tab</kbd> completes the longest shared prefix of matching tags (the whole name for one match). If there is no
+extension, Tab traverses normally. <kbd>Down</kbd>/<kbd>Up</kbd> move a secondary highlight among Create/Use actions while
+keeping typing focus and the query in the field. <kbd>Enter</kbd> adds the highlighted row's tag, or the field's value
+by default. Changing the query or completing resets that highlight; sorting and unchanged refreshes retain the
+highlighted tag by identity. Neither action expands an index.
+
+The close control and <kbd>Escape</kbd> restore the editor's captured caret/selection in either mode, without
+later callbacks overwriting a new selection. Escape is consumed inside the dialog. Fullscreen Escape behavior
+can vary by browser, platform, and fullscreen mode. Chromium uses Keyboard Lock when available and permitted,
+releasing it on close. The user reports that Firefox on macOS closes the dialog without leaving fullscreen.
+The automated Firefox DOM-fullscreen experiment instead exited fullscreen before delivering Escape to the page;
+that observation is not a general Firefox limitation. If Escape leaves fullscreen in a particular environment,
+use the visible close control to close the dialog while retaining fullscreen.
 
 In WYSIWYG mode, tags render as tinted chips. The stored text is still the ordinary Markdown link shown above.
 
 ## Suggestions
 
-**Add tag** and **Browse tags** share a browser-cached list of tags from the synced index files, ordered by
-index modification date (newest first). **Alphabetical order** toggles alphabetical sorting in both dialogs;
+The dialog combines a browser-cached list from synced index files with tags in the captured open-note snapshot
+and dirty local drafts, retaining recently seen local notes for the page session while indexes catch up. It orders by index change timestamps (newest first), using local-note change times for tags without an index. **Alphabetical order** toggles alphabetical sorting in the dialog;
 the toggle is shared for the current page session. Equal or unknown modification dates use tag-name order.
 
-Opening either dialog refreshes the list asynchronously while cached tags stay available. Index maintenance
+Opening Tags from either entry point refreshes the list asynchronously while cached tags stay available. Index maintenance
 from this page also refreshes the list, including after partial failures. Failed refreshes retain cached tags
-and show an error with retry controls. The cache is cleared on sign-out. Unsynced insertions are suggested
-only after their index file has been generated. There is no suggestion-dismissal control: removing a tag's
-last synced occurrence deletes its empty index, and the tag disappears on the next catalog refresh.
+and show an error with retry controls. The cache is cleared on sign-out. Local tags become suggestions on refresh without waiting for sync or index generation.
+Reference-style tag links are included using the first matching Markdown definition, just like index generation.
+Only remote index metadata is cached; local suggestions are rebuilt from local note content. There is no suggestion-dismissal control: removing a tag's
+last synced occurrence deletes its empty index, and the tag disappears on refresh once local content no longer uses it.
 
 ## Compatibility
 
@@ -71,7 +93,7 @@ as the tag identity; the visible link label is presentation.
 Jot maintains derived Markdown files under `jot/daily-notes-tag-index/` in Google Drive, one `<canonical-name>.md` per tag.
 Daily Note Markdown remains the source of truth. Index files are generated and may be replaced or trashed during
 maintenance; do not use them to edit tags or store additional content. Their metadata supplies the shared Tag Catalog.
-Use **Browse tags** in the app menu to browse these indexes and jump to a tag instance.
+Use **Tag** in the editor toolbar to browse these indexes and jump to a tag instance.
 
 Each occurrence occupies one physical line, starting with the note's `YYYY-MM-DD` date and a space followed by its
 excerpt. Two trailing spaces make entries render on separate lines in Markdown. Date-only entries are permitted.
@@ -121,12 +143,19 @@ all app-visible synced notes with the current saved limit. Drive's existing `dri
 
 ## Browsing tag instances
 
-Open **Browse tags** from the menu, optionally filter the tag names, then choose a tag. The list shows ISO dates,
-formatted excerpts, and an instance number within each date, in index order. Every row is a button that opens the
-Daily Note and selects/scrolls to that particular Reference Tag. Excerpt links retain their styling but do not
-navigate; activating them opens the row's tag instance. The list works with keyboard Tab/Enter and on narrow screens.
-Escape or the close button returns focus to the menu button. Refresh reloads tag names; choosing a tag reloads its
-index. Empty or unavailable data has a message and retry controls; missing indexes can be rebuilt in Settings.
+Open **Tag** from the editor toolbar or its keyboard shortcut. Each matching tag row shows a styled tag chip
+and a **Changed** timestamp in the current browser-local time zone (`YYYY-MM-DD HH:mm`), or Unknown. Its tooltip
+explains that a tag may have been added, removed, or its tagged text changed. Local-only tags use the local note
+change time; expanded occurrences remain based on synced indexes and can be empty until synchronization.
+A row tooltip explains its expansion action. Click the row outside its Use button to expand/collapse its occurrences. Several tags can be expanded independently;
+each has its own lazy load, errors, and retry. Index metadata changes invalidate cached occurrences and reload
+expanded rows, including when a previously local-only tag gets its first index. Cached metadata remains visible during refreshes or outages.
+
+Expanded occurrences show newest note dates first, retaining occurrence order within each date. Repeated dates after
+the first entry use a weaker foreground color (40% alpha), while excerpts and controls remain fully opaque. Visible
+instance numbers are omitted; internal ordinals still identify repeated occurrences. Each occurrence opens the Daily
+Note and selects/scrolls to its Reference Tag. Excerpt links retain their styling but do not navigate elsewhere;
+activating them opens that occurrence. Missing/empty indexes have feedback and can be rebuilt in Settings.
 
 Opening a row goes through normal Daily Note navigation and preserves pending edits. It also works within the
 already open note and in both WYSIWYG and raw Markdown modes. The indexed list still describes synced content;

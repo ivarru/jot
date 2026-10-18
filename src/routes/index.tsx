@@ -36,7 +36,6 @@ import {
   insertMarkdownLinkAtSelection,
   isSafeExternalHref,
   parseDailyNoteLinkTarget,
-  selectionInsertionEndsInMarkdownHeading,
   selectionOverlapsMarkdownLinkOrCode,
   type DailyNoteHeading,
   type DailyNoteLinkTarget
@@ -48,7 +47,7 @@ import {
   normalizeDailyNoteMarkdownAtCaret
 } from "~/domain/dailyNoteMarkdown";
 import {
-  filterJotTagSuggestions,
+  extractJotTags,
   insertJotTagAtSelection,
   normalizeJotTagName
 } from "~/domain/jotTags";
@@ -230,6 +229,9 @@ interface LinkModalSession {
 
 interface TagModalSession {
   readonly date: IsoDate;
+  readonly mode: EditorMode;
+  readonly resetKey: number;
+  readonly ownedDate: IsoDate | null;
   readonly baseMarkdown: string;
   readonly selection: MarkdownSelection;
 }
@@ -241,8 +243,27 @@ export default function Home() {
   const shortcutLabels = shortcutLabelsForPlatform(globalThis.navigator?.platform ?? "");
   const browserLocalStorage = getLocalStorage();
   const drafts = new SessionGuardedDraftStore(new IndexedDbLocalDraftStore(), browserLocalStorage);
+  let localTagDates = new Set<IsoDate>();
   const tagCatalog = createTagIndexCatalog({ storage: browserLocalStorage,
-    list: () => runtime.remote.listTagIndexes?.() ?? Promise.reject(new Error("Tag listing is unavailable for this connection."))
+    list: () => runtime.remote.listTagIndexes?.() ?? Promise.reject(new Error("Tag listing is unavailable for this connection.")),
+    listLocal: async () => {
+      // Capture the editor's date and content before reading drafts asynchronously.
+      const date = loadedDate() === selectedDate() ? loadedDate() : null;
+      const source = date === null ? null : currentEditorMarkdown();
+      const capturedAt = new Date().toISOString();
+      const recentDates = localTagDates;
+      if (date !== null) recentDates.add(date);
+      const [dirty, currentDraft] = await Promise.all([drafts.listDirty(), date === null ? null : drafts.load(date)]);
+      const notes = new Map(dirty.map(draft => [draft.date, { markdown: draft.markdown, updatedAt: draft.updatedAt }]));
+      for (const draft of dirty) recentDates.add(draft.date);
+      // Keep recently seen local notes eligible after upload, while their indexes are still catching up.
+      const recentDrafts = await Promise.all([...recentDates].filter(recentDate => recentDate !== date && !notes.has(recentDate))
+        .map(recentDate => drafts.load(recentDate)));
+      for (const draft of recentDrafts) if (draft !== null) notes.set(draft.date, draft);
+      if (date !== null && source !== null) notes.set(date, { markdown: source,
+        updatedAt: currentDraft?.markdown === source ? currentDraft.updatedAt : capturedAt });
+      return [...notes.values()].flatMap(note => extractJotTags(note.markdown).map(tag => ({ tag, modifiedTime: note.updatedAt })));
+    }
   });
   const initialRoute = routeFromHash();
   onMount(() => {
@@ -258,7 +279,6 @@ export default function Home() {
   let imageAltTextInput: HTMLInputElement | undefined;
   let linkTextInput: HTMLInputElement | undefined;
   let linkUrlInput: HTMLInputElement | undefined;
-  let tagNameInput: HTMLInputElement | undefined;
   let aboutCloseButton: HTMLButtonElement | undefined;
   let topMenuElement: HTMLDivElement | undefined;
   let settingsDialog: HTMLDialogElement | undefined;
@@ -333,7 +353,6 @@ export default function Home() {
   const [settings, setSettings] = createSignal<JotSettings>(initialSettings);
   const [settingsLoaded, setSettingsLoaded] = createSignal(false);
   const [syncDiagnosticsCopyMessage, setSyncDiagnosticsCopyMessage] = createSignal<string | null>(null);
-  const [tagIndexOpen, setTagIndexOpen] = createSignal(false);
   const [pendingTagNavigation, setPendingTagNavigation] = createSignal<TagIndexTarget | null>(null);
   const [tagNavigationMessage, setTagNavigationMessage] = createSignal<string | null>(null);
   const [searchOpen, setSearchOpen] = createSignal(false);
@@ -355,13 +374,7 @@ export default function Home() {
   const [linkModalClipboardStatus, setLinkModalClipboardStatus] = createSignal<LinkModalClipboardStatus>("unknown");
   const [linkModalError, setLinkModalError] = createSignal<string | null>(null);
   const [tagModalSession, setTagModalSession] = createSignal<TagModalSession | null>(null);
-  const [tagModalName, setTagModalName] = createSignal("");
-  const [tagModalQuery, setTagModalQuery] = createSignal("");
-  const [activeTagSuggestionIndex, setActiveTagSuggestionIndex] = createSignal(-1);
   const [tagModalError, setTagModalError] = createSignal<string | null>(null);
-  const tagSuggestions = tagCatalog.tags;
-  const filteredTagSuggestions = createMemo(() => filterJotTagSuggestions(tagSuggestions(), tagModalQuery()));
-  createEffect(on(tagSuggestions, () => setActiveTagSuggestionIndex(-1)));
   const [pendingShareTargetLink, setPendingShareTargetLink] = createSignal<ClipboardLinkData | null>(
     parseShareTargetLinkData(new URLSearchParams(window.location.search))
   );
@@ -1418,10 +1431,35 @@ export default function Home() {
     if (conflict !== null && conflict.date !== selectedDate()) setPendingSyncConflictWithDiagnostics(null);
   });
 
+  const persistLeavingDailyNote = () => {
+    const leaving = flushCurrentVisibleEditorSnapshot();
+    if (leaving !== null && ownedDate() === leaving.snapshot.date) {
+      const snapshot = leaving.snapshot;
+      const localCommit = persistLocalDraft(snapshot.date, snapshot.markdown, drafts, {
+        canContinue: () => drafts.hasCurrentEpoch(),
+        normalizeMarkdown: (value) => normalizeDailyNoteMarkdown(value, {
+          normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
+        })
+      }).then(() => true, (error: unknown) => {
+        if (!isCancelledDailyNoteSyncError(error)) setLastSyncError({
+          message: errorMessage(error), retry: "save-current-note", date: snapshot.date
+        });
+        return false;
+      });
+      const earlier = navigationReleaseWork.get(snapshot.date);
+      navigationReleaseWork.set(snapshot.date, earlier === undefined
+        ? localCommit
+        : Promise.all([earlier, localCommit]).then(([previous, current]) => previous && current));
+    }
+  };
+
   createEffect(() => {
     const onHashChange = () => {
       const route = routeFromHash();
-      if (route.date !== selectedDate()) setTagNavigationMessage(null);
+      if (route.date !== selectedDate()) {
+        persistLeavingDailyNote();
+        setTagNavigationMessage(null);
+      }
       if (pendingTagNavigation()?.date !== route.date) setPendingTagNavigation(null);
       setSelectedDate(route.date);
       setInvalidDate(route.invalidDate);
@@ -1599,7 +1637,7 @@ export default function Home() {
   createEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTagInsertShortcut(event)) {
-        if (!authenticated() || !selectedDateCanWrite() || manualConflictMarkersPresent()) return;
+        if (!authenticated() || selectedDate() === null) return;
         if (!eventOriginatesInEditor(event)) return;
 
         event.preventDefault();
@@ -1749,25 +1787,7 @@ export default function Home() {
     setTagNavigationMessage(null);
     datePicker.close();
     existingNoteDates.cancel();
-    const leaving = flushCurrentVisibleEditorSnapshot();
-    if (leaving !== null && ownedDate() === leaving.snapshot.date) {
-      const snapshot = leaving.snapshot;
-      const localCommit = persistLocalDraft(snapshot.date, snapshot.markdown, drafts, {
-        canContinue: () => drafts.hasCurrentEpoch(),
-        normalizeMarkdown: (value) => normalizeDailyNoteMarkdown(value, {
-          normalizeEmptyEditorPlaceholders: settings().normalizeEmptyEditorPlaceholders
-        })
-      }).then(() => true, (error: unknown) => {
-        if (!isCancelledDailyNoteSyncError(error)) setLastSyncError({
-          message: errorMessage(error), retry: "save-current-note", date: snapshot.date
-        });
-        return false;
-      });
-      const earlier = navigationReleaseWork.get(snapshot.date);
-      navigationReleaseWork.set(snapshot.date, earlier === undefined
-        ? localCommit
-        : Promise.all([earlier, localCommit]).then(([previous, current]) => previous && current));
-    }
+    persistLeavingDailyNote();
     const nextHash = dailyNoteRouteHash(date, headingSlug);
     if (window.location.hash === nextHash) {
       setPendingSectionLinkNavigation(headingSlug === null ? null : { date, headingSlug });
@@ -1964,11 +1984,11 @@ export default function Home() {
     return selection !== null && selectionOverlapsMarkdownLinkOrCode(currentEditorMarkdown(), selection);
   };
 
-  const preserveFormattingToolbarSelection = (event: PointerEvent) => {
+  const preserveFormattingToolbarSelection = (event: PointerEvent, restoreSelection = true) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const selection = currentEditorSelection();
     pendingFormattingToolbarSelection = selection;
-    if (selection !== null && editorMode() !== "wysiwyg") setFocusEditorSelection(selection);
+    if (restoreSelection && selection !== null && editorMode() !== "wysiwyg") setFocusEditorSelection(selection);
     event.preventDefault();
   };
 
@@ -2005,96 +2025,63 @@ export default function Home() {
   };
 
   const openTagModal = () => {
-    const selection = takeFormattingToolbarSelection();
     const date = selectedDate();
-    if (!selectedDateCanWrite() || manualConflictMarkersPresent() || date === null) return;
-
+    if (date === null) return;
     const sourceMarkdown = currentEditorMarkdown();
-    const sourceSelection = selection ?? { start: sourceMarkdown.length, end: sourceMarkdown.length };
-    if (
-      selectionOverlapsMarkdownLinkOrCode(sourceMarkdown, sourceSelection) ||
-      selectionInsertionEndsInMarkdownHeading(sourceMarkdown, sourceSelection)
-    ) {
-      return;
+    const selection = takeFormattingToolbarSelection() ?? { start: sourceMarkdown.length, end: sourceMarkdown.length };
+    setTagModalError(null);
+    setTagModalSession({ date, mode: editorMode(), resetKey: editorResetKey(), ownedDate: ownedDate(),
+      baseMarkdown: sourceMarkdown, selection });
+  };
+
+  const tagInsertionUnavailable = (): string | null => {
+    const session = tagModalSession();
+    if (session === null) return "Open a note to add a tag.";
+    markdown(); // Include editor changes in this reactive availability check.
+    if (session.mode === "wysiwyg" && tagEditorController()?.documentKey !== session.date) {
+      return "The editor is loading. You can still browse tags.";
     }
-
-    setTagModalSession({
-      date,
-      baseMarkdown: sourceMarkdown,
-      selection: sourceSelection
-    });
-    setTagModalName("");
-    setTagModalQuery("");
-    setActiveTagSuggestionIndex(-1);
-    setTagModalError(null);
-    void tagCatalog.refresh();
-    requestAnimationFrame(() => tagNameInput?.focus());
+    if (session.date !== selectedDate() || session.date !== loadedDate() || session.mode !== editorMode()
+      || session.resetKey !== editorResetKey() || currentEditorMarkdown() !== session.baseMarkdown) {
+      return "The Daily Note changed. Close and reopen Tags to add a tag.";
+    }
+    if (!selectedDateCanWrite() || manualConflictMarkersPresent()) return "This note cannot be edited right now. You can still browse tags.";
+    return null;
   };
 
-  const closeTagModal = () => {
+  const restoreTagEditorSelection = (session: TagModalSession, source: string, selection: MarkdownSelection) => {
+    if (selectedDate() !== session.date || loadedDate() !== session.date || editorMode() !== session.mode
+      || editorResetKey() !== session.resetKey || ownedDate() !== session.ownedDate
+      || currentEditorMarkdown() !== source) return;
+    // The dialog is already detached. Restore once, without later frames overriding a new user selection.
+    if (session.mode === "text") {
+      plainTextEditorElement?.focus({ preventScroll: true });
+      plainTextEditorElement?.setSelectionRange(selection.start, selection.end);
+    } else if (milkdownController?.documentKey === session.date) milkdownController.focusSelection(selection);
+  };
+
+  const closeTagModal = (restoreFocus = true) => {
+    const session = tagModalSession();
     setTagModalSession(null);
-    setTagModalName("");
-    setTagModalQuery("");
-    setActiveTagSuggestionIndex(-1);
     setTagModalError(null);
+    if (restoreFocus && session !== null) queueMicrotask(() => restoreTagEditorSelection(session, session.baseMarkdown, session.selection));
   };
 
-  const submitTagModal = () => {
+  const submitTagModal = (value: string) => {
     const session = tagModalSession();
     if (session === null) return;
-    if (
-      !canEditDailyNoteDate(session.date, dateBoundEditorState()) ||
-      !selectedDateCanWrite() ||
-      manualConflictMarkersPresent() ||
-      currentEditorMarkdown() !== session.baseMarkdown
-    ) {
-      setTagModalError("The Daily Note changed. Reopen the tag picker.");
-      return;
-    }
-    if (
-      selectionOverlapsMarkdownLinkOrCode(session.baseMarkdown, session.selection) ||
-      selectionInsertionEndsInMarkdownHeading(session.baseMarkdown, session.selection)
-    ) {
-      setTagModalError("Move the cursor outside headings, existing links, or code, then reopen the tag picker.");
-      return;
-    }
-
-    const name = normalizeJotTagName(tagModalName());
-    if (name === null) {
-      setTagModalError("Use letters and numbers separated by hyphens.");
-      return;
-    }
-
+    const unavailable = tagInsertionUnavailable();
+    if (unavailable !== null) { setTagModalError(unavailable); return; }
+    const name = normalizeJotTagName(value);
+    if (name === null) { setTagModalError("Use letters and numbers separated by hyphens."); return; }
     const result = insertJotTagAtSelection(session.baseMarkdown, session.selection, name);
-    applyUndoableMarkdownTransform(session.date, result.markdown, result.selection);
-    closeTagModal();
+    batch(() => {
+      closeTagModal(false);
+      applyUndoableMarkdownTransform(session.date, result.markdown, result.selection, false);
+    });
+    queueMicrotask(() => restoreTagEditorSelection(session, result.markdown, result.selection));
   };
 
-  const moveActiveTagSuggestion = (direction: 1 | -1) => {
-    const suggestions = filteredTagSuggestions();
-    if (suggestions.length === 0) return;
-
-    const current = activeTagSuggestionIndex();
-    if (direction === -1 && current <= 0) {
-      setActiveTagSuggestionIndex(-1);
-      setTagModalName(tagModalQuery());
-      return;
-    }
-
-    const next = direction === 1
-      ? Math.min(current + 1, suggestions.length - 1)
-      : current - 1;
-    setActiveTagSuggestionIndex(next);
-    setTagModalName(suggestions[next] ?? tagModalQuery());
-    setTagModalError(null);
-  };
-
-  const handleTagNameKeyDown = (event: KeyboardEvent & { currentTarget: HTMLInputElement }) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    if (filteredTagSuggestions().length === 0) return;
-    event.preventDefault();
-    moveActiveTagSuggestion(event.key === "ArrowDown" ? 1 : -1);
-  };
 
   const captureSectionLinkSourceSelection = (event: PointerEvent) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -2650,10 +2637,10 @@ export default function Home() {
     setListItemFormatState(markdownListItemFormatState(result.markdown, result.selection));
   };
 
-  const applyUndoableMarkdownTransform = (date: IsoDate, nextMarkdown: string, selection: MarkdownSelection) => {
+  const applyUndoableMarkdownTransform = (date: IsoDate, nextMarkdown: string, selection: MarkdownSelection, focus = true) => {
     if (editorMode() === "text") {
       applyRawEditorChange(date, nextMarkdown, {
-        focusSelection: selection,
+        focusSelection: focus ? selection : null,
         recordHistory: true
       });
       return;
@@ -2671,8 +2658,10 @@ export default function Home() {
       applyDateBoundEditorTransition({ state: change.state, markdownWrite: change.markdownWrite });
     }
 
-    setFocusEditorAtEnd(false);
-    setFocusEditorSelection(selection);
+    if (focus) {
+      setFocusEditorAtEnd(false);
+      setFocusEditorSelection(selection);
+    }
   };
 
   const applyRawEditorChange = (
@@ -3293,6 +3282,7 @@ export default function Home() {
     setReconnectPromptPostponed(false);
     setReconnectMessage("Jot is keeping edits on this device until Google access is refreshed.");
     tagCatalog.clear();
+    localTagDates = new Set<IsoDate>();
     setAuthenticated(false);
     setCleanEditorMarkdown(null);
     setMarkdown("");
@@ -3310,6 +3300,7 @@ export default function Home() {
       if (runtime.kind === "google") runtime.tokenProvider.invalidateAccessToken?.();
       clearStoredActiveImagePicker();
       tagCatalog.clear();
+      localTagDates = new Set<IsoDate>();
       setAuthenticated(false);
       setPendingSyncConflictWithDiagnostics(null);
       setCleanEditorMarkdown(null);
@@ -3627,11 +3618,11 @@ export default function Home() {
               <button
                 type="button"
                 class="icon-button"
-                aria-label="Add tag"
+                aria-label="Tag"
                 aria-keyshortcuts={TAG_INSERT_ARIA_SHORTCUTS}
-                data-tooltip={`Add tag (${shortcutLabels.tagInsert})`}
-                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
-                onPointerDown={preserveFormattingToolbarSelection}
+                data-tooltip={`Tag (${shortcutLabels.tagInsert})`}
+                disabled={selectedDate() === null}
+                onPointerDown={(event) => preserveFormattingToolbarSelection(event, false)}
                 onClick={openTagModal}
               >
                 <TagIcon />
@@ -3720,10 +3711,6 @@ export default function Home() {
                       searchReturnFocus = settingsReturnFocus;
                       setSearchOpen(true);
                     }}>Search daily notes</button>
-                    <button type="button" role="menuitem" onClick={() => {
-                      setTopMenuOpen(false);
-                      setTagIndexOpen(true);
-                    }}>Browse tags</button>
                     <button
                       type="button"
                       role="menuitem"
@@ -3896,107 +3883,6 @@ export default function Home() {
                 </div>
               </div>
             )}
-          </Show>
-
-          <Show when={tagModalSession()}>
-            <div class="modal-backdrop" role="presentation">
-              <form
-                class="tag-modal"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="tag-modal-title"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  submitTagModal();
-                }}
-                onKeyDown={(event) => {
-                  if (isEscapeKey(event)) closeTagModal();
-                }}
-              >
-                <div class="tag-modal-header">
-                  <h2 id="tag-modal-title">Add tag</h2>
-                  <p>Insert at the cursor. Put tags after a paragraph or list item, or on a Tags line below a heading.</p>
-                </div>
-                <label class="tag-modal-field">
-                  Tag
-                  <span class="tag-name-control">
-                    <span aria-hidden="true">#</span>
-                    <input
-                      ref={tagNameInput}
-                      role="combobox"
-                      aria-autocomplete="list"
-                      aria-controls="tag-suggestion-list"
-                      aria-expanded={filteredTagSuggestions().length > 0}
-                      aria-activedescendant={
-                        activeTagSuggestionIndex() < 0
-                          ? undefined
-                          : `tag-suggestion-${filteredTagSuggestions()[activeTagSuggestionIndex()] ?? ""}`
-                      }
-                      autocomplete="off"
-                      spellcheck={false}
-                      value={tagModalName()}
-                      onInput={(event) => {
-                        const value = event.currentTarget.value;
-                        setTagModalName(value);
-                        setTagModalQuery(value);
-                        setActiveTagSuggestionIndex(-1);
-                        setTagModalError(null);
-                      }}
-                      onKeyDown={handleTagNameKeyDown}
-                    />
-                  </span>
-                </label>
-                <label class="tag-order-toggle"><input type="checkbox" checked={tagCatalog.alphabetical()}
-                  onChange={(event) => { tagCatalog.setAlphabetical(event.currentTarget.checked); setActiveTagSuggestionIndex(-1); }} /> Alphabetical order</label>
-                <Show when={tagCatalog.refreshing()}><p role="status">Refreshing tags…</p></Show>
-                <Show when={tagCatalog.error()}>{(error) => <p role="alert">{error()} <button type="button" onClick={() => void tagCatalog.refresh()}>Retry tags</button></p>}</Show>
-                <Show when={filteredTagSuggestions().length > 0}>
-                  <div
-                    id="tag-suggestion-list"
-                    class="tag-suggestions"
-                    role="listbox"
-                    aria-label="Previously used tags"
-                  >
-                    <For each={filteredTagSuggestions()}>
-                      {(name, index) => (
-                        <span
-                          id={`tag-suggestion-${name}`}
-                          class="tag-suggestion"
-                          classList={{ "is-active": activeTagSuggestionIndex() === index() }}
-                          role="option"
-                          aria-selected={activeTagSuggestionIndex() === index()}
-                        >
-                          <button
-                            type="button"
-                            aria-label={`#${name}`}
-                            onClick={() => {
-                              setTagModalName(name);
-                              setTagModalQuery(name);
-                              setActiveTagSuggestionIndex(-1);
-                              setTagModalError(null);
-                              tagNameInput?.focus();
-                            }}
-                          >
-                            #{name}
-                          </button>
-                        </span>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-                <Show when={tagModalError()}>
-                  {(message) => <p class="tag-modal-error">{message()}</p>}
-                </Show>
-                <div class="modal-actions">
-                  <button type="button" onClick={closeTagModal}>
-                    Cancel
-                  </button>
-                  <button type="submit" disabled={normalizeJotTagName(tagModalName()) === null}>
-                    Add
-                  </button>
-                </div>
-              </form>
-            </div>
           </Show>
 
           <Show when={linkModalSession()}>
@@ -4217,20 +4103,24 @@ export default function Home() {
             <p>{message()}</p><button type="button" onClick={() => setTagNavigationMessage(null)}>Dismiss</button>
           </aside>}</Show>
 
-          <Show when={tagIndexOpen()}>
+          <Show when={tagModalSession()}>
             <TagIndexDialog
               tags={tagCatalog.tags()}
+              modifiedTime={tagCatalog.modifiedTime}
+              hasIndex={tagCatalog.hasIndex}
               alphabetical={tagCatalog.alphabetical()}
               onAlphabeticalChange={tagCatalog.setAlphabetical}
               refreshing={tagCatalog.refreshing()}
               listError={tagCatalog.error()}
               onRefresh={tagCatalog.refresh}
-              loadIndex={(tag) => runtime.remote.loadTagIndex?.(tag) ?? Promise.reject(new Error("Tag browsing is unavailable for this connection."))}
+              insertionUnavailable={tagInsertionUnavailable()}
+              addError={tagModalError()}
+              onAdd={submitTagModal}
+              loadIndex={(tag) => tagCatalog.hasIndex(tag)
+                ? runtime.remote.loadTagIndex?.(tag) ?? Promise.reject(new Error("Tag browsing is unavailable for this connection."))
+                : Promise.resolve("")}
               onSelect={(target) => void navigateToDate(target.date, null, target)}
-              onClose={(restoreFocus = true) => {
-                setTagIndexOpen(false);
-                if (restoreFocus) queueMicrotask(() => settingsReturnFocus?.focus());
-              }} />
+              onClose={closeTagModal} />
           </Show>
 
           <DailyNoteUploadSurfaces workflow={dailyNoteUpload} />

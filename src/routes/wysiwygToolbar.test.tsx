@@ -254,7 +254,7 @@ describe("Home WYSIWYG toolbar", () => {
         "Toggle block quote format",
         "Toggle inline code format",
         `Insert or edit link (${shortcutLabels.linkEdit})`,
-        `Add tag (${shortcutLabels.tagInsert})`,
+        `Tag (${shortcutLabels.tagInsert})`,
         "Insert Daily Note section link",
         "Insert image",
         "Sync status: Synced. Force synchronization",
