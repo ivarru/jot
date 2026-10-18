@@ -2,8 +2,8 @@ import { solidStart } from "@solidjs/start/config";
 import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 import { env } from "node:process";
-import packageLock from "./package-lock.json";
-import packageJson from "./package.json";
+import packageLock from "./package-lock.json" with { type: "json" };
+import packageJson from "./package.json" with { type: "json" };
 
 const projectUrl = packageJson.repository.url.replace(/\.git$/, "");
 const milkdownKitVersion = packageLock.packages["node_modules/@milkdown/kit"].version;

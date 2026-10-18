@@ -100,3 +100,13 @@ Verification: `npm run verify` passed (754 tests, types, static build).
 Twelve selected Chrome startup/search/auth-renewal checks passed; the adapted
 date geometry check passed on an isolated rerun. Both Pages artifact checks
 passed after `npm run build:pages`, including importing the built app at `/jot/`.
+
+## TypeScript compiler (0.33.6)
+
+Migrate TypeScript 5.9 to 7.0.2. Remove the deleted `baseUrl` option and make
+the existing `~/*` path mapping explicitly relative (`./src/*`). Preserve
+strictness and the existing alias; no application types need weakening.
+Use JSON import attributes in the Vite config for native Node compatibility.
+
+Verification: all 754 tests, TypeScript 7 checking, and the production static
+build passed. Type checking/build are repeated after the JSON import cleanup.
