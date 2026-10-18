@@ -46,3 +46,21 @@ with `npm ls katex`, not only the manifest's requested version.
 
 Verification: `npm run verify` passed (754 tests, typecheck, build), and the
 Chrome LaTeX workflow passed, including persisted Markdown preservation.
+
+## Test tools (0.33.3)
+
+Migrate Vitest 3 to 5.0.5, jsdom 26 to 30.1.3, and jest-dom 6 to 7.0.1.
+Update Playwright to 1.64.1, user-event to 14.6.8, fast-check to 4.10.2,
+and Vite to 6.4.4. The existing pinned Node 24.16 runtime meets their
+requirements. Keep Vitest's new mock-clearing default; no compatibility
+setting is needed by the existing tests.
+
+Retain and exactly pin fake-indexeddb 6.2.5. Version 6.2.6 reproducibly throws
+an uncaught `should have been able to remove transaction` from its transaction
+queue when running `src/storage/indexedDb.test.ts`; all six assertions pass
+but the run correctly fails on that uncaught exception. Do not suppress the
+error or alter application transaction handling to compensate for a test fake.
+
+Verification: `npm run verify` passed (754 tests, typecheck, build) with no
+unhandled errors. The upgraded Playwright runner passed the preview-assets
+check using the Chrome-configured fake-provider preview.
