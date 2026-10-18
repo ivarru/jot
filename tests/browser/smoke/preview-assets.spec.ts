@@ -1,4 +1,14 @@
 import { expect, test } from "@playwright/test";
+import { openDevelopmentStorage, wysiwygEditor } from "../helpers/editor";
+
+test("the app and editor start without JavaScript errors", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await openDevelopmentStorage(page, "/", "disabled");
+  await expect(wysiwygEditor(page)).toBeEditable();
+  expect(errors).toEqual([]);
+});
 
 test("preview serves referenced build assets as assets", async ({ baseURL }) => {
   const root = new URL(baseURL ?? process.env.BROWSER_TEST_BASE_URL ?? "http://127.0.0.1:4173/");

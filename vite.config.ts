@@ -22,5 +22,10 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(packageJson.version),
     __MILKDOWN_VERSION__: JSON.stringify(milkdownKitVersion)
   },
-  build: { modulePreload: false }
+  build: { modulePreload: false },
+  optimizeDeps: {
+    // SolidStart's development overlay imports this package and its CommonJS
+    // resolve-uri dependency dynamically, outside Vite's initial route scan.
+    include: ["@jridgewell/trace-mapping"]
+  }
 });

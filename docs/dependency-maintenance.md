@@ -88,7 +88,7 @@ override so the new framework can use its required H3 v2.
 Use `@solidjs/start/env`, make document assets optional as required by v2,
 and declare Node 24 build types explicitly. Remove obsolete missing-Node-type
 suppression comments from CSS tests. Require Node 24.16 or a supported newer
-even-major runtime. Prerendering uses loopback; set `failOnError` so denied
+runtime on Node 26+. Prerendering uses loopback; set `failOnError` so denied
 worker startup cannot silently produce a missing app shell.
 
 The new compiler can place comments before dynamic date text. The browser
@@ -140,3 +140,34 @@ Verification: 78 editor component tests, type checking, and all 14 affected
 Chrome list/link/tag workflows passed. Routine verification is repeated against
 the dependency tree from the preceding commit before committing this fix.
 That run passed all 759 tests, type checking, and the production static build.
+
+## Transitive patches and final verification (0.33.8)
+
+Refresh Browserslist to 4.29.3 and baseline-browser-mapping to 2.11.29,
+including compatible supporting packages. A clean `npm ci` succeeds from the
+final lockfile. `npm outdated` lists only the deliberate fake-indexeddb pin
+and Node types retained on major 24 to match the runtime.
+
+An actual Vite development-server check exposed an unresolved CommonJS default
+import from the SolidStart overlay's trace-mapping chain. A startup health test
+first failed on the JavaScript/console errors; explicitly prebundling
+`@jridgewell/trace-mapping` fixes it. That test and native editor/date shortcuts
+both pass against `npm run dev`, and the temporary dev server is stopped.
+
+The audit reports four high-severity package entries, down from 32 affected
+entries initially (including five critical). All four remaining entries
+originate from one advisory:
+[braces stack exhaustion](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm),
+in the SolidStart → micromatch/fast-glob build dependency chain. The available
+braces version is still affected. npm suggests downgrading SolidStart to 1.4.0;
+do not apply that as an automatic fix. The affected path processes build-time
+glob patterns; this is not evidence of an exploitable path from Daily Note
+content in the static application. Reassess when upstream publishes a fix.
+
+Final verification: `npm run verify` passed all 759 tests, type checking, and
+the production build. The Pages build and both artifact checks passed. The
+complete Chrome suite passed 156 of 157 tests; the raw Tab undo test failed in
+its text-replacement setup, matching the existing flake recorded in
+[issue 0017](../issues/0017-daily-note-drive-search.md). Its isolated rerun
+passed. All other Chrome tests, including startup health, passed in the full
+run. No local development or test servers remain running.
