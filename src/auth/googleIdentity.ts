@@ -28,11 +28,13 @@ export type GoogleRedirectAccessTokenResult =
   | { readonly type: "error"; readonly message: string };
 
 interface RedirectState {
+  readonly epoch: string | null;
   readonly createdAtMs: number;
   readonly hash: string;
 }
 
 interface StoredAccessToken {
+  readonly epoch: string | null;
   readonly accessToken: string;
   readonly expiresAtMs: number;
 }
@@ -64,6 +66,10 @@ export class GoogleAccessTokenUnavailableError extends Error {
   }
 }
 
+export class GoogleAuthCancelledError extends Error {
+  constructor() { super("This Google session has ended. Please sign in again."); this.name = "GoogleAuthCancelledError"; }
+}
+
 declare global {
   interface Window {
     google?: GoogleIdentityApi;
@@ -71,6 +77,9 @@ declare global {
 }
 
 export class GoogleIdentityTokenProvider implements AccessTokenProvider {
+  private generation = 0;
+  private cancelRequest: (() => void) | null = null;
+  private tokenEpoch: string | null = null;
   private tokenClient: GoogleTokenClient | null = null;
   private inFlightAccessTokenRequest: Promise<string> | null = null;
   private accessToken: string | null = null;
@@ -84,6 +93,12 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
   ) {
     this.scopes = scopes.join(" ");
     this.restoreStoredAccessToken();
+  }
+
+  captureSession(): () => boolean {
+    const generation = this.generation;
+    const epoch = accountEpoch();
+    return () => generation === this.generation && epoch === accountEpoch();
   }
 
   async initialize(): Promise<void> {
@@ -127,7 +142,7 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
     const redirectUri = `${window.location.origin}${window.location.pathname}`;
     window.sessionStorage.setItem(
       redirectStateStorageKey(state),
-      JSON.stringify({ createdAtMs: Date.now(), hash: currentHash } satisfies RedirectState)
+      JSON.stringify({ createdAtMs: Date.now(), hash: currentHash, epoch: accountEpoch() } satisfies RedirectState)
     );
 
     const url = new URL(GOOGLE_OAUTH_AUTHORIZE_URL);
@@ -199,18 +214,30 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
     request: GoogleTokenRequest | undefined,
     mapFailureToReconnect: boolean
   ): Promise<string> {
+    const isCurrent = this.captureSession();
     const client = await this.getTokenClient();
+    if (!isCurrent()) throw new GoogleAuthCancelledError();
+    // Each attempt owns its callback object, including after a timeout/retry.
+    this.tokenClient = null;
 
     const inFlight = new Promise<string>((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        reject(new Error("Google sign-in is still waiting. Try again if the popup was closed or blocked."));
-      }, TOKEN_REQUEST_TIMEOUT_MS);
+      let settled = false;
       const finish = (result: () => void) => {
+        if (settled) return;
+        settled = true;
         window.clearTimeout(timeout);
+        if (this.cancelRequest === cancel) this.cancelRequest = null;
         result();
       };
+      const cancel = () => finish(() => reject(new GoogleAuthCancelledError()));
+      const timeout = window.setTimeout(() => {
+        finish(() => reject(new Error("Google sign-in is still waiting. Try again if the popup was closed or blocked.")));
+      }, TOKEN_REQUEST_TIMEOUT_MS);
+      this.cancelRequest = cancel;
 
       client.callback = (response) => {
+        if (settled) return;
+        if (!isCurrent()) { cancel(); return; }
         if (response.error) {
           finish(() => reject(new Error(response.error_description ?? response.error)));
           return;
@@ -226,19 +253,20 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
         finish(() => resolve(accessToken));
       };
       client.error_callback = (error) => {
+        if (!isCurrent()) { cancel(); return; }
         finish(() => reject(new Error(googleErrorMessage(error))));
       };
 
-      if (request === undefined) {
-        client.requestAccessToken();
-      } else {
-        client.requestAccessToken(request);
-      }
+      try {
+        if (request === undefined) client.requestAccessToken();
+        else client.requestAccessToken(request);
+      } catch (error) { finish(() => reject(error)); }
     });
 
     try {
       return await inFlight;
     } catch (error: unknown) {
+      if (error instanceof GoogleAuthCancelledError) throw error;
       if (mapFailureToReconnect) throw new GoogleAccessTokenUnavailableError();
       throw error;
     }
@@ -246,7 +274,7 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
 
   async revoke(): Promise<void> {
     const token = this.getUsableCachedToken();
-    this.clearStoredAccessToken();
+    this.invalidateAccessToken();
     if (token === null || !window.google) return;
 
     await new Promise<void>((resolve) => {
@@ -255,10 +283,19 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
   }
 
   invalidateAccessToken(): void {
+    this.generation += 1;
+    this.cancelRequest?.();
+    this.inFlightAccessTokenRequest = null;
+    this.tokenClient = null;
     this.clearStoredAccessToken();
+    const storage = getSessionStorage();
+    if (storage) for (const key of Object.keys(storage)) {
+      if (key.startsWith(REDIRECT_STATE_STORAGE_PREFIX)) storage.removeItem(key);
+    }
   }
 
   private getUsableCachedToken(): string | null {
+    if (this.accessToken !== null && this.tokenEpoch !== accountEpoch()) this.invalidateAccessToken();
     if (this.accessToken === null || Date.now() >= this.accessTokenExpiresAtMs) {
       this.restoreStoredAccessToken();
     }
@@ -266,11 +303,13 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
   }
 
   private storeAccessToken(accessToken: string, expiresInSeconds: number): void {
+    this.tokenEpoch = accountEpoch();
     this.accessToken = accessToken;
     this.accessTokenExpiresAtMs = Date.now() + Math.max(expiresInSeconds, 0) * 1000;
     getSessionStorage()?.setItem(
       accessTokenStorageKey(this.clientId),
       JSON.stringify({
+        epoch: this.tokenEpoch,
         accessToken: this.accessToken,
         expiresAtMs: this.accessTokenExpiresAtMs
       } satisfies StoredAccessToken)
@@ -284,6 +323,7 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
     try {
       const parsed = JSON.parse(stored) as Partial<StoredAccessToken>;
       if (
+        parsed.epoch !== accountEpoch() ||
         typeof parsed.accessToken !== "string" ||
         typeof parsed.expiresAtMs !== "number" ||
         Date.now() >= parsed.expiresAtMs
@@ -291,6 +331,7 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
         this.clearStoredAccessToken();
         return;
       }
+      this.tokenEpoch = parsed.epoch;
       this.accessToken = parsed.accessToken;
       this.accessTokenExpiresAtMs = parsed.expiresAtMs;
     } catch {
@@ -314,13 +355,14 @@ export class GoogleIdentityTokenProvider implements AccessTokenProvider {
     try {
       const parsed = JSON.parse(value) as Partial<RedirectState>;
       if (
+        parsed.epoch !== accountEpoch() ||
         typeof parsed.createdAtMs !== "number" ||
         typeof parsed.hash !== "string" ||
         Date.now() - parsed.createdAtMs > REDIRECT_STATE_TTL_MS
       ) {
         return null;
       }
-      return { createdAtMs: parsed.createdAtMs, hash: parsed.hash };
+      return { createdAtMs: parsed.createdAtMs, hash: parsed.hash, epoch: parsed.epoch };
     } catch {
       return null;
     }
@@ -437,4 +479,8 @@ function waitForScript(script: HTMLScriptElement): Promise<void> {
     });
     script.addEventListener("error", () => reject(new Error("Failed to load Google Identity Services.")));
   });
+}
+
+function accountEpoch(): string | null {
+  try { return globalThis.localStorage?.getItem("jot.accountEpoch") ?? null; } catch { return null; }
 }

@@ -292,6 +292,12 @@ export default function Home() {
     redirectAuthResult.type === "error" ? redirectAuthResult.message : null
   );
   const [redirectAuthErrorActive, setRedirectAuthErrorActive] = createSignal(redirectAuthResult.type === "error");
+  let authLifecycle = 0;
+  const captureAuthLifecycle = () => {
+    const lifecycle = authLifecycle;
+    const epoch = browserLocalStorage?.getItem("jot.accountEpoch");
+    return () => lifecycle === authLifecycle && epoch === browserLocalStorage?.getItem("jot.accountEpoch");
+  };
   const [signingIn, setSigningIn] = createSignal(false);
   const [preparingAuth, setPreparingAuth] = createSignal(runtime.kind === "google");
   const [authReconnectRequired, setAuthReconnectRequired] = createSignal(false);
@@ -921,6 +927,7 @@ export default function Home() {
     const renewalDueAtMs = runtime.tokenProvider.renewalDueAtMs();
     if (renewalDueAtMs === null || renewalAttemptedAtMs === renewalDueAtMs) return;
 
+    const authIsCurrent = captureAuthLifecycle();
     const flushed = flushCurrentVisibleEditorSnapshot();
     let visibleEditsNeedSync = false;
     let synchronizedVisibleSnapshot: VisibleDailyNoteSnapshot | null = null;
@@ -964,6 +971,7 @@ export default function Home() {
           : null,
         syncBackgroundDrafts: () => syncDirtyDraftsExceptSelected(flushed?.snapshot.date ?? null),
         canContinue: () => (
+          authIsCurrent() && authenticated() &&
           pendingSyncConflict() === null &&
           !authReconnectRequired() &&
           (
@@ -1015,6 +1023,7 @@ export default function Home() {
         }
       });
 
+      if (!authIsCurrent()) return;
       if (result.type === "renewed") {
         renewalPendingAfterSyncError = false;
         if (syncStatus() === "error" && lastSyncError() === null) {
@@ -1034,6 +1043,7 @@ export default function Home() {
         renewalAttemptedAtMs = null;
       }
     } catch (error: unknown) {
+      if (!authIsCurrent()) return;
       renewalAttemptedAtMs = null;
       if (!handleRemoteError(error, { message: errorMessage(error), retry: "sync-dirty-drafts" })) {
         renewalPendingAfterSyncError = true;
@@ -3233,12 +3243,14 @@ export default function Home() {
   const reconnectGoogle = async () => {
     if (runtime.kind !== "google" || reconnectingAuth()) return;
 
+    const authIsCurrent = captureAuthLifecycle();
     setReconnectingAuth(true);
     recordSyncRequest("reconnect");
     setAuthError(null);
     setLastSyncError(null);
     try {
       await signIn(runtime);
+      if (!authIsCurrent()) return;
       drafts.adoptCurrentEpoch();
       setAuthenticated(true);
       setAuthReconnectRequired(false);
@@ -3246,17 +3258,19 @@ export default function Home() {
       setReconnectMessage("Jot is keeping edits on this device until Google access is refreshed.");
       refreshAndScheduleToday();
       await dailyNoteReplication.reconnect();
+      if (!authIsCurrent()) return;
       await syncDirtyDraftsExceptSelected();
+      if (!authIsCurrent()) return;
       const date = selectedDate();
       if (date !== null && canEditDailyNoteDate(date, dateBoundEditorState()) && syncStatus() === "auth-required") {
         setSyncStatus("synced");
       }
     } catch (error: unknown) {
-      if (!isGooglePopupFailedToOpen(error)) {
+      if (authIsCurrent() && !isGooglePopupFailedToOpen(error)) {
         setAuthError(errorMessage(error));
       }
     } finally {
-      setReconnectingAuth(false);
+      if (authIsCurrent()) setReconnectingAuth(false);
     }
   };
 
@@ -3267,6 +3281,8 @@ export default function Home() {
       if (!confirmed) return;
     }
 
+    authLifecycle += 1;
+    const revocation = runtime.kind === "google" ? runtime.tokenProvider.revoke?.() : undefined;
     datePicker.reset();
     existingNoteDates.reset();
     cancelBackgroundSyncWork();
@@ -3274,9 +3290,7 @@ export default function Home() {
     dailyNoteReplication.cancelInFlightWork();
     browserLocalStorage?.removeItem("jot.fakeAuth");
     await drafts.clearForSignOut();
-    if (runtime.kind === "google") {
-      await runtime.tokenProvider.revoke?.();
-    }
+    await revocation;
     clearStoredActiveImagePicker();
     setAuthReconnectRequired(false);
     setReconnectPromptPostponed(false);
@@ -3292,6 +3306,9 @@ export default function Home() {
   onMount(() => {
     const onOtherTabSignOut = (event: StorageEvent) => {
       if (event.key !== "jot.accountEpoch" || drafts.hasCurrentEpoch()) return;
+      authLifecycle += 1;
+      setSigningIn(false);
+      setReconnectingAuth(false);
       datePicker.reset();
       existingNoteDates.reset();
       cancelBackgroundSyncWork();
@@ -3331,8 +3348,10 @@ export default function Home() {
                   setRedirectAuthErrorActive(false);
                   clearStoredActiveImagePicker();
                   setAuthError(null);
+                  const authIsCurrent = captureAuthLifecycle();
                   void signIn(runtime)
                     .then(() => {
+                      if (!authIsCurrent()) return;
                       drafts.adoptCurrentEpoch();
                       if (runtime.kind === "fake") {
                         browserLocalStorage?.setItem("jot.fakeAuth", "true");
@@ -3342,8 +3361,8 @@ export default function Home() {
                       setReconnectMessage("Jot is keeping edits on this device until Google access is refreshed.");
                       setAuthenticated(true);
                     })
-                    .catch((error: unknown) => setAuthError(errorMessage(error)))
-                    .finally(() => setSigningIn(false));
+                    .catch((error: unknown) => { if (authIsCurrent()) setAuthError(errorMessage(error)); })
+                    .finally(() => { if (authIsCurrent()) setSigningIn(false); });
                 }}
               >
                 {preparingAuth()

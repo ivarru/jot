@@ -53,8 +53,10 @@ export async function performGoogleTokenRenewal(
 
   try {
     await actions.renewSilently();
+    if (!actions.canContinue()) { actions.onAbort?.(); return { type: "aborted" }; }
     return { type: "renewed" };
   } catch {
+    if (!actions.canContinue()) { actions.onAbort?.(); return { type: "aborted" }; }
     actions.invalidateToken();
     const editsSynced = await actions.editsSynced();
     return { type: "reconnect", editsSynced };

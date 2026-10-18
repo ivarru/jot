@@ -92,3 +92,9 @@ extend the [manual provider checklist](manual-google-provider-retest.md) with th
 Privacy of other retained UI state, caches, logs, and third-party requests belongs to #0024; content/URL sink validation
 belongs to #0023; production policy and script trust belongs to #0025. This review does not establish those outcomes.
 The investigation can close with its findings recorded while the three remediation issues remain open.
+
+## Remediation progress
+
+Issue #0028 is fixed in 0.33.9: request/session-bound callbacks and route continuations prevent late auth from restoring
+a signed-out session; stored token/redirect epochs reject stale navigation. Maintained regression-first coverage includes
+an actual second-tab sign-out in Chrome. The findings above describe the reviewed revision; #0029/#0030 remain open.

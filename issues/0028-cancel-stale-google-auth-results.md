@@ -1,7 +1,7 @@
 ---
 id: "0028"
 title: "Cancel stale Google authentication results"
-status: open
+status: closed
 type: bug
 priority: high
 created: "2026-10-18"
@@ -27,11 +27,11 @@ selection here; account identity is separate work in #0029.
 
 ## Acceptance criteria
 
-- [ ] Add failing focused regressions for token success after invalidate/revoke/timeout, delayed initialization, and redirect return after an account-epoch change before production fixes.
-- [ ] Ensure obsolete auth success/error callbacks and continuations cannot store credentials, adopt a newer epoch, set authenticated, or invalidate a newer session.
-- [ ] Ensure obsolete redirect state is rejected after sign-out across tabs, including navigation/suspension; retain valid single-use state checks and OAuth-fragment cleanup.
-- [ ] Add a Chrome workflow exercising a pending Google sign-in/reconnect across another tab's actual sign-out, then release the callback and assert signed-out state and absent token.
-- [ ] Verify ordinary sign-in, popup fallback, expiry/renewal, retries, and same-account reconnect still work; record residual provider limitations.
+- [x] Add failing focused regressions for token success after invalidate/revoke/timeout, delayed initialization, and redirect return after an account-epoch change before production fixes.
+- [x] Ensure obsolete auth success/error callbacks and continuations cannot store credentials, adopt a newer epoch, set authenticated, or invalidate a newer session.
+- [x] Ensure obsolete redirect state is rejected after sign-out across tabs, including navigation/suspension; retain valid single-use state checks and OAuth-fragment cleanup.
+- [x] Add a Chrome workflow exercising a pending Google sign-in/reconnect across another tab's actual sign-out, then release the callback and assert signed-out state and absent token.
+- [x] Verify ordinary sign-in, popup fallback, expiry/renewal, retries, and same-account reconnect still work; record residual provider limitations.
 
 ## Verification
 
@@ -46,4 +46,16 @@ No hard dependencies. Related: [#0029](0029-bind-drafts-to-google-account.md),
 
 ## Resolution
 
-Pending. Reproduced during #0022; no production fix has been applied.
+Implemented in app 0.33.9. Token attempts own settled callbacks and session/epoch guards; invalidation cancels
+pending requests, discards old redirect state, and prevents stale cached-token restoration. Route sign-in, reconnect,
+and renewal continuations cannot adopt a newer sign-out epoch. Existing redirect state/tokens without an epoch require
+fresh sign-in. Local sign-out cancels credentials before awaiting draft clearing/provider revocation.
+
+Regression-first evidence: five focused assertions failed before the fix (late invalidate/revoke/timeout callbacks,
+stale redirect, delayed script initialization), and the Chrome actual-second-tab-sign-out workflow failed by restoring
+the editor. The maintained regressions now pass, including a newer-token/old-callback case. These auth boundaries are
+outside the bounded replication model; focused auth and browser workflows cover them. Existing A-to-B renewal traces
+remain in the routine suite.
+
+Verification: npm run verify passed 768 tests, type checking, and production build. All nine Chrome auth/renewal/shared-tab
+workflows passed. No live Google account was used; provider-level checks remain with #0026. #0029 and #0030 remain open.

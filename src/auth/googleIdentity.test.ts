@@ -171,7 +171,7 @@ describe("GoogleIdentityTokenProvider", () => {
     const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
     window.sessionStorage.setItem(
       "jot.googleOAuthRedirect.test-state",
-      JSON.stringify({ createdAtMs: 0, hash: "#/date/2026-05-28" })
+      JSON.stringify({ epoch: null, createdAtMs: 0, hash: "#/date/2026-05-28" })
     );
     window.history.replaceState(
       null,
@@ -190,7 +190,7 @@ describe("GoogleIdentityTokenProvider", () => {
     const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
     window.sessionStorage.setItem(
       "jot.googleOAuthRedirect.test-state",
-      JSON.stringify({ createdAtMs: 0, hash: "#/date/2026-05-28" })
+      JSON.stringify({ epoch: null, createdAtMs: 0, hash: "#/date/2026-05-28" })
     );
     window.history.replaceState(
       null,
@@ -209,7 +209,7 @@ describe("GoogleIdentityTokenProvider", () => {
     const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
     window.sessionStorage.setItem(
       "jot.googleOAuthRedirect.test-state",
-      JSON.stringify({ createdAtMs: 0, hash: "#/date/2026-05-28" })
+      JSON.stringify({ epoch: null, createdAtMs: 0, hash: "#/date/2026-05-28" })
     );
     window.history.replaceState(
       null,
@@ -237,7 +237,7 @@ describe("GoogleIdentityTokenProvider", () => {
     };
     window.sessionStorage.setItem(
       "jot.googleAccessToken.client-id",
-      JSON.stringify({ accessToken: "stored-token", expiresAtMs: 120000 })
+      JSON.stringify({ epoch: null, accessToken: "stored-token", expiresAtMs: 120000 })
     );
     const provider = new GoogleIdentityTokenProvider("client-id", ["scope"]);
 
