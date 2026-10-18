@@ -44,6 +44,10 @@ Final completion depends on review results from [#0022](0022-review-oauth-accoun
 [#0025](0025-review-deployment-security.md). Test design can begin earlier. Remediation issues remain separate;
 closing this validation issue records their status rather than implicitly closing them.
 
+The completed [OAuth assessment](../docs/security-oauth-review.md) supplies real-provider scenarios and reproducible
+boundary probes. Track its open fixes explicitly: [#0028](0028-cancel-stale-google-auth-results.md),
+[#0029](0029-bind-drafts-to-google-account.md), and [#0030](0030-bind-image-imports-to-auth-session.md).
+
 ## Resolution
 
 Pending. Record review evidence, findings or no-finding results, and limitations on closure.
