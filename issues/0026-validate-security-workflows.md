@@ -60,6 +60,12 @@ The [privacy assessment](../docs/security-privacy-review.md) adds Chrome cache/c
 remediation must reverse their assertions. Shared-device, physical-erasure, HTTP-cache and live-provider limits
 remain explicit, alongside the existing #0031 disclosure.
 
+The [deployment assessment](../docs/security-deployment-review.md) adds production-artifact auth-gate checks and
+Chrome enforcement evidence for a test-only CSP candidate. Neither the candidate nor header controls are shipped.
+Track [#0034](0034-harden-deployment-workflow-trust.md) and [#0035](0035-enforce-browser-security-policy.md), along
+with existing #0027/#0031–#0033. GitHub environment settings, live Google compatibility and deployed policy enforcement
+remain unverified; a public header snapshot is not a revision-matched release validation.
+
 ## Resolution
 
 Pending. Record review evidence, findings or no-finding results, and limitations on closure.

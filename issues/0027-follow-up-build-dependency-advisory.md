@@ -42,6 +42,11 @@ exploitability conclusions. Do not use npm audit fix --force as a substitute for
 No hard dependencies. Related: [#0025](0025-review-deployment-security.md). Absence of an upstream fix does not block
 the other security reviews; any accepted residual risk must remain explicit.
 
+The [#0025 assessment](../docs/security-deployment-review.md) refreshed `npm audit` on 2026-10-18: the same four high
+entries remain through SolidStart 2.0.6 / fast-glob 3.3.3 / micromatch 4.0.8 / braces 3.0.3. The advisory still lists no
+patched release, and no downgrade/override was applied. This evidence does not close this bounded follow-up or
+substitute for its compatibility/reassessment disposition.
+
 ## Resolution
 
 Pending. Record review evidence, findings or no-finding results, and limitations on closure.
