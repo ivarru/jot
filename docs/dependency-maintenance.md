@@ -72,3 +72,31 @@ its line/character diffs participate in conflict merging and source selections.
 The existing public APIs need no adaptation. `npm run verify` passed all 754
 tests (including merge properties, replication traces, and editor selections),
 type checking, and the production build.
+
+## Framework and static deployment (0.33.5)
+
+Migrate to SolidStart 2.0.6, Router 1.0.0, and Vite 8.3.4. Replace Vinxi
+commands and `app.config.ts` with `vite.config.ts`, SolidStart's Vite plugin,
+and Nitro's static preset. Preserve client-only rendering, `.output/public`,
+`_build/assets`, the root preview, and the `/jot/` Pages artifact.
+
+SolidStart 2's documented deployment plugin is Nitro 3, currently beta;
+pin 3.0.260903-beta exactly. This plugin runs only during development/build/
+preview; Pages still publishes static files. Remove the old global H3 v1
+override so the new framework can use its required H3 v2.
+
+Use `@solidjs/start/env`, make document assets optional as required by v2,
+and declare Node 24 build types explicitly. Remove obsolete missing-Node-type
+suppression comments from CSS tests. Require Node 24.16 or a supported newer
+even-major runtime. Prerendering uses loopback; set `failOnError` so denied
+worker startup cannot silently produce a missing app shell.
+
+The new compiler can place comments before dynamic date text. The browser
+geometry check now measures the date text node, not `firstChild`. The artifact
+check imports the emitted module directly instead of expecting Vinxi's removed
+`window.manifest`; actual base-path rendering remains required.
+
+Verification: `npm run verify` passed (754 tests, types, static build).
+Twelve selected Chrome startup/search/auth-renewal checks passed; the adapted
+date geometry check passed on an isolated rerun. Both Pages artifact checks
+passed after `npm run build:pages`, including importing the built app at `/jot/`.

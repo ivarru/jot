@@ -2,7 +2,6 @@ describe("Milkdown table styles", () => {
   let styles = "";
 
   beforeAll(async () => {
-    // @ts-expect-error Vitest runs in Node, but the app TypeScript config intentionally omits Node types.
     const { readFile } = await import("node:fs/promises");
     styles = await readFile("src/styles.css", "utf8");
   });

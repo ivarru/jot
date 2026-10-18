@@ -1,6 +1,8 @@
 node_modules/
 .DS_Store
 .vinxi/
+.nitro/
+.solid-start/
 .output/
 dist/
 coverage/

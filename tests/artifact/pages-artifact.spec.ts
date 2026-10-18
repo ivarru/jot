@@ -84,21 +84,13 @@ function matchAll(value: string, pattern: RegExp): string[] {
 }
 
 async function expectAppRendersAtBasePath(html: string): Promise<void> {
-  const manifestMatch = html.match(/window\.manifest = (\{.*?\})<\/script>/s);
-  expect(manifestMatch, "index.html does not include the client manifest.").not.toBeNull();
-
   const moduleScriptPath = matchAll(html, /<script type="module" src="([^"]+)"/g)[0];
   expect(moduleScriptPath?.startsWith(basePath), "index.html does not include a Pages-based module script.").toBe(true);
-
-  const manifest = JSON.parse(manifestMatch![1]!) as Record<string, { output?: string }>;
-  rewriteManifestOutputsToFileUrls(manifest);
 
   const dom = new JSDOM(html, {
     pretendToBeVisual: true,
     url: `http://127.0.0.1${basePath}`
   });
-  (dom.window as typeof dom.window & { manifest: unknown }).manifest = manifest;
-
   const installedGlobals = installDomGlobals(dom);
   try {
     await import(pathToFileURL(path.join(outputDir, stripBasePath(moduleScriptPath!))).href);
@@ -109,14 +101,6 @@ async function expectAppRendersAtBasePath(html: string): Promise<void> {
   } finally {
     restoreGlobals(installedGlobals);
     dom.window.close();
-  }
-}
-
-function rewriteManifestOutputsToFileUrls(manifest: Record<string, { output?: string }>): void {
-  for (const entry of Object.values(manifest)) {
-    if (typeof entry.output !== "string") continue;
-    expect(entry.output.startsWith(basePath), `Manifest output ${entry.output} is not under ${basePath}.`).toBe(true);
-    entry.output = pathToFileURL(path.join(outputDir, stripBasePath(entry.output))).href;
   }
 }
 

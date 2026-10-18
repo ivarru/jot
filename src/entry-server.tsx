@@ -4,7 +4,7 @@ import { createHandler, StartServer } from "@solidjs/start/server";
 import { VIEWPORT_META_CONTENT } from "./documentHead";
 
 interface DocumentProps {
-  readonly assets: JSX.Element;
+  readonly assets?: JSX.Element;
   readonly children?: JSX.Element;
   readonly scripts: JSX.Element;
 }

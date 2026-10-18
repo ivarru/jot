@@ -254,7 +254,8 @@ test("search marks today's and the open note's dates and supports a larger resiz
   const dialog = page.getByRole("dialog", { name: "Search daily notes" });
   await expect(dialog.locator(".search-result-date").filter({ hasText: today })).toHaveText(`${today} (today, open)`);
   expect(await dialog.locator(".search-result-date").filter({ hasText: today }).evaluate((element) => {
-    const text = document.createRange(); text.selectNodeContents(element.firstChild!);
+    const dateText = Array.from(element.childNodes).find((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim());
+    const text = document.createRange(); text.selectNodeContents(dateText!);
     return element.querySelector(".search-result-marker")!.getBoundingClientRect().left - text.getBoundingClientRect().right;
   })).toBeCloseTo(6, 0);
   const heading = dialog.getByRole("heading", { name: "Search daily notes", exact: true });

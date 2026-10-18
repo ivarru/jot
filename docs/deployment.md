@@ -4,6 +4,16 @@ This document covers the GitHub Pages release path for Jot. The checked-in workf
 
 ## Build
 
+Jot uses SolidStart 2 with Vite 8 and Nitro's static deployment preset.
+Framework/build options live in `vite.config.ts`; there is no running app
+server in the deployed Pages artifact. Use the pinned Node version in
+`.node-version` (24.16.0); the toolchain requires Node 24 or newer.
+Nitro 3 is currently a beta dependency, pinned exactly for reproducible builds.
+Prerender failures fail the build instead of publishing an incomplete shell.
+
+Static prerendering starts a local loopback worker. In a restricted development
+sandbox, run verification with permission to bind loopback ports.
+
 GitHub Pages project hosting serves Jot below `/jot/`, so production Pages builds use:
 
 ```sh
