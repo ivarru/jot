@@ -99,6 +99,7 @@ describe("public shell cache privacy", () => {
     await legacy.put("?title=PRIVATE", new Response("SHELL"));
     await legacy.put("_build/assets/old.woff2", new Response("FONT"));
     await legacy.put("/other-app/?text=NEIGHBOR", new Response("NEIGHBOR"));
+    await legacy.put("/jot/neighbor/?text=NESTED_NEIGHBOR", new Response("NESTED_NEIGHBOR"));
     const old = await sw.open("jot-shell:%2Fjot%2F:v7");
     await old.put("private-note", new Response("PRIVATE_BODY"));
     await old.put("_build/assets/old.js", new Response("SCRIPT"));
@@ -106,6 +107,7 @@ describe("public shell cache privacy", () => {
     expect(sw.urls()).not.toContain("https://jot.test/jot/?title=PRIVATE");
     expect(sw.urls()).not.toContain("https://jot.test/jot/private-note");
     expect(sw.urls()).toContain("https://jot.test/other-app/?text=NEIGHBOR");
+    expect(sw.urls()).toContain("https://jot.test/jot/neighbor/?text=NESTED_NEIGHBOR");
     sw.fetch.mockRejectedValue(new Error("offline"));
     expect(await (await sw.request("_build/assets/old.js"))?.text()).toBe("SCRIPT");
     expect(await (await sw.request("_build/assets/old.woff2"))?.text()).toBe("FONT");

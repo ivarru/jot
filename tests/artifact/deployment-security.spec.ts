@@ -141,8 +141,14 @@ test("Pages worker upgrade preserves other installations and owned offline asset
       await (await caches.open("jot-shell:%2Fneighbor%2F:v1")).put("/neighbor/", new Response("OTHER_JOT"));
       await (await caches.open(`jot-shell:${encodeURIComponent(base)}:v0`)).put(base + "old", new Response("OLD"));
       await (await caches.open("jot-shell-v6")).put(base + "_build/assets/legacy-scope.css", new Response("LEGACY_CSS"));
+      await (await caches.open("jot-shell-v6")).put(base + "neighbor/?text=NESTED_NEIGHBOR", new Response("NESTED_NEIGHBOR"));
       await navigator.serviceWorker.register(base + "sw.js?scope-upgrade=0033");
     }, base);
+    await expect.poll(() => page.evaluate(async () => {
+      const registration = await navigator.serviceWorker.getRegistration();
+      return registration?.active?.scriptURL.includes("scope-upgrade=0033") && registration.active.state === "activated";
+    })).toBe(true);
+    expect(await page.evaluate(async base => (await (await caches.open("jot-shell-v6")).match(base + "neighbor/?text=NESTED_NEIGHBOR"))?.text(), base)).toBe("NESTED_NEIGHBOR");
     await expect.poll(() => page.evaluate(async base => (await caches.keys()).includes(`jot-shell:${encodeURIComponent(base)}:v0`), base)).toBe(false);
     expect(await page.evaluate(() => caches.keys())).toEqual(expect.arrayContaining(["neighbor-cache", "jot-shell:%2Fneighbor%2F:v1"]));
     await context.setOffline(true);

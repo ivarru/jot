@@ -50,9 +50,10 @@ self.addEventListener("activate", (event) => {
         const url = new URL(request.url);
         if (legacyShared) {
           if (url.origin !== APP_BASE.origin || !url.pathname.startsWith(APP_BASE.pathname)) continue;
-          // A legacy root installation cannot distinguish arbitrary neighboring
-          // paths. Only its known shell/asset paths have unambiguous ownership.
-          if (APP_BASE.pathname === "/" && !isPublicPath(url)) continue;
+          // Legacy names were shared. A path prefix alone cannot distinguish
+          // this app from a nested installation; only known shell/asset paths
+          // have unambiguous ownership, even below a non-root base path.
+          if (!isPublicPath(url)) continue;
         }
         const key = publicCacheKey(request);
         const response = key === null ? null : await previous.match(request);

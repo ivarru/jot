@@ -93,8 +93,8 @@ Requests with explicit Authorization, private/no-store responses, redirects and 
 asset fetches omit ambient credentials. Query-bearing app navigations can use the public shell offline without storing
 the original query. Cache lookup never searches unrelated caches. Cache names include the installation base path and a manual version. Activation removes only obsolete versions in
 that namespace. Shared legacy `jot-shell-vN` caches are retained; matching public installation entries migrate, and obsolete private entries for that installation are removed,
-without deleting neighboring applications' caches. A legacy root installation cannot identify ownership of arbitrary
-origin paths, so ambiguous non-shell paths in a shared legacy cache are preserved rather than erased speculatively.
+without deleting neighboring applications' caches. A legacy installation cannot identify ownership of arbitrary or nested neighboring paths, so ambiguous non-shell
+paths in a shared legacy cache are preserved rather than erased speculatively.
 Clearing all site data is an explicit browser/operator decision, not an automatic upgrade step. Offline lookup uses only the active installation cache. Bump the worker
 cache version when changing shell behavior or release expectations.
 

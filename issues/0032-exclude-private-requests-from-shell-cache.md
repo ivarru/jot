@@ -56,11 +56,18 @@ public fetches omit ambient credentials. Query-bearing app navigation may use a 
 its URL. Both install and runtime caching use the policy.
 
 Activation migrates valid public assets, purges obsolete installation caches and removes owned legacy private entries.
-Shared legacy root caches have ambiguous ownership for arbitrary non-shell paths; those entries are preserved rather
-than deleting potential neighboring data. This limit is explicit in deployment documentation; normal `/jot/` owned
-paths and root share-query keys are cleaned. No Local Draft is removed by cache migration.
+Shared legacy caches have ambiguous ownership for arbitrary non-shell paths, including nested installations; those
+entries are preserved rather than deleting potential neighboring data. Recognizable shell/asset entries and share-query
+keys are cleaned, while obsolete installation-specific caches can be removed in full. A regression added during #0026
+first reproduced deletion of a nested neighbor key; app `0.35.1` tightens legacy cleanup to preserve it. No Local Draft is removed by cache migration.
 
 Regression-first: Chrome failed on a retained share key, and seven focused worker assertions failed before production
 changes. The 16 worker tests and four Chrome privacy workflows now pass, including legacy cleanup, authorization/query
 exclusion and neighboring-cache preservation. Routine verification passed 836 tests, typechecking and build. The Pages build and all six artifact checks passed,
 including `/jot/` upgrade and offline reload. Test servers stopped. This cache boundary is outside the sync model.
+
+
+Follow-up verification for `0.35.1`: the nested-neighbor unit regression first failed, then all 842 unit/integration
+tests, typechecking and production build passed. All six Pages artifact checks passed, including a real `/jot/`
+upgrade preserving the nested legacy key and offline startup. Activation assertions now wait for the worker's activated
+state rather than observing partially completed migration.
