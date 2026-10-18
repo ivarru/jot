@@ -1,4 +1,6 @@
-const CACHE_NAME = "jot-shell-v6";
+const APP_BASE = new URL("./", self.location.href);
+const CACHE_PREFIX = `jot-shell:${encodeURIComponent(APP_BASE.pathname)}:`;
+const CACHE_NAME = `${CACHE_PREFIX}v7`;
 const APP_SHELL = ["./", "./manifest.webmanifest", "./icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -8,12 +10,27 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches
-      .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
-      .then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    const current = await caches.open(CACHE_NAME);
+    for (const name of await caches.keys()) {
+      if (name === CACHE_NAME) continue;
+      if (/^jot-shell-v\d+$/.test(name)) {
+        // Legacy cache names were shared across installations. Copy only this
+        // path's entries; never delete the shared cache or another app's keys.
+        const legacy = await caches.open(name);
+        for (const request of await legacy.keys()) {
+          const url = new URL(request.url);
+          if (url.origin !== APP_BASE.origin || !url.pathname.startsWith(APP_BASE.pathname)) continue;
+          if (await current.match(request)) continue;
+          const response = await legacy.match(request);
+          if (response) await current.put(request, response);
+        }
+      } else if (name.startsWith(CACHE_PREFIX)) {
+        await caches.delete(name);
+      }
+    }
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener("fetch", (event) => {
@@ -29,11 +46,12 @@ self.addEventListener("fetch", (event) => {
       }
       return response;
     }).catch(async (error) => {
-      const cached = await caches.match(event.request);
+      const cache = await caches.open(CACHE_NAME);
+      const cached = await cache.match(event.request);
       if (cached) return cached;
 
       if (event.request.mode === "navigate") {
-        const shell = await caches.match("./");
+        const shell = await cache.match(APP_BASE.href);
         if (shell) return shell;
       }
 

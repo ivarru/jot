@@ -53,15 +53,20 @@ test("service worker retains share-query data after URL cleanup and sign-out", a
   expect(await cacheKeys(page)).toContainEqual(expect.stringContaining("SYNTHETIC_PRIVATE_SHARE_0024"));
 });
 
-// Characterization evidence for #0033: Cache Storage is origin-wide even when
-// service-worker registration and document control have a narrower scope.
-test("service-worker activation deletes an unrelated origin cache", async ({ page }) => {
+test("service-worker activation preserves unrelated caches and migrates owned offline assets", async ({ page, context }) => {
   await page.goto("/");
   await waitForWorker(page);
   await page.evaluate(async () => {
-    const cache = await caches.open("other-app-synthetic-cache");
-    await cache.put("/other-app/synthetic", new Response("SYNTHETIC_OTHER_APP"));
-    await navigator.serviceWorker.register("/sw.js?privacy-review=0024");
+    await (await caches.open("other-app-synthetic-cache")).put("/other-app/synthetic", new Response("OTHER_APP"));
+    await (await caches.open("jot-shell:%2Fother-app%2F:v1")).put("/other-app/", new Response("OTHER_JOT"));
+    await (await caches.open("jot-shell:%2F:v0")).put("/obsolete", new Response("OBSOLETE"));
+    await (await caches.open("jot-shell-v6")).put("/icons/legacy-review.svg", new Response("LEGACY_ASSET"));
+    await navigator.serviceWorker.register("/sw.js?ownership-regression=0033");
   });
-  await expect.poll(() => page.evaluate(() => caches.keys())).not.toContain("other-app-synthetic-cache");
+  await expect.poll(() => page.evaluate(() => caches.keys())).not.toContain("jot-shell:%2F:v0");
+  const names = await page.evaluate(() => caches.keys());
+  expect(names).toContain("other-app-synthetic-cache");
+  expect(names).toContain("jot-shell:%2Fother-app%2F:v1");
+  await context.setOffline(true);
+  expect(await page.evaluate(() => fetch("/icons/legacy-review.svg").then(response => response.text()))).toBe("LEGACY_ASSET");
 });

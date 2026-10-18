@@ -127,3 +127,27 @@ test("candidate meta CSP allows startup and blocks inline and unlisted remote sc
     expect(await page.evaluate(() => (window as unknown as Record<string, unknown>).__policyViolations)).toEqual(expect.arrayContaining(["https://probe.invalid/script.js", "https://probe.invalid/private-probe"]));
   } finally { await server.close(); }
 });
+
+test("Pages worker upgrade preserves other installations and owned offline assets", async ({ page, context }) => {
+  const server = await serveArtifact();
+  try {
+    await page.goto(server.url);
+    await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+    await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Sign in with Google" })).toBeVisible();
+    await page.evaluate(async base => {
+      await (await caches.open("neighbor-cache")).put("/neighbor/", new Response("NEIGHBOR"));
+      await (await caches.open("jot-shell:%2Fneighbor%2F:v1")).put("/neighbor/", new Response("OTHER_JOT"));
+      await (await caches.open(`jot-shell:${encodeURIComponent(base)}:v0`)).put(base + "old", new Response("OLD"));
+      await (await caches.open("jot-shell-v6")).put(base + "_build/assets/legacy-scope.css", new Response("LEGACY_CSS"));
+      await navigator.serviceWorker.register(base + "sw.js?scope-upgrade=0033");
+    }, base);
+    await expect.poll(() => page.evaluate(async base => (await caches.keys()).includes(`jot-shell:${encodeURIComponent(base)}:v0`), base)).toBe(false);
+    expect(await page.evaluate(() => caches.keys())).toEqual(expect.arrayContaining(["neighbor-cache", "jot-shell:%2Fneighbor%2F:v1"]));
+    await context.setOffline(true);
+    expect(await page.evaluate(base => fetch(base + "_build/assets/legacy-scope.css").then(response => response.text()), base)).toBe("LEGACY_CSS");
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Sign in with Google" })).toBeVisible();
+  } finally { await server.close(); }
+});
