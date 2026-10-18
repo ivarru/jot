@@ -88,9 +88,14 @@ For image insertion, Jot creates a Google Photos Picker session, opens a picker 
 
 ## PWA Notes
 
-`public/sw.js` is intentionally static. It caches the app shell and same-origin GET responses, then falls back to the cached shell for offline navigations. Cache names include the installation base path and a manual version. Activation removes only obsolete versions in
-that namespace. Shared legacy `jot-shell-vN` caches are retained; matching installation entries can migrate without
-deleting neighboring applications' caches. Offline lookup uses only the active installation cache. Bump the worker
+`public/sw.js` is intentionally static. It caches only query-free public shell, manifest, icon and build-asset GET URLs below the installation base path.
+Requests with explicit Authorization, private/no-store responses, redirects and out-of-app URLs are excluded. Public
+asset fetches omit ambient credentials. Query-bearing app navigations can use the public shell offline without storing
+the original query. Cache lookup never searches unrelated caches. Cache names include the installation base path and a manual version. Activation removes only obsolete versions in
+that namespace. Shared legacy `jot-shell-vN` caches are retained; matching public installation entries migrate, and obsolete private entries for that installation are removed,
+without deleting neighboring applications' caches. A legacy root installation cannot identify ownership of arbitrary
+origin paths, so ambiguous non-shell paths in a shared legacy cache are preserved rather than erased speculatively.
+Clearing all site data is an explicit browser/operator decision, not an automatic upgrade step. Offline lookup uses only the active installation cache. Bump the worker
 cache version when changing shell behavior or release expectations.
 
 The manifest uses `start_url: "."` and relative icon paths so it works under the `/jot/` project path.

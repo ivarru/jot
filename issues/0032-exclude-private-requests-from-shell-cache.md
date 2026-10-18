@@ -1,7 +1,7 @@
 ---
 id: "0032"
 title: "Exclude private request metadata from the shell cache"
-status: open
+status: closed
 type: bug
 priority: medium
 created: "2026-10-18"
@@ -30,10 +30,10 @@ cache without deleting other applications' caches. Do not erase Local Drafts or 
 
 ## Acceptance criteria
 
-- [ ] Shared title/text/URL parameters do not remain in Jot's Cache Storage before or after sign-out.
-- [ ] Non-asset, out-of-app and credential-bearing requests/responses are excluded by an explicit policy.
-- [ ] Existing Jot cache entries violating the policy are safely removed; unrelated caches remain intact.
-- [ ] Offline shell and required JS/CSS/font assets still load at the Pages base path.
+- [x] Shared title/text/URL parameters do not remain in Jot's Cache Storage before or after sign-out.
+- [x] Non-asset, out-of-app and credential-bearing requests/responses are excluded by an explicit policy.
+- [x] Existing Jot cache entries violating the policy are safely removed; unrelated caches remain intact.
+- [x] Offline shell and required JS/CSS/font assets still load at the Pages base path.
 
 ## Verification
 
@@ -50,4 +50,17 @@ cache migration; neither finding requires fixing the other first.
 
 ## Resolution
 
-Pending. No production fix included in the investigation.
+Fixed in app `0.34.4`. The v8 worker caches only query-free shell, manifest, icons and build assets in its
+installation path. Explicit Authorization, redirects, private/no-store responses and unrelated paths are excluded;
+public fetches omit ambient credentials. Query-bearing app navigation may use a public shell offline without retaining
+its URL. Both install and runtime caching use the policy.
+
+Activation migrates valid public assets, purges obsolete installation caches and removes owned legacy private entries.
+Shared legacy root caches have ambiguous ownership for arbitrary non-shell paths; those entries are preserved rather
+than deleting potential neighboring data. This limit is explicit in deployment documentation; normal `/jot/` owned
+paths and root share-query keys are cleaned. No Local Draft is removed by cache migration.
+
+Regression-first: Chrome failed on a retained share key, and seven focused worker assertions failed before production
+changes. The 16 worker tests and four Chrome privacy workflows now pass, including legacy cleanup, authorization/query
+exclusion and neighboring-cache preservation. Routine verification passed 836 tests, typechecking and build. The Pages build and all six artifact checks passed,
+including `/jot/` upgrade and offline reload. Test servers stopped. This cache boundary is outside the sync model.
