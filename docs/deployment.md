@@ -46,6 +46,24 @@ The preflight includes Vitest, typecheck, the full fake-provider browser suite, 
 See [testing.md](testing.md) for the test layers and CI coverage matrix.
 
 The workflow uploads `.output/public` with GitHub's Pages artifact action and deploys it through GitHub Pages.
+Workflow defaults grant no token permissions. Build gets only `contents: read`, does not persist checkout credentials,
+and forces fake auth off for its production build. The fake-provider browser child build explicitly overrides that
+flag for tests. Only deploy gets `pages: write` and `id-token: write`; Pages configuration runs there with enablement
+disabled, followed by deployment of the verified artifact. It does not check out or run project/package code.
+
+Both jobs require `github.ref == 'refs/heads/master'`. Manual dispatch on another branch or a tag is skipped; select
+`master` to release. This guard is part of the selected workflow code, not a substitute for protected branches or
+GitHub environment restrictions. The `github-pages` environment name is retained, but its reviewers/allowed refs and
+repository Pages settings have not been inspected or changed locally. An actual authorized Actions run must verify
+the artifact handoff and deployment/OIDC permissions; local validation does not establish those external settings.
+
+Action references are full commit pins from the official `actions/*` repositories, retaining the existing v5/v6 major
+versions as readable comments. To update: resolve the intended official release tag with `git ls-remote`, verify the
+commit belongs to that repository, review the release/source and any composite action's transitive `uses` pins, then
+change SHA/comment together in a version-bumped commit. Validate with the official `actionlint`, routine verification
+and Pages artifact checks. Never replace a pin with a mutable tag to make an update easier. The reviewed upload action
+already pins its nested upload-artifact action to a full SHA. Node is pinned separately; `ubuntu-latest` remains a
+managed runner trust input. See GitHub's [secure-use reference](https://docs.github.com/en/actions/reference/security/secure-use).
 
 Before the first deployment, configure GitHub Pages to use GitHub Actions and add one of these repository-level values:
 

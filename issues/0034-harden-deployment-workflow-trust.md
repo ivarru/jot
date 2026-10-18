@@ -1,7 +1,7 @@
 ---
 id: "0034"
 title: "Pin deployment actions and reduce build-job authority"
-status: open
+status: closed
 type: feature
 priority: medium
 created: "2026-10-18"
@@ -26,11 +26,11 @@ configuration must be inspected or changed only under separately authorized oper
 
 ## Acceptance criteria
 
-- [ ] All action references use verified full commit SHAs with readable release labels and update guidance.
-- [ ] Build permissions are minimal; deployment/OIDC authority is granted only where required and justified.
-- [ ] Checkout does not persist credentials unless a concrete later operation requires them.
-- [ ] Allowed manual-dispatch revisions and protected-environment assumptions are explicit; unverified settings remain labeled.
-- [ ] Pages artifacts and deployment handoff remain valid; any external execution needed for verification is explicitly recorded.
+- [x] All action references use verified full commit SHAs with readable release labels and update guidance.
+- [x] Build permissions are minimal; deployment/OIDC authority is granted only where required and justified.
+- [x] Checkout does not persist credentials unless a concrete later operation requires them.
+- [x] Allowed manual-dispatch revisions and protected-environment assumptions are explicit; unverified settings remain labeled.
+- [x] Pages artifacts and deployment handoff remain valid; any external execution needed for verification is explicitly recorded.
 
 ## Verification
 
@@ -45,4 +45,24 @@ Related: [#0025](0025-review-deployment-security.md), [#0026](0026-validate-secu
 
 ## Resolution
 
-Pending. No workflow or external setting changed in the assessment.
+Implemented in app `0.35.2`. Workflow defaults grant no permissions; build has only contents-read, credentials are not
+persisted by checkout, and production fake auth is explicitly off. Pages configuration (enablement disabled) moved into
+the deploy job with Pages/OIDC write permissions, before deploying the same verified artifact. Both jobs accept only
+`refs/heads/master`, including manual dispatch. Protected-branch/environment settings remain unverified and unchanged.
+
+Official repository tag resolution on 2026-10-18 supplied these full commit pins (existing major versions retained):
+
+| Action | Release label | Commit |
+| --- | --- | --- |
+| checkout | v5 | `fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09` |
+| setup-node | v5 | `a0853c24544627f65ddf259abe73b1d18a591444` |
+| configure-pages | v6 | `45bfe0192ca1faeb007ade9deae92b16b8254a0d` |
+| upload-pages-artifact | v5 | `fc324d3547104276b827a68afc52ff2a11cc49c9` |
+| deploy-pages | v5 | `368f82528645a54fb793d4d04e342629a3f51346` |
+
+The official configure/upload/deploy action metadata was inspected; upload's nested action is already SHA-pinned.
+[Deployment guidance](../docs/deployment.md#github-actions) records the pin-update process and trust/dispatch limits.
+Official actionlint v1.7.12 (downloaded checksum verified) passed. Routine verification passed 842 tests, typechecking
+and production build. The Pages build and all six artifact checks passed, including production auth and offline worker migration.
+No test server remains running. No Actions run, deployment, OIDC
+exchange, branch/environment setting or external account change was performed; actual CI handoff remains unverified.
