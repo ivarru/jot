@@ -6,6 +6,9 @@ not a security certification. The automated payloads are retained in
 [Chrome workflows](../tests/browser/workflows/untrusted-content.spec.ts) and
 [link boundary tests](../src/editor/untrustedContent.test.ts).
 
+Follow-up status and current remediation evidence are consolidated in [security verification](security-verification.md).
+The findings and results below remain the dated review snapshot.
+
 ## Input and sink inventory
 
 | Source | Transformation and trust boundary | Sink and observed protection |

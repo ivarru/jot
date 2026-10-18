@@ -4,6 +4,9 @@ Review date: 2026-10-18. Reviewed code: `ee29113`, app `0.34.2`.
 This records [#0025](../issues/0025-review-deployment-security.md). No deployment, GitHub/Google setting, dependency,
 workflow, or production browser policy was changed. Local artifacts use a synthetic public OAuth client ID.
 
+Follow-up status and current remediation evidence are consolidated in [security verification](security-verification.md).
+The findings and results below remain the dated review snapshot.
+
 ## Build and workflow trust
 
 `.github/workflows/deploy.yml` runs on `master` pushes and manual dispatch, not pull-request events. The build checks

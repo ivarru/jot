@@ -104,3 +104,21 @@ test("a pending date-A image cannot grant date B permission or change its note",
     expect(await rawMarkdown(page)).toBe(markdown);
   } finally { release(); }
 });
+
+test("link suggestions read rich clipboard text without loading an unrelated image", async ({ page }) => {
+  const requests: string[] = [];
+  await page.route("https://probe.invalid/**", route => { requests.push(route.request().url()); return route.abort(); });
+  await grantClipboardPermissions(page);
+  await openDevelopmentStorage(page, "/", "disabled");
+  await page.evaluate(async () => navigator.clipboard.write([new ClipboardItem({
+    "text/html": new Blob(['<a href="https://example.test/safe">Synthetic label</a><img src="https://probe.invalid/clipboard-only.svg">'], { type: "text/html" }),
+    "text/plain": new Blob(["Synthetic label https://example.test/safe"], { type: "text/plain" })
+  })]));
+  await page.getByRole("button", { name: "Insert or edit link" }).click();
+  await expect(page.locator(".link-modal input").nth(0)).toHaveValue("Synthetic label");
+  await expect(page.locator(".link-modal input").nth(1)).toHaveValue("https://example.test/safe");
+  await page.locator(".link-modal").getByRole("button", { name: "Insert", exact: true }).click();
+  await switchToRawMode(page);
+  expect(await rawMarkdown(page)).toContain("https://example.test/safe");
+  expect(requests).toEqual([]);
+});

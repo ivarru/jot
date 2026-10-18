@@ -131,3 +131,34 @@ identifiers, or account details.
 6. Verify expiry during Photos picking/import still shows reconnect. For an existing image preview, verify expired
    access requests reconnect and successful reconnect restores the rendered image (0.34.2 follow-up). Already accepted provider writes may complete
    and leave an orphaned image/album; do not interpret local cancellation as guaranteed remote rollback.
+
+## Consolidated security release retest
+
+Status: **not executed against live Google or a deployed 0.35.1 release**. This is the manual handoff from
+[the consolidated security verification](security-verification.md), supplementing the account/session cases above.
+Use the existing setup and disposable accounts A/B with synthetic notes and a harmless generated image. Obtain any
+needed deployment/account-setting authorization separately. Record version, date, case, pass/fail and sanitized symptom;
+do not retain tokens, provider IDs, email addresses, screenshots of private notes or raw authenticated network captures.
+
+1. Run the six account/expiry/session cases in **Security boundary retest** above, including popup denial/blocked-popup
+   redirect, partial consent and a suspended second tab. Expect account continuity checks before draft access, continued
+   same-account offline editing with verified credentials, and no restoration by an obsolete callback. Local mocks do
+   not establish Google's actual account selection or revocation behavior.
+2. In a synthetic Daily Note, insert a managed Photos attachment. Expire access, reload, reconnect and confirm its
+   preview recovers. Repeat across A→B dates and A→B accounts without leaking an old chooser/reference or starting a
+   later old-session upload. Already accepted provider writes may leave orphaned copies; local cancellation is not rollback.
+3. Use an intercepted or operator-controlled image endpoint in a synthetic imported/pasted note. Expect no request
+   before **Load image**, no Referer or app-supplied bearer on the allowed request, unchanged Markdown, and renewed
+   permission after mode/date/reload changes. Browser cookie rules still apply after consent. Verify managed Photos
+   displays remain independent of arbitrary-URL permission.
+4. On an authorized test installation under `/jot/`, seed only synthetic old shell/share keys and a separate synthetic
+   neighboring cache. Upgrade and inspect Cache Storage: recognized private share keys and obsolete owned namespaces
+   disappear; neighboring/ambiguous shared legacy keys remain; warmed shell and assets still start offline. Never clear
+   a real browser profile's unsynced notes to perform this check. Unknown legacy ownership is an explicit residual limit.
+5. Verify diagnostics are opt-in and copied only on request. Use distinctive synthetic note text/IDs and confirm they
+   are absent from reports; dates, lengths and browser context remain. Confirm both tabs show signed-out UI after
+   sign-out and drafts/catalog are logically cleared, while clipboard/history/browser HTTP caches are not promised erased.
+6. After a separately authorized deployment, record the actual HTML/response policies and worker scope against its
+   release version. #0034/#0035 remain open: do not mark action pinning, environment restrictions, framing prevention or
+   a shipped CSP as established from local candidate tests. Any proposed CSP still needs the actual Google
+   popup/redirect/Photos and editor/math flows before release, with blocked-effect assertions as well as startup checks.

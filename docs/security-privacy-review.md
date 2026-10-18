@@ -4,6 +4,9 @@ Review date: 2026-10-18. Reviewed code: `cb8e70e`, app `0.34.2`.
 This records [#0024](../issues/0024-review-local-data-privacy.md). It assesses the browser client and checked-in worker,
 not Google's retention, browser-profile forensics, or deployed HTTP headers. All probes used synthetic data.
 
+Follow-up status and current remediation evidence are consolidated in [security verification](security-verification.md).
+The findings and results below remain the dated review snapshot.
+
 ## Data inventory and intended lifetime
 
 | Data | Location and transmission | Lifetime and cleanup |
