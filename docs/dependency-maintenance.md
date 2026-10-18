@@ -32,3 +32,17 @@ suite will be repeated against the final stable migration build.
 Audit counts include inherited build/test dependencies and are not a count of
 confirmed vulnerabilities in Jot's deployed static application. Do not use
 `npm audit fix --force`: suggested downgrades can remove required functionality.
+
+## Math renderer (0.33.2)
+
+Update KaTeX to 0.19.0. Override only `micromark-extension-math`'s older KaTeX
+range with the direct dependency (`$katex`) so parsing and rendering resolve one
+patched version. Its public renderer API is unchanged for this use; keep
+`trust: false` and DOMPurify sanitization as independent defenses.
+
+The initial install retained an invalid nested 0.16.47 lock entry. Removing that
+stale entry and resolving again produces a single deduplicated 0.19.0; verify
+with `npm ls katex`, not only the manifest's requested version.
+
+Verification: `npm run verify` passed (754 tests, typecheck, build), and the
+Chrome LaTeX workflow passed, including persisted Markdown preservation.

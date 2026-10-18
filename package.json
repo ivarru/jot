@@ -1,6 +1,6 @@
 {
   "name": "jot",
-  "version": "0.33.1",
+  "version": "0.33.2",
   "description": "A static progressive web app for personal Daily Notes.",
   "private": true,
   "license": "MIT",
@@ -48,7 +48,7 @@
     "@solidjs/start": "^1.4.0",
     "diff": "^8.0.4",
     "dompurify": "^3.4.17",
-    "katex": "^0.17.0",
+    "katex": "^0.19.0",
     "remark": "^15.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
@@ -69,6 +69,9 @@
     "vitest": "^3.2.6"
   },
   "overrides": {
-    "h3": "1.15.11"
+    "h3": "1.15.11",
+    "micromark-extension-math": {
+      "katex": "$katex"
+    }
   }
 }
