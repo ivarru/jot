@@ -6,23 +6,14 @@ import path from "node:path";
 const output = path.resolve(process.env.PAGES_OUTPUT_DIR ?? ".output/public");
 const requestedBase = process.env.BASE_PATH ?? "/jot/";
 const base = requestedBase === "/" ? "/" : `/${requestedBase.split("/").filter(Boolean).join("/")}/`;
-// Candidate only: the production artifact does not yet ship this policy.
-const candidatePolicy = [
-  "default-src 'self'",
-  "script-src 'self' https://accounts.google.com/gsi/client",
-  "connect-src 'self' https://www.googleapis.com https://photoslibrary.googleapis.com https://photospicker.googleapis.com https://*.googleusercontent.com https://accounts.google.com/gsi/",
-  "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
-  "img-src 'self' data: blob: https:",
-  "font-src 'self'",
-  "frame-src https://accounts.google.com/gsi/",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'self' https://accounts.google.com",
-  "manifest-src 'self'",
-  "worker-src 'self'"
-].join("; ");
-
-async function serveArtifact(policy = false): Promise<{ url: string; close: () => Promise<void> }> {
+test.beforeEach(async ({ page }) => {
+  // Keep artifact startup independent of live Google script/network behavior.
+  await page.route("https://accounts.google.com/gsi/client", route => route.fulfill({
+    contentType: "text/javascript",
+    body: "window.google = {accounts: {oauth2: {initTokenClient: () => ({requestAccessToken() {}})}}};"
+  }));
+});
+async function serveArtifact(): Promise<{ url: string; close: () => Promise<void> }> {
   const server: Server = createServer(async (request, response) => {
     try {
       const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
@@ -30,11 +21,8 @@ async function serveArtifact(policy = false): Promise<{ url: string; close: () =
       const relative = pathname.slice(base.length) || "index.html";
       const filename = path.resolve(output, relative);
       if (!filename.startsWith(output + path.sep)) { response.writeHead(404).end(); return; }
-      let body = await readFile(filename);
+      const body = await readFile(filename);
       const types: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".webmanifest": "application/manifest+json", ".svg": "image/svg+xml" };
-      if (policy && relative === "index.html") {
-        body = Buffer.from(body.toString().replace('<head>', `<head><meta http-equiv="Content-Security-Policy" content="${candidatePolicy}">`));
-      }
       response.writeHead(200, { "Content-Type": types[path.extname(filename)] ?? "application/octet-stream" });
       response.end(body);
     } catch { response.writeHead(404).end(); }
@@ -53,6 +41,17 @@ async function artifactFiles(directory: string): Promise<string[]> {
   return (await Promise.all(entries.map(entry => entry.isDirectory()
     ? artifactFiles(path.join(directory, entry.name)) : [path.join(directory, entry.name)]))).flat();
 }
+
+test("release metadata applies policy before executable or fetchable content", async () => {
+  const html = await readFile(path.join(output, "index.html"), "utf8");
+  const policyPosition = html.indexOf('http-equiv="content-security-policy"');
+  expect(policyPosition).toBeGreaterThan(0);
+  expect(policyPosition).toBeLessThan(html.indexOf('<script'));
+  expect(policyPosition).toBeLessThan(html.indexOf('<link'));
+  expect(html).toContain('name="referrer" content="strict-origin-when-cross-origin"');
+  expect(html).not.toMatch(/script-src[^;]*unsafe-(?:inline|eval)/);
+  expect(html).not.toContain("frame-ancestors");
+});
 
 test("production public artifact excludes test auth hooks, private canaries and server sources", async () => {
   const files = await artifactFiles(output);
@@ -97,8 +96,8 @@ test("production auth ignores forged development flags and uses the real account
   } finally { await server.close(); }
 });
 
-test("candidate meta CSP allows startup and blocks inline and unlisted remote scripts and fetch", async ({ page }) => {
-  const server = await serveArtifact(true);
+test("shipped CSP allows startup and blocks inline and unlisted remote scripts and fetch", async ({ page }) => {
+  const server = await serveArtifact();
   let remoteRequests = 0;
   try {
     await page.route("https://probe.invalid/**", route => { remoteRequests++; return route.abort(); });
@@ -113,6 +112,17 @@ test("candidate meta CSP allows startup and blocks inline and unlisted remote sc
       const inline = document.createElement("script");
       inline.textContent = "window.__inlinePolicyProbe = true";
       document.head.append(inline);
+      const button = document.createElement("button");
+      button.setAttribute("onclick", "window.__inlineHandlerProbe = true");
+      document.body.append(button);
+      button.click();
+      button.remove();
+      const originalBase = document.baseURI;
+      const base = document.createElement("base");
+      base.href = "https://probe.invalid/base/";
+      document.head.append(base);
+      state.__basePolicyPreserved = document.baseURI === originalBase;
+      base.remove();
       await new Promise<void>(resolve => {
         const remote = document.createElement("script");
         remote.src = "https://probe.invalid/script.js";
@@ -122,6 +132,8 @@ test("candidate meta CSP allows startup and blocks inline and unlisted remote sc
       await fetch("https://probe.invalid/private-probe").catch(() => undefined);
     });
     expect(await page.evaluate(() => (window as unknown as Record<string, unknown>).__inlinePolicyProbe)).toBeUndefined();
+    expect(await page.evaluate(() => (window as unknown as Record<string, unknown>).__inlineHandlerProbe)).toBeUndefined();
+    expect(await page.evaluate(() => (window as unknown as Record<string, unknown>).__basePolicyPreserved)).toBe(true);
     await expect.poll(() => page.evaluate(() => (window as unknown as Record<string, unknown>).__policyViolations)).toContain("inline");
     expect(remoteRequests).toBe(0);
     expect(await page.evaluate(() => (window as unknown as Record<string, unknown>).__policyViolations)).toEqual(expect.arrayContaining(["https://probe.invalid/script.js", "https://probe.invalid/private-probe"]));
@@ -142,6 +154,7 @@ test("Pages worker upgrade preserves other installations and owned offline asset
       await (await caches.open(`jot-shell:${encodeURIComponent(base)}:v0`)).put(base + "old", new Response("OLD"));
       await (await caches.open("jot-shell-v6")).put(base + "_build/assets/legacy-scope.css", new Response("LEGACY_CSS"));
       await (await caches.open("jot-shell-v6")).put(base + "neighbor/?text=NESTED_NEIGHBOR", new Response("NESTED_NEIGHBOR"));
+      await (await caches.open(`jot-shell:${encodeURIComponent(base)}:v8`)).put(base + "index.html", new Response("OLD_UNPROTECTED_HTML"));
       await navigator.serviceWorker.register(base + "sw.js?scope-upgrade=0033");
     }, base);
     await expect.poll(() => page.evaluate(async () => {
@@ -153,7 +166,11 @@ test("Pages worker upgrade preserves other installations and owned offline asset
     expect(await page.evaluate(() => caches.keys())).toEqual(expect.arrayContaining(["neighbor-cache", "jot-shell:%2Fneighbor%2F:v1"]));
     await context.setOffline(true);
     expect(await page.evaluate(base => fetch(base + "_build/assets/legacy-scope.css").then(response => response.text()), base)).toBe("LEGACY_CSS");
-    await page.reload();
+    await page.goto(server.url + "index.html");
+    await expect(page.locator('meta[http-equiv="content-security-policy"]')).toHaveCount(1);
+    // The client route is the installation root, not the index.html filename.
+    await page.goto(server.url);
     await expect(page.getByRole("button", { name: "Sign in with Google" })).toBeVisible();
+    await expect(page.locator('meta[http-equiv="content-security-policy"]')).toHaveCount(1);
   } finally { await server.close(); }
 });

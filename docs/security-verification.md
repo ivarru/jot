@@ -1,6 +1,6 @@
 # Consolidated security verification
 
-Date: 2026-10-18. Release under validation: `0.35.1`. This records
+Date: 2026-10-18. Release under validation: `0.35.4`. This records
 [#0026](../issues/0026-validate-security-workflows.md). It consolidates bounded automated evidence and explicitly
 unverified manual cases; it is not a clean security certification or authorization to deploy.
 
@@ -23,7 +23,9 @@ Current remediation status is recorded below; historical reproductions must not 
 | Private cache URLs/headers/bodies (#0032) | `src/storage/serviceWorker.test.ts`; browser `privacy-boundaries.spec.ts`; Pages upgrade test | Closed in 0.34.4 with a 0.35.1 follow-up. Query/Authorization/non-asset requests, private/no-store responses and redirects are excluded. Public asset fetches omit ambient credentials. Known legacy private keys are removed; ambiguous shared legacy paths remain untouched rather than risking neighboring data. |
 | Cache ownership / nested installations (#0033) | Same worker unit/browser tests; `tests/artifact/deployment-security.spec.ts` | Closed in 0.34.3. Installation-specific namespaces, migration and actual `/jot/` offline startup are covered. A later named regression exposed nested-neighbor legacy deletion; the 0.35.1 follow-up preserves those keys. Cache namespaces are cooperative ownership, not origin isolation. |
 | Production artifact and fake-auth exclusion (#0025) | `tests/artifact/deployment-security.spec.ts`, `pages-artifact.spec.ts` | Production ignores forged development flags, requires real account verification, uses the `/jot/` worker scope and excludes targeted private/test canaries and server/source files. Targeted inspection is not a general secret audit. |
-| CSP enforcement mechanism (#0035) | Test-only candidate in `tests/artifact/deployment-security.spec.ts` | Chrome blocks inline/unlisted scripts and fetches while the sign-in screen starts. Candidate is not shipped and does not establish live OAuth, Photos, framing protection or production policy delivery. Issue remains open. |
+| Deployment workflow trust (#0034) | Pinned `.github/workflows/deploy.yml`, actionlint and Pages verification | Closed in 0.35.2. Full action SHAs, read-only build credentials and separate privileged deployment job. Actual Actions/OIDC/environment settings remain untested. |
+| CSP enforcement (#0035) | Generated Pages artifact and `browser-policy.spec.ts`; worker unit/offline upgrade tests | Closed in 0.35.4. Early production CSP/referrer policy blocks tested script/network/base-URL effects while mocked auth, Photos/media and editor workflows work. Old HTML is excluded from migration. Live Google compatibility and response-header controls remain unverified. See [policy reference](browser-security-policy.md). |
+| OAuth callback route ordering (#0036) | `google-oauth-redirect.spec.ts` | Closed in 0.35.3. Real-browser mocked redirect restores its date before routing, cleans the fragment and preserves navigation while identity verification is pending. |
 
 Browser paths above are under `tests/browser/workflows` unless stated otherwise. Model tests remain part of routine
 verification; browser/network/cache/auth boundaries need focused coverage outside the bounded replication model.
@@ -35,7 +37,7 @@ they share `.output`:
 
 ```sh
 npm run verify
-npx playwright test tests/browser/workflows/external-images.spec.ts tests/browser/workflows/untrusted-content.spec.ts tests/browser/workflows/privacy-boundaries.spec.ts tests/browser/workflows/google-auth-boundaries.spec.ts tests/browser/workflows/google-account-boundaries.spec.ts tests/browser/workflows/google-auth-renewal.spec.ts tests/browser/workflows/image-session-boundaries.spec.ts tests/browser/workflows/image-upload.spec.ts tests/browser/workflows/reconnect-conflict.spec.ts tests/browser/workflows/offline-restart.spec.ts tests/browser/workflows/link-modal.spec.ts tests/browser/workflows/latex.spec.ts
+npx playwright test tests/browser/workflows/external-images.spec.ts tests/browser/workflows/untrusted-content.spec.ts tests/browser/workflows/privacy-boundaries.spec.ts tests/browser/workflows/google-auth-boundaries.spec.ts tests/browser/workflows/google-account-boundaries.spec.ts tests/browser/workflows/google-auth-renewal.spec.ts tests/browser/workflows/image-session-boundaries.spec.ts tests/browser/workflows/image-upload.spec.ts tests/browser/workflows/reconnect-conflict.spec.ts tests/browser/workflows/offline-restart.spec.ts tests/browser/workflows/link-modal.spec.ts tests/browser/workflows/latex.spec.ts tests/browser/workflows/browser-policy.spec.ts tests/browser/workflows/google-oauth-redirect.spec.ts
 BASE_PATH=/jot/ VITE_ENABLE_FAKE_AUTH=false VITE_GOOGLE_CLIENT_ID=security-review-public-client.apps.googleusercontent.com JOT_PRIVATE_BUILD_CANARY=SYNTHETIC_NONPUBLIC_BUILD_CANARY_0025 VITE_UNUSED_SECURITY_CANARY=SYNTHETIC_UNUSED_VITE_CANARY_0025 npm run build:pages
 npm run test:artifact
 ```
@@ -46,6 +48,11 @@ production build), all four affected Chrome privacy workflows, and six Pages art
 startup and the nested legacy key. Final Pages output was rebuilt after the fake-provider run with the synthetic
 canaries above and checked again. Earlier targeted runs passed 20 image/content/reconnect workflows. Each cache bug and the initial image-permission
 expectation failed before its production fix. The nested-neighbor follow-up also started with a failing regression.
+The 0.35.4 follow-up passed all 184 Chrome browser checks with the actual production CSP, 843 unit/integration tests,
+typechecking, production build and seven Pages artifact checks. It covers synthetic native camera capture, real-browser
+mocked popup/redirect/Photos endpoints, strict referrers and an offline upgrade that excludes old unprotected HTML.
+The redirect startup regression failed before its separate 0.35.3 fix; the worker HTML regression failed before the
+0.35.4 migration change. Workflow hardening in 0.35.2 also passed actionlint; no actual Actions run was triggered.
 All accounts, notes, image bytes, tokens and cache fixtures were synthetic. Probe image requests were intercepted,
 Google responses mocked, and production artifact checks served only local files. No production deployment or account
 configuration was changed. Test servers stop after each run.
@@ -55,10 +62,11 @@ configuration was changed. Test servers stop after each run.
 - [#0027](../issues/0027-follow-up-build-dependency-advisory.md) remains open: the deployment review's 2026-10-18 audit
   reported four high entries from one braces advisory, with no patched version then listed. No dependency changes or
   forced downgrade were made here, and this validation did not repeat the audit. Build/configuration trust remains relevant.
-- [#0034](../issues/0034-harden-deployment-workflow-trust.md) remains open: actions use mutable major tags and build
-  permissions remain broad. GitHub branch/environment/OIDC controls were not inspected or exercised.
-- [#0035](../issues/0035-enforce-browser-security-policy.md) remains open: no production CSP/header policy is shipped.
-  The public header snapshot from #0025 was not matched to a deployed revision; the current local release was not deployed.
+- [#0034](../issues/0034-harden-deployment-workflow-trust.md) is implemented locally; GitHub branch/environment/OIDC
+  controls were not inspected or exercised, and no deployment was triggered.
+- [#0035](../issues/0035-enforce-browser-security-policy.md) ships document policy locally; live Google script/frame
+  compatibility and actual deployed headers remain unverified. Meta cannot enforce framing protection or arbitrary
+  response headers. The public snapshot from #0025 was not revision-matched, and the current release was not deployed.
 - Shared origin/profile access, restored tabs, diagnostic/clipboard metadata, physical deletion, HTTP/image-cache
   retention and vendor-script compromise remain outside established protections. Unknown historical paths in a shared
   legacy shell cache cannot safely be attributed to one installation; automatic migration preserves those ambiguous
@@ -69,4 +77,5 @@ configuration was changed. Test servers stop after each run.
   setup, safe synthetic data and expected outcomes. Record execution evidence there or in the release record when arranged;
   absence of execution is not a pass.
 
-Closing #0026 records coverage and the remaining work; it does not close these issues or accept their risks.
+Closing #0026 recorded the original coverage; later implementation closed #0034–#0036. Automated passes do not
+establish the remaining manual cases or accept their residual risks.

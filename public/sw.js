@@ -1,6 +1,6 @@
 const APP_BASE = new URL("./", self.location.href);
 const CACHE_PREFIX = `jot-shell:${encodeURIComponent(APP_BASE.pathname)}:`;
-const CACHE_NAME = `${CACHE_PREFIX}v8`;
+const CACHE_NAME = `${CACHE_PREFIX}v9`;
 const APP_SHELL = ["./", "./manifest.webmanifest", "./icons/icon.svg"];
 
 function isAppDocument(url) {
@@ -57,7 +57,9 @@ self.addEventListener("activate", (event) => {
         }
         const key = publicCacheKey(request);
         const response = key === null ? null : await previous.match(request);
-        if (key !== null && response && isPublicResponse(response, key) && !(await current.match(key))) {
+        // HTML must come from this worker's fresh install, never an older
+        // document that lacks the release's current security policy.
+        if (key !== null && !isAppDocument(url) && response && isPublicResponse(response, key) && !(await current.match(key))) {
           await current.put(key, response);
         }
         if (legacyShared) await previous.delete(request);

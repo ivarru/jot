@@ -112,4 +112,13 @@ describe("public shell cache privacy", () => {
     expect(await (await sw.request("_build/assets/old.js"))?.text()).toBe("SCRIPT");
     expect(await (await sw.request("_build/assets/old.woff2"))?.text()).toBe("FONT");
   });
+  it("does not resurrect a legacy HTML document without the current browser policy", async () => {
+    const sw = worker();
+    await (await sw.open("jot-shell:%2Fjot%2F:v8")).put("index.html", new Response("OLD_UNPROTECTED_HTML"));
+    await sw.install();
+    await sw.activate();
+    sw.fetch.mockRejectedValue(new Error("offline"));
+    expect(await (await sw.request("index.html", {}, true))?.text()).toBe("PUBLIC");
+    expect(sw.urls()).not.toContain("https://jot.test/jot/index.html");
+  });
 });

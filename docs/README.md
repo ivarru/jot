@@ -19,6 +19,7 @@ take precedence over historical investigations and private working notes.
 | --- | --- |
 | [Testing](testing.md) | Normative test-layer responsibilities, commands, regression workflow, browser-test practices, and CI coverage. |
 | [Deployment](deployment.md) | Current build, GitHub Pages, Google Cloud, OAuth, and release procedures. |
+| [Browser security policy](browser-security-policy.md) | Current production CSP/referrer controls, compatibility evidence, offline upgrade and hosting limits. |
 | [Dependency maintenance](dependency-maintenance.md) | Dependency migration decisions, compatibility notes, and verification evidence. |
 | [OAuth and account boundary review](security-oauth-review.md) | Dated security assessment, reproduction evidence, open remediation work, and provider verification limits. |
 | [Untrusted content review](security-content-review.md) | Dated rendering, link, math, and image-network assessment, retained payload tests, findings, and limits. |

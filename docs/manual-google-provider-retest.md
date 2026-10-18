@@ -134,7 +134,7 @@ identifiers, or account details.
 
 ## Consolidated security release retest
 
-Status: **not executed against live Google or a deployed 0.35.1 release**. This is the manual handoff from
+Status: **not executed against live Google or a deployed 0.35.4 release**. This is the manual handoff from
 [the consolidated security verification](security-verification.md), supplementing the account/session cases above.
 Use the existing setup and disposable accounts A/B with synthetic notes and a harmless generated image. Obtain any
 needed deployment/account-setting authorization separately. Record version, date, case, pass/fail and sanitized symptom;
@@ -159,6 +159,24 @@ do not retain tokens, provider IDs, email addresses, screenshots of private note
    are absent from reports; dates, lengths and browser context remain. Confirm both tabs show signed-out UI after
    sign-out and drafts/catalog are logically cleared, while clipboard/history/browser HTTP caches are not promised erased.
 6. After a separately authorized deployment, record the actual HTML/response policies and worker scope against its
-   release version. #0034/#0035 remain open: do not mark action pinning, environment restrictions, framing prevention or
-   a shipped CSP as established from local candidate tests. Any proposed CSP still needs the actual Google
-   popup/redirect/Photos and editor/math flows before release, with blocked-effect assertions as well as startup checks.
+   release version. Local #0034 action pinning and #0035 policy enforcement are implemented; actual Actions/OIDC and
+   environment protections remain untested, and meta CSP supplies no framing protection. Complete the policy cases below
+   before treating live Google compatibility as established.
+
+
+## Production browser policy retest
+
+Status: **not run**. Local Chrome uses the shipped policy with synthetic Google responses; it cannot certify the
+real GIS script/frame tree. With an authorized 0.35.4 test deployment and disposable account:
+
+1. Verify the early CSP/referrer meta elements and the deployed version. Record actual response headers separately;
+   do not infer frame-ancestors, Permissions-Policy or HTTPS enforcement from a meta element.
+2. Complete real popup sign-in, deny consent, and block the popup to exercise redirect fallback. Expect original-date
+   restoration and removal of the token fragment. Confirm account verification before editor entry.
+3. Pick a synthetic Photos image, return from the picker, display it, upload a device image, use camera capture and
+   reconnect after media expiry. Check the console for unexpected CSP violations and record only sanitized host/path
+   and directive details, never tokens or private URLs. Do not broaden the script policy speculatively.
+4. Edit text/math, paste rich text, load an explicitly permitted external image, and reopen the warmed app offline.
+   Expect normal app state, no unexpected policy violation and no external-image request before permission.
+5. Record results and any new required provider URL against the tested release. A required policy adjustment needs
+   focused mocked/browser coverage; live-provider failures are not a reason to add unsafe-inline or wildcard scripts.

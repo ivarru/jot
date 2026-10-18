@@ -104,13 +104,19 @@ Jot uses Google Identity Services token popups first. If a browser cannot open t
 
 For image insertion, Jot creates a Google Photos Picker session, opens a picker tab during the user action, and keeps an explicit `Open Google Photos` link as fallback. Active picker session state is stored in tab-scoped `sessionStorage` so returning from Google Photos can resume the import flow.
 
+## Browser security policy
+
+Production documents ship an early CSP and explicit referrer policy, including the cached offline shell.
+See [browser-security-policy.md](browser-security-policy.md) for allowances, verification and header/hosting limits.
+Live Google compatibility still requires the maintained manual provider checks before release.
+
 ## PWA Notes
 
 `public/sw.js` is intentionally static. It caches only query-free public shell, manifest, icon and build-asset GET URLs below the installation base path.
 Requests with explicit Authorization, private/no-store responses, redirects and out-of-app URLs are excluded. Public
 asset fetches omit ambient credentials. Query-bearing app navigations can use the public shell offline without storing
 the original query. Cache lookup never searches unrelated caches. Cache names include the installation base path and a manual version. Activation removes only obsolete versions in
-that namespace. Shared legacy `jot-shell-vN` caches are retained; matching public installation entries migrate, and obsolete private entries for that installation are removed,
+that namespace. Shared legacy `jot-shell-vN` caches are retained; matching public installation assets migrate (old HTML documents do not), and obsolete private entries for that installation are removed,
 without deleting neighboring applications' caches. A legacy installation cannot identify ownership of arbitrary or nested neighboring paths, so ambiguous non-shell
 paths in a shared legacy cache are preserved rather than erased speculatively.
 Clearing all site data is an explicit browser/operator decision, not an automatic upgrade step. Offline lookup uses only the active installation cache. Bump the worker
