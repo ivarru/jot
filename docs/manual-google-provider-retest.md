@@ -128,5 +128,6 @@ identifiers, or account details.
 5. Hold a Photos import/download or device-image preparation while another tab signs out. Re-enter on the same date
    and a different date, start a new image action, and finish the old one. It must not populate the new image chooser,
    insert a reference, or start a later upload/metadata request. A fresh new-session upload must still work.
-6. Verify expiry during Photos picking/import still shows reconnect. Already accepted provider writes may complete
+6. Verify expiry during Photos picking/import still shows reconnect. For an existing image preview, verify expired
+   access requests reconnect and successful reconnect restores the rendered image (0.34.2 follow-up). Already accepted provider writes may complete
    and leave an orphaned image/album; do not interpret local cancellation as guaranteed remote rollback.

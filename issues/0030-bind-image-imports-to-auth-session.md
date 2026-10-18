@@ -34,6 +34,8 @@ document any unavoidable already-submitted remote effects; client cancellation c
 - [x] Add mocked Photos/Drive request assertions showing no upload/create/metadata continuation after cancellation and no mixing of account credentials, albums, or content.
 - [x] Add a Chrome workflow that starts an image import, signs out or changes session while work is held, releases it, and asserts resulting app state and absence of stale subsequent requests; keep normal imports/reuse working.
 
+- [x] Image-display authentication failures retain reconnect behavior after self-invalidation; delayed failures cannot affect a new auth lifecycle or Selected Date.
+
 ## Verification
 
 The attachment/token lifecycle is outside the bounded Daily Note replication model; use focused attachment/provider
@@ -76,3 +78,19 @@ cursor test (raw-keyboard.spec.ts:107) and narrow-screen disconnected-search tes
 Both passed three isolated repetitions each (6/6) without implementation or test changes. This does not establish a
 clean full-suite pass or rule out intermittent editor/search defects. All added security workflows passed in that run;
 an earlier complete run passed 163/163 before the offline-reopen test was added. No local servers remain running.
+
+
+Review follow-up (0.34.2): reproduced three failing assertions before the production fix: real Photos/Drive clients'
+401 errors became cancellation errors after their own invalidation, and the route never requested reconnect for an
+existing note image. Authentication-error classification is now shared by the flow and route; display resolution
+rethrows those recognizable failures before the invalidated-token guard can mask them. The route keeps its captured
+auth lifecycle and explicit date guards. Non-auth image errors retain visible error results; stale credential failures
+remain canceled and a late date-A failure cannot change date B.
+
+An extended route regression also first failed because reconnect left the image loading. Image resolution now reacts
+to reconnect-required state and retries after successful reconnect, with an asserted ready display. HTTP auth/display
+boundaries are outside the bounded replication model; real-client/mock-fetch and route integration tests cover them.
+
+Verification: all 797 tests, type checking, and production build passed via npm run verify. All nine focused Chrome
+auth/account/image workflows passed. The Pages build and both artifact checks passed. The complete Chrome suite was
+not repeated for this focused follow-up. No live Google account was used, and local servers were stopped afterward.

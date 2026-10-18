@@ -109,3 +109,7 @@ The investigation can close with its findings recorded while the three remediati
 
 The findings above describe the original assessed revision. Each remediation issue records its final verification;
 live Google behavior remains unverified and the expanded manual checklist belongs to #0026.
+
+The 0.34.2 review follow-up preserves recognizable Drive/Photos image authentication failures when a request invalidates
+its own token. Existing images request reconnect and become ready after successful reconnect; obsolete auth lifecycles,
+dates, and credential results remain guarded. See #0030 for regression-first and focused browser verification evidence.

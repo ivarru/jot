@@ -1,3 +1,4 @@
+import { isAuthReconnectError } from "~/auth/googleAuthErrors";
 import { TagIndexDialog } from "~/components/TagIndexDialog";
 import { scrollRawSelection } from "~/components/scrollRawSelection";
 import { resolveTagIndexTarget, type TagIndexTarget } from "~/domain/tagIndexNavigation";
@@ -10,7 +11,7 @@ import { commitImageAttachmentReferenceInsertion } from "~/attachments/imageAtta
 import { googleAccountValidator } from "~/auth/googleAccountBoundary";
 import { sessionScopedProvider } from "~/auth/sessionScopedProvider";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
-import { GoogleAccessTokenUnavailableError, GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
+import { GoogleIdentityTokenProvider, isGooglePopupFailedToOpen } from "~/auth/googleIdentity";
 import {
   APP_COPYRIGHT,
   APP_LICENSE,
@@ -139,7 +140,7 @@ import { createExistingNoteDates } from "~/features/datePicker/createExistingNot
 import { DailyNoteUploadSurfaces } from "~/features/dailyNoteUpload/DailyNoteUploadSurfaces";
 import { createDailyNoteUploadWorkflow } from "~/features/dailyNoteUpload/createDailyNoteUploadWorkflow";
 import { FakeRemoteStorageProvider, loadSettingsOrDefault } from "~/storage/fakeRemoteStorage";
-import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveRequestError, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
+import { GOOGLE_DRIVE_FILE_SCOPE, GoogleDriveStorageProvider } from "~/storage/googleDriveStorage";
 import { IndexedDbLocalDraftStore } from "~/storage/localDraftStore";
 import { SessionGuardedDraftStore } from "~/storage/sessionGuardedDraftStore";
 import { createTagIndexCatalog } from "~/storage/tagIndexCatalog";
@@ -168,7 +169,6 @@ import {
   GOOGLE_PHOTOS_APP_CREATED_READ_SCOPE,
   GOOGLE_PHOTOS_PICKER_SCOPE,
   GooglePhotosAttachmentProvider,
-  GooglePhotosRequestError,
   preservePickerUri,
   type GooglePhotosPickingSession,
   type PickedGooglePhotosMediaItem
@@ -1727,11 +1727,11 @@ export default function Home() {
 
   createEffect(
     on(
-      () => [authenticated(), selectedDate(), loadedDate(), markdown(), imageAttachmentRefreshTick()] as const,
-      ([isAuthenticated, date, loaded, value]) => {
+      () => [authenticated(), authReconnectRequired(), selectedDate(), loadedDate(), markdown(), imageAttachmentRefreshTick()] as const,
+      ([isAuthenticated, reconnectRequired, date, loaded, value]) => {
         if (
           !isAuthenticated ||
-          authReconnectRequired() ||
+          reconnectRequired ||
           date === null ||
           loaded !== date ||
           runtime.imageAttachments === null
@@ -1764,17 +1764,18 @@ export default function Home() {
           return;
         }
 
+        const authIsCurrent = captureAuthLifecycle();
         let cancelled = false;
         void Promise.all(unresolvedIds.map((id) => runtime.imageAttachments!.resolveImageAttachmentDisplay(id))).then(
           (resolved) => {
-            if (cancelled || !canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
+            if (cancelled || !authIsCurrent() || !canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
             setImageAttachmentDisplays((displays) => ({
               ...displays,
               ...Object.fromEntries(resolved.map((display) => [display.id, display]))
             }));
           },
           (error: unknown) => {
-            if (cancelled || !canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
+            if (cancelled || !authIsCurrent() || !canApplyEditorAsyncResult(dateBoundEditorState(), date)) return;
             handleRemoteError(error);
           }
         );
@@ -4768,23 +4769,6 @@ function decodeURIComponentOrRaw(value: string): string {
   } catch {
     return value;
   }
-}
-
-function isAuthReconnectError(error: unknown): boolean {
-  if (error instanceof GoogleAccessTokenUnavailableError) return true;
-  if (error instanceof GoogleDriveRequestError || error instanceof GooglePhotosRequestError) {
-    return isGoogleAuthFailure(error.status, error.responseBody);
-  }
-  return false;
-}
-
-function isGoogleAuthFailure(status: number, responseBody: string): boolean {
-  return (
-    status === 401 ||
-    responseBody.includes("invalid_token") ||
-    responseBody.includes("Invalid Credentials") ||
-    responseBody.includes("Request is missing required authentication credential")
-  );
 }
 
 function pickerAutocloseUrl(pickerUri: string): string {

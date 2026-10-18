@@ -89,6 +89,8 @@ const routeTestState = vi.hoisted(() => ({
   otherTabOwnedDates: new Set<IsoDate>(),
   savedSettings: [] as unknown[],
   useGoogleRuntime: false,
+  imageDisplays: {} as Readonly<Record<string, import("~/domain/imageAttachmentDisplay").ImageAttachmentDisplay>>,
+  imageMetadata: null as import("~/domain/imageAttachments").ImageAttachmentMetadata | null,
   googleRenewalDue: false,
   googleRenewalAttempts: 0,
   googleRenewalFailuresRemaining: 0,
@@ -226,7 +228,7 @@ vi.mock("~/storage/googleDriveStorage", () => {
     }
 
     async loadImageAttachmentMetadata() {
-      return null;
+      return routeTestState.imageMetadata;
     }
 
     async findImageAttachmentMetadataByCopiedMediaItemId() {
@@ -261,6 +263,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
   return {
     MilkdownEditor: (props: {
       readonly documentKey: string;
+      readonly imageAttachmentDisplays?: Readonly<Record<string, import("~/domain/imageAttachmentDisplay").ImageAttachmentDisplay>>;
       readonly focusSelection?: { readonly start: number; readonly end: number } | null;
       readonly resetKey?: number;
       readonly value: string;
@@ -303,6 +306,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
       readonly onBlockFormatStateChange?: (state: { readonly quote: boolean }) => void;
       readonly onListItemFormatStateChange?: (state: { readonly task: boolean }) => void;
     }) => {
+      createEffect(() => { routeTestState.imageDisplays = props.imageAttachmentDisplays ?? {}; });
       let textarea: HTMLTextAreaElement | undefined;
       let present = props.value;
       let unreportedLiveMarkdown = false;
@@ -699,7 +703,7 @@ vi.mock("~/storage/fakeRemoteStorage", async () => {
     }
 
     async loadImageAttachmentMetadata() {
-      return null;
+      return routeTestState.imageMetadata;
     }
 
     async findImageAttachmentMetadataByCopiedMediaItemId() {
@@ -761,6 +765,8 @@ export function resetRouteTestState(): void {
   routeTestState.otherTabOwnedDates.clear();
   routeTestState.savedSettings = [];
   routeTestState.useGoogleRuntime = false;
+  routeTestState.imageMetadata = null;
+  routeTestState.imageDisplays = {};
   routeTestState.googleRenewalDue = false;
   routeTestState.googleRenewalAttempts = 0;
   routeTestState.googleRenewalFailuresRemaining = 0;

@@ -26,6 +26,49 @@ describe("Home reconnect and conflict handling", () => {
     cleanupRouteTestDom();
   });
 
+  it("an existing note image requests reconnect on expiry and becomes ready after reconnect", async () => {
+    testState.useGoogleRuntime = true;
+    const id = "01HZY3J2CJX6N7Y25K2K3N8E4A";
+    testState.remoteNote = {date: "2030-02-02", markdown: `![photo](jot:image:${id})`, revisionId: "r1", updatedAt: "2030-01-01T00:00:00.000Z"};
+    testState.imageMetadata = {version: 1, id, createdAt: "2030-01-01", selectedResolution: "original", source: {kind: "device-upload"}, copy: {kind: "google-photos-library", albumId: "album", mediaItemId: "image"}};
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("invalid_token", {status: 401}))
+      .mockImplementation(async () => new Response(JSON.stringify({id: "image", baseUrl: "https://lh3.googleusercontent.com/synthetic"})));
+    const host = document.createElement("div"); document.body.append(host);
+    const dispose = render(() => <Home />, host);
+    try {
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+      await waitFor(() => expect(host.querySelector(".sync-status")?.getAttribute("aria-label")).toContain("Reconnect required"));
+      clickButton(host, "Reconnect");
+      await waitFor(() => expect(testState.imageDisplays[id]?.status).toBe("ready"));
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally { dispose(); fetchSpy.mockRestore(); }
+  });
+
+  it("a late image auth failure for date A cannot request reconnect or replace date B", async () => {
+    testState.useGoogleRuntime = true;
+    const id = "01HZY3J2CJX6N7Y25K2K3N8E4A";
+    testState.remoteNote = {date: "2030-02-02", markdown: `![photo](jot:image:${id})`, revisionId: "r1", updatedAt: "2030-01-01T00:00:00.000Z"};
+    testState.imageMetadata = {version: 1, id, createdAt: "2030-01-01", selectedResolution: "original", source: {kind: "device-upload"}, copy: {kind: "google-photos-library", albumId: "album", mediaItemId: "image"}};
+    let release!: (body: string) => void;
+    const body = new Promise<string>(resolve => {release = resolve;});
+    const response = new Response("", {status: 401});
+    response.text = vi.fn(() => body);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+    const host = document.createElement("div"); document.body.append(host);
+    const dispose = render(() => <Home />, host);
+    try {
+      await waitFor(() => expect(response.text).toHaveBeenCalled());
+      testState.remoteNote = {date: "2030-02-03", markdown: "B stays visible", revisionId: "r2", updatedAt: "2030-01-01T00:00:00.000Z"};
+      clickButton(host, "Next day");
+      await waitFor(() => expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("B stays visible"));
+      release("invalid_token");
+      await settle(); await settle();
+      expect(host.querySelector(".sync-status")?.getAttribute("aria-label")).not.toContain("Reconnect required");
+      expect(host.querySelector<HTMLTextAreaElement>("textarea[aria-label='Mock WYSIWYG editor']")?.value).toBe("B stays visible");
+    } finally { release("invalid_token"); dispose(); fetchSpy.mockRestore(); }
+  });
+
   it("a Photos authentication failure still opens reconnect after invalidating its own token", async () => {
     testState.useGoogleRuntime = true;
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("invalid_token", {status: 401}));

@@ -1,3 +1,4 @@
+import { isAuthReconnectError } from "~/auth/googleAuthErrors";
 import type { AccessTokenProvider } from "~/auth/accessTokenProvider";
 import { captureTokenSession } from "~/auth/sessionScopedProvider";
 import { createImageAttachmentReference } from "~/domain/attachmentReferences";
@@ -246,6 +247,9 @@ export class ImageAttachmentFlow {
     const check = captureTokenSession(this.sessionTokens);
     check();
     const metadata = await this.drive.loadImageAttachmentMetadata(id).catch((error: unknown) => {
+      // A current request can invalidate its own token. Keep that auth failure
+      // recognizable to the caller, whose date/auth lifecycle guards own its UI.
+      if (isAuthReconnectError(error)) throw error;
       return {
         error
       };
@@ -285,6 +289,7 @@ export class ImageAttachmentFlow {
         ...defined("expiresAtMs", displayUrlExpiresAtMs(baseUrl))
       };
     } catch (error: unknown) {
+      if (isAuthReconnectError(error)) throw error;
       check();
       return {
         id,
