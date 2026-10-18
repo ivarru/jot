@@ -43,6 +43,10 @@ No hard dependencies. Coordinate shared session cases with [#0022](0022-review-o
 Related: [#0004](0004-non-conflict-diagnostic-capture.md), [#0009](0009-shared-storage-tabs.md), and
 [#0026](0026-validate-security-workflows.md).
 
+The [content assessment](../docs/security-content-review.md) confirmed automatic external-image requests,
+tracked as [#0031](0031-control-external-note-image-loading.md). Include that exposure and clipboard parsing
+resource behavior in the outbound-data inventory; the content review does not establish deployment-wide network isolation.
+
 ## Resolution
 
 Pending. Record review evidence, findings or no-finding results, and limitations on closure.

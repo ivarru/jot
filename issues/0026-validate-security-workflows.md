@@ -48,6 +48,12 @@ The completed [OAuth assessment](../docs/security-oauth-review.md) supplies real
 boundary probes. Track its open fixes explicitly: [#0028](0028-cancel-stale-google-auth-results.md),
 [#0029](0029-bind-drafts-to-google-account.md), and [#0030](0030-bind-image-imports-to-auth-session.md).
 
+The [content assessment](../docs/security-content-review.md) adds retained link-boundary and Chrome payload tests,
+including import/open, HTML paste, raw-mode round trips, math, and intercepted image requests. Track
+[#0031](0031-control-external-note-image-loading.md) as unresolved; passing characterization of automatic external
+image requests is evidence of the exposure, not an established privacy control. Native drop/context-menu behavior,
+broader payload fuzzing, and live provider/deployment policy remain unverified.
+
 ## Resolution
 
 Pending. Record review evidence, findings or no-finding results, and limitations on closure.
