@@ -267,7 +267,6 @@ export default function Home() {
       return [...notes.values()].flatMap(note => extractJotTags(note.markdown).map(tag => ({ tag, modifiedTime: note.updatedAt })));
     }
   });
-  const initialRoute = routeFromHash();
   onMount(() => {
     const visualViewport = window.visualViewport;
     if (visualViewport === null || visualViewport === undefined) return;
@@ -276,6 +275,9 @@ export default function Home() {
   const redirectAuthResult = runtime.kind === "google"
     ? runtime.tokenProvider.consumeRedirectAccessToken()
     : { type: "none" as const };
+  // OAuth owns the callback fragment until validation restores its date route.
+  // Routing first would replace the token and state with today's date.
+  const initialRoute = routeFromHash();
   let uploadImageInput: HTMLInputElement | undefined;
   let cameraVideo: HTMLVideoElement | undefined;
   let imageAltTextInput: HTMLInputElement | undefined;
