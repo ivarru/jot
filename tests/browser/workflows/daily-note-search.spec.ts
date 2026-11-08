@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { expectRawMarkdown, openDevelopmentStorage, setRawMarkdown } from "../helpers/editor";
-import { readLocalDraft, seedDailyNoteState } from "../helpers/idb";
+import { expectRawMarkdown, openDevelopmentStorage, setRawMarkdown, switchToWysiwygMode, pressUndo } from "../helpers/editor";
+import { readFakeRemoteNote, readLocalDraft, seedDailyNoteState } from "../helpers/idb";
 
 test.use({ timezoneId: "Europe/Oslo" });
 
@@ -399,4 +399,166 @@ test("tag conditions require a qualifying passage and allow tag-only searches", 
   await expect(dialog.locator(".search-result-date")).toContainText("2030-02-02");
   await dialog.getByRole("button", { name: "Close search" }).click();
   await expect(page.getByLabel("Selected date", { exact: true })).toHaveValue("2030-02-04");
+});
+
+for (const filtered of [false, true]) {
+  test(`add tags to a ${filtered ? "tag-filtered" : "text"} search passage without navigating`, async ({ page }) => {
+    await openDevelopmentStorage(page, "/#/date/2030-02-04", "disabled");
+    await setRawMarkdown(page, "Keep the open note");
+    const original = "# Work\n\nTags: [#work](jot:tag/work)\n\nBudget approved.\n\nOther budget text.";
+    await seedDailyNoteState(page, { remote: { date: "2030-02-02", markdown: original,
+      revisionId: "tag-result", updatedAt: "2030-02-02T00:00:00Z" } });
+    await page.keyboard.press("Control+Shift+F");
+    const dialog = page.getByRole("dialog", { name: "Search daily notes" });
+    await dialog.getByLabel("Search words").fill("budget");
+    if (filtered) {
+      await dialog.getByLabel("Tags", { exact: true }).fill("work");
+      await dialog.getByRole("button", { name: "Add tag", exact: true }).click();
+    }
+    await dialog.getByRole("button", { name: "Search", exact: true }).click();
+    await dialog.getByRole("button", { name: "2030-02-02", exact: true }).click();
+    await dialog.getByRole("button", { name: "Add tags to passage…", exact: true }).click();
+    const tagging = dialog.getByRole("region", { name: "Tag passage in 2030-02-02" });
+    await expect(tagging.locator("blockquote")).toHaveText("Budget approved.");
+    for (const name of ["finance", "work"]) {
+      await tagging.getByLabel("Tag to add", { exact: true }).fill(name);
+      await tagging.getByRole("button", { name: "Add tag", exact: true }).click();
+    }
+    await tagging.getByRole("button", { name: "Apply tags", exact: true }).click();
+    await expect(dialog.getByText("Tags applied.", { exact: true })).toBeVisible();
+    const expected = original.replace("Budget approved.", "Budget approved. [#finance](jot:tag/finance)");
+    await expect.poll(async () => (await readFakeRemoteNote(page, "2030-02-02"))?.markdown).toBe(expected);
+    await expect(dialog.getByRole("region", { name: "Read-only note preview" })).toContainText("#finance");
+    await dialog.getByRole("button", { name: "2030-02-02", exact: true }).click();
+    await dialog.getByRole("button", { name: "2030-02-02", exact: true }).click();
+    await expect(dialog.getByRole("region", { name: "Read-only note preview" })).toContainText("#finance");
+    await expect(page.getByLabel("Selected date", { exact: true })).toHaveValue("2030-02-04");
+    await dialog.getByRole("button", { name: "Close search" }).click();
+    await expectRawMarkdown(page, "Keep the open note");
+  });
+}
+
+test("tagging a search passage refuses changed remote content and allows refresh", async ({ page }) => {
+  await openDevelopmentStorage(page, "/#/date/2030-02-04", "disabled");
+  await seedDailyNoteState(page, { remote: { date: "2030-02-02", markdown: "Budget old",
+    revisionId: "old", updatedAt: "2030-02-02T00:00:00Z" } });
+  await page.keyboard.press("Control+Shift+F");
+  const dialog = page.getByRole("dialog", { name: "Search daily notes" });
+  await dialog.getByLabel("Search words").fill("budget");
+  await dialog.getByRole("button", { name: "Search", exact: true }).click();
+  await dialog.getByRole("button", { name: "2030-02-02", exact: true }).click();
+  await dialog.getByRole("button", { name: "Add tags to passage…", exact: true }).click();
+  const tagging = dialog.getByRole("region", { name: "Tag passage in 2030-02-02" });
+  await expect(tagging.locator("blockquote")).toHaveText("Budget old");
+  await seedDailyNoteState(page, { remote: { date: "2030-02-02", markdown: "Budget newer",
+    revisionId: "new", updatedAt: "2030-02-03T00:00:00Z" } });
+  await tagging.getByLabel("Tag to add", { exact: true }).fill("work");
+  await tagging.getByRole("button", { name: "Add tag", exact: true }).click();
+  await tagging.getByRole("button", { name: "Apply tags", exact: true }).click();
+  await expect(tagging.getByRole("alert")).toContainText("changed");
+  expect((await readFakeRemoteNote(page, "2030-02-02"))?.markdown).toBe("Budget newer");
+  await tagging.getByRole("button", { name: "Refresh passage", exact: true }).click();
+  await expect(tagging.locator("blockquote")).toHaveText("Budget newer");
+});
+
+test("tagging the open note through search preserves editor edits and supports undo", async ({ page }) => {
+  await openDevelopmentStorage(page, "/#/date/2030-02-04", "disabled");
+  await setRawMarkdown(page, "Budget approved.\n\nKeep other content.");
+  await expect(page.locator(".sync-status[aria-label*='Synced']")).toBeVisible();
+  await page.keyboard.press("Control+Shift+F");
+  const dialog = page.getByRole("dialog", { name: "Search daily notes" });
+  await dialog.getByLabel("Search words").fill("budget");
+  await dialog.getByRole("button", { name: "Search", exact: true }).click();
+  await dialog.getByRole("button", { name: /2030-02-04 \(open\)/ }).click();
+  await dialog.getByRole("button", { name: "Add tags to passage…", exact: true }).click();
+  const tagging = dialog.getByRole("region", { name: "Tag passage in 2030-02-04" });
+  await expect(tagging.locator("blockquote")).toHaveText("Budget approved.");
+  await tagging.getByLabel("Tag to add", { exact: true }).fill("work");
+  await tagging.getByRole("button", { name: "Add tag", exact: true }).click();
+  await tagging.getByRole("button", { name: "Apply tags", exact: true }).click();
+  await expect(dialog.getByText("Tags applied.", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Close search" }).click();
+  await expectRawMarkdown(page, "Budget approved. [#work](jot:tag/work)\n\nKeep other content.");
+  await page.getByLabel("Markdown text editor").focus();
+  await pressUndo(page);
+  await expectRawMarkdown(page, "Budget approved.\n\nKeep other content.");
+});
+
+test("tagging the open WYSIWYG note through search updates its editor and undo history", async ({ page }) => {
+  await openDevelopmentStorage(page, "/#/date/2030-02-04", "disabled");
+  await setRawMarkdown(page, "Budget approved.");
+  await switchToWysiwygMode(page);
+  await expect(page.locator(".sync-status[aria-label*='Synced']")).toBeVisible();
+  await page.keyboard.press("Control+Shift+F");
+  const dialog = page.getByRole("dialog", { name: "Search daily notes" });
+  await dialog.getByLabel("Search words").fill("budget");
+  await dialog.getByRole("button", { name: "Search", exact: true }).click();
+  await dialog.getByRole("button", { name: /2030-02-04 \(open\)/ }).click();
+  await dialog.getByRole("button", { name: "Add tags to passage…", exact: true }).click();
+  const tagging = dialog.getByRole("region", { name: "Tag passage in 2030-02-04" });
+  await expect(tagging.locator("blockquote")).toHaveText("Budget approved.");
+  await tagging.getByLabel("Tag to add", { exact: true }).fill("work");
+  await tagging.getByRole("button", { name: "Add tag", exact: true }).click();
+  await tagging.getByRole("button", { name: "Apply tags", exact: true }).click();
+  await expect(dialog.getByText("Tags applied.", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Close search" }).click();
+  const editor = page.locator('.milkdown-root [contenteditable="true"]');
+  await expect(editor).toContainText("#work");
+  await editor.focus();
+  await pressUndo(page);
+  await expect(editor).not.toContainText("#work");
+  await expect(editor).toContainText("Budget approved.");
+});
+
+for (const header of [true, false]) {
+  test(`tagging the final table ${header ? "header" : "body"} cell preserves the table`, async ({ page }) => {
+    await openDevelopmentStorage(page, "/#/date/2030-02-04", "disabled");
+    const original = header ? "| Budget | Private |\n| --- | --- |"
+      : "| Topic | Details |\n| --- | --- |\n| Budget | Private |";
+    await seedDailyNoteState(page, { remote: { date: "2030-02-02", markdown: original,
+      revisionId: "table-tagging", updatedAt: "2030-02-02T00:00:00Z" } });
+    await page.keyboard.press("Control+Shift+F");
+    const dialog = page.getByRole("dialog", { name: "Search daily notes" });
+    await dialog.getByLabel("Search words").fill("private");
+    await dialog.getByRole("button", { name: "Search", exact: true }).click();
+    await dialog.getByRole("button", { name: "2030-02-02", exact: true }).click();
+    await dialog.getByRole("button", { name: "Add tags to passage…", exact: true }).click();
+    const tagging = dialog.getByRole("region", { name: "Tag passage in 2030-02-02" });
+    await expect(tagging.locator("blockquote")).toHaveText("Private");
+    await tagging.getByLabel("Tag to add", { exact: true }).fill("work");
+    await tagging.getByRole("button", { name: "Add tag", exact: true }).click();
+    await tagging.getByRole("button", { name: "Apply tags", exact: true }).click();
+    await expect(dialog.getByText("Tags applied.", { exact: true })).toBeVisible();
+    const expected = original.replace("Private", "Private [#work](jot:tag/work)");
+    await expect.poll(async () => (await readFakeRemoteNote(page, "2030-02-02"))?.markdown).toBe(expected);
+    const preview = dialog.getByRole("region", { name: "Read-only note preview" });
+    await expect(preview.locator("table")).toHaveCount(1);
+    await expect(preview.locator(header ? "th" : "td").last()).toContainText("Private #work");
+    await expect(page.getByLabel("Selected date", { exact: true })).toHaveValue("2030-02-04");
+  });
+}
+
+test("tag-filtered search ignores heading-only text and previews the first body passage", async ({ page }) => {
+  await openDevelopmentStorage(page, "/#/date/2030-02-04", "disabled");
+  for (const [date, markdown] of [
+    ["2030-02-02", "# Budget\n\nTags: [#work](jot:tag/work)\n\nUnrelated body."],
+    ["2030-02-01", "# Budget\n\nTags: [#work](jot:tag/work)"]
+  ] as const) {
+    await seedDailyNoteState(page, { remote: { date, markdown, revisionId: date, updatedAt: "2030-02-02T00:00:00Z" } });
+  }
+  await page.keyboard.press("Control+Shift+F");
+  const dialog = page.getByRole("dialog", { name: "Search daily notes" });
+  await dialog.getByLabel("Tags", { exact: true }).fill("work");
+  await dialog.getByRole("button", { name: "Add tag", exact: true }).click();
+  await dialog.getByLabel("Search words").fill("budget");
+  await dialog.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(dialog.getByRole("status")).toContainText("No matching daily notes");
+  await dialog.getByLabel("Search words").fill("");
+  await dialog.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(dialog.locator(".search-result-date")).toHaveText(["2030-02-02"]);
+  await dialog.getByRole("button", { name: "2030-02-02", exact: true }).click();
+  const preview = dialog.getByRole("region", { name: "Read-only note preview" });
+  await expect(preview).toContainText("Unrelated body.");
+  await expect(preview.getByRole("heading")).toHaveCount(0);
+  await expect(preview).not.toContainText("Tags:");
 });

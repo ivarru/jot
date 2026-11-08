@@ -8,6 +8,8 @@ import { matchingTaggedPassage } from "~/domain/taggedNoteSearch";
 import { normalizeJotTagName } from "~/domain/jotTags";
 
 interface Props {
+  readonly loadTaggingSource?: (result: DailyNoteSearchResult) => Promise<string>;
+  readonly saveTags?: (result: DailyNoteSearchResult, source: string, updated: string) => Promise<void>;
   readonly tags?: readonly string[];
   readonly refreshTags?: () => unknown;
   readonly selectedDate: IsoDate;
@@ -137,7 +139,9 @@ export function DailyNoteSearchDialog(props: Props) {
       </div>
       <Show when={dates().length}>
         <ul aria-label="Matching daily notes"><For each={dates()}>{(result) =>
-          <SearchResultRow result={result} query={query()} selectedDate={props.selectedDate} today={props.today} loadPreview={async (result) => previews.get(result.fileId) ?? await props.loadPreview(result)}
+          <SearchResultRow tagConditions={selectedTags()} tagSuggestions={props.tags ?? []}
+            {...(props.loadTaggingSource ? { loadTaggingSource: props.loadTaggingSource } : {})}
+            {...(props.saveTags ? { saveTags: props.saveTags } : {})} result={result} query={query()} selectedDate={props.selectedDate} today={props.today} loadPreview={async (result) => previews.get(result.fileId) ?? await props.loadPreview(result)}
             getImmediatePreview={(result, query) => selectedTags().length ? previews.get(result.fileId) ?? null : props.getImmediatePreview?.(result, query) ?? null}
             {...(props.resolveImage ? { resolveImage: props.resolveImage } : {})}
             onOpen={() => { close(); props.onSelect(result.date); }} />

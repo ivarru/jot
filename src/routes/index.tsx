@@ -176,7 +176,8 @@ import {
   type PickedGooglePhotosMediaItem
 } from "~/photos/googlePhotosAttachments";
 import { FakePhotosAttachmentProvider } from "~/photos/fakePhotosAttachments";
-import { requestDailyNoteOwnership, withAvailableDailyNoteOwnership } from "./sharedTabOwnership";
+import { saveSearchResultTags } from "~/features/searchResultTags/saveSearchResultTags";
+import { requestDailyNoteOwnership, withUnownedDailyNoteAccess, withAvailableDailyNoteOwnership } from "./sharedTabOwnership";
 import { syncDepartedDate } from "./departedDateSync";
 
 const ACTIVE_IMAGE_PICKER_STORAGE_KEY = "jot.googlePhotosActivePicker";
@@ -4208,6 +4209,29 @@ export default function Home() {
 
           <Show when={searchOpen()}>
             <DailyNoteSearchDialog tags={tagCatalog.tags()} refreshTags={tagCatalog.refresh} selectedDate={selectedDate()!} today={today()}
+              loadTaggingSource={async (result) => {
+                if (result.date === selectedDate() && loadedDate() === result.date) return currentEditorMarkdown();
+                if (!runtime.remote.loadDailyNoteSearchPreview) throw new Error("Preview is unavailable for this connection.");
+                return await runtime.remote.loadDailyNoteSearchPreview(result);
+              }}
+              saveTags={async (result, source, updated) => {
+                const date = result.date;
+                const authIsCurrent = captureAuthLifecycle();
+                if (!authenticated() || authReconnectRequired() || !drafts.hasCurrentEpoch()) throw new Error("Reconnect before adding tags.");
+                if (date === selectedDate()) {
+                  if (loadedDate() !== date || !selectedDateCanWrite() || manualConflictMarkersPresent()
+                    || currentEditorMarkdown() !== source) throw new Error("The note changed or cannot be edited. Refresh the passage.");
+                  applyUndoableMarkdownTransform(date, updated, { start: 0, end: 0 }, false);
+                } else {
+                  await withUnownedDailyNoteAccess(date, async () => {
+                    await saveSearchResultTags(date, source, updated, drafts, runtime.remote,
+                      () => authIsCurrent() && authenticated() && drafts.hasCurrentEpoch() && selectedDate() !== date && searchOpen());
+                  });
+                }
+                localTagDates.add(date);
+                tagIndexMaintenance?.request();
+                void tagCatalog.refresh();
+              }}
               search={(input) => {
                 if (!runtime.remote.searchDailyNotes) return Promise.reject(new Error("Search is unavailable for this connection."));
                 return runtime.remote.searchDailyNotes(input);

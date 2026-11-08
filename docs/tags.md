@@ -191,3 +191,22 @@ in the same row. Section declarations inside a blockquote apply within that quot
 their scope does not escape the quote. Markdown hard breaks separate words when matching phrases.
 Reference-style tags use document-wide definitions, including definitions nested inside lists or blockquotes;
 when an identifier has multiple definitions, the first in source order wins.
+
+## Adding tags from search results
+
+Expand a search result and choose **Add tags to passage…**. Jot shows the first matching paragraph or list item
+before any edit, with suggestions from the Tag Catalog. Choose one or more tags, then **Apply tags**. A tag already
+attached to the unit or inherited from a containing section is skipped. Headings and section declarations are not
+tagging targets; this action does not tag an entire section or multiple search results. Table cells are individual units.
+
+For ordinary text search, the passage must contain all search words; for tag-filtered searches it must also satisfy
+all selected tag conditions. If no such paragraph/list item exists, the action reports that no target is available.
+The preview updates after applying tags, and the selected date stays unchanged. Edits to the open note use its normal
+undo history and autosave; other dates use an exclusive editing lease, checked local persistence, and normal Drive Sync.
+
+The full source snapshot is revalidated before background edits. Changed remote content, newer local drafts, conflicts,
+or another page editing the date prevent an overwrite. Use **Refresh passage** to review the latest target before
+trying again. A failed remote save retains the tagged local draft for normal sync recovery. Search results remain
+snapshots; rerun Search to refresh result metadata and conditions after edits.
+Headings and `Tags:` declarations establish section scope but are not matching passages themselves. A tag-only search
+previews the first qualifying body passage; a section with no such content contributes no search result.

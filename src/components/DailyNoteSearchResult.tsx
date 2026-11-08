@@ -1,10 +1,16 @@
 import { Show, createSignal, createUniqueId, onCleanup } from "solid-js";
+import { SearchResultTagEditor } from "./SearchResultTagEditor";
+import { matchingTaggedPassage } from "~/domain/taggedNoteSearch";
 import { DailyNoteSearchPreview } from "./DailyNoteSearchPreview";
 import { formatSearchModifiedTime, type DailyNoteSearchResult as SearchResult } from "~/domain/dailyNoteSearch";
 import type { IsoDate } from "~/domain/dates";
 import type { ImageAttachmentDisplay } from "~/domain/imageAttachmentDisplay";
 
 export function DailyNoteSearchResult(props: {
+  readonly tagConditions?: readonly string[];
+  readonly tagSuggestions?: readonly string[];
+  readonly loadTaggingSource?: (result: SearchResult) => Promise<string>;
+  readonly saveTags?: (result: SearchResult, source: string, updated: string) => Promise<void>;
   readonly result: SearchResult;
   readonly selectedDate: IsoDate;
   readonly today: IsoDate;
@@ -18,6 +24,9 @@ export function DailyNoteSearchResult(props: {
   const markers = () => [props.result.date === props.today ? "today" : null,
     props.result.date === props.selectedDate ? "open" : null].filter(Boolean).join(", ");
   const label = () => `${props.result.date}${markers() ? ` (${markers()})` : ""}`;
+  const [edited, setEdited] = createSignal(false);
+  const [tagging, setTagging] = createSignal(false);
+  const [tagged, setTagged] = createSignal(false);
   const [expanded, setExpanded] = createSignal(false);
   const [markdown, setMarkdown] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
@@ -40,7 +49,7 @@ export function DailyNoteSearchResult(props: {
   const toggle = () => {
     if (expanded()) { request++; setLoading(false); setExpanded(false); return; }
     setExpanded(true);
-    const immediate = props.getImmediatePreview?.(props.result, props.query) ?? null;
+    const immediate = edited() ? null : props.getImmediatePreview?.(props.result, props.query) ?? null;
     if (immediate !== null) { setMarkdown(immediate); setError(null); }
     else if (markdown() === null) void load();
   };
@@ -72,6 +81,18 @@ export function DailyNoteSearchResult(props: {
         <Show when={loading()}><p role="status">Loading note…</p></Show>
         <Show when={error()}>{(message) => <div role="alert"><p>{message()}</p><button type="button" onClick={() => void load()}>Retry preview</button></div>}</Show>
         <Show when={markdown() !== null}>
+          <Show when={props.saveTags && props.loadTaggingSource}>
+            <button type="button" onClick={() => { setTagging(true); setTagged(false); }}>Add tags to passage…</button>
+          </Show>
+          <Show when={tagged()}><p role="status">Tags applied.</p></Show>
+          <Show when={tagging()}>
+            <SearchResultTagEditor result={props.result} query={props.query} conditions={props.tagConditions ?? []}
+              suggestions={props.tagSuggestions ?? []} loadSource={props.loadTaggingSource!} save={props.saveTags!}
+              onClose={() => setTagging(false)} onApplied={(source) => {
+                setMarkdown(props.tagConditions?.length ? matchingTaggedPassage(source, props.query, props.tagConditions) ?? source : source);
+                setEdited(true); setTagging(false); setTagged(true);
+              }} />
+          </Show>
           <DailyNoteSearchPreview documentKey={`search-preview:${props.result.date}:${props.result.fileId}`}
             markdown={markdown()!} query={props.query} onOpen={props.onOpen} {...(props.resolveImage ? { resolveImage: props.resolveImage } : {})} />
         </Show>

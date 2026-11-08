@@ -66,3 +66,14 @@ it("preserves document order for duplicate reference definitions across containe
   expect(matchingTaggedPassage(reverse, "budget", ["work"])).toBeNull();
   expect(matchingTaggedPassage(reverse, "budget", ["home"])).toContain("Budget");
 });
+
+it("does not match text that occurs only in a tagged section heading", () => {
+  const note = `# Budget\n\nTags: ${tag("work")}\n\nUnrelated body.`;
+  expect(matchingTaggedPassage(note, "budget", ["work"])).toBeNull();
+});
+
+it("previews the first body passage for tag-only searches, skipping headings and declarations", () => {
+  const note = `# Budget\n\nTags: ${tag("work")}\n\nUnrelated body.`;
+  expect(matchingTaggedPassage(note, "", ["work"])?.trim()).toBe("Unrelated body.");
+  expect(matchingTaggedPassage(`# Budget\n\nTags: ${tag("work")}`, "", ["work"])).toBeNull();
+});
