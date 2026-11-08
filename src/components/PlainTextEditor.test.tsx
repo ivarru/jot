@@ -506,3 +506,60 @@ describe("PlainTextEditor", () => {
 function animationFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
+
+it("does not replay a requested caret after the user starts typing", async () => {
+  const frames: FrameRequestCallback[] = [];
+  const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { frames.push(callback); return frames.length; });
+  const host = document.createElement("div"); document.body.append(host);
+  const [value, setValue] = createSignal("~~~~");
+  const dispose = render(() => <PlainTextEditor documentKey="2030-02-01" value={value()}
+    focusSelection={{ start: 2, end: 2 }} onChange={(_date, markdown) => setValue(markdown)} onBlur={() => {}} />, host);
+  try {
+    await Promise.resolve();
+    const textarea = host.querySelector("textarea")!;
+    expect(textarea.selectionStart).toBe(2);
+    // Native text insertion reaches the component through its normal DOM input callback.
+    textarea.setRangeText("ty", textarea.selectionStart, textarea.selectionEnd, "end");
+    textarea.dispatchEvent(new InputEvent("input", { bubbles: true, data: "ty", inputType: "insertText" }));
+    for (const callback of frames.splice(0)) callback(0);
+    textarea.setRangeText("ped", textarea.selectionStart, textarea.selectionEnd, "end");
+    expect(textarea.value).toBe("~~typed~~");
+    expect(textarea.selectionStart).toBe(7);
+  } finally { dispose(); raf.mockRestore(); host.remove(); }
+});
+
+it("ignores date A's pending focus after date B replaces its source", async () => {
+  const frames: FrameRequestCallback[] = [];
+  const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { frames.push(callback); return frames.length; });
+  const host = document.createElement("div"); document.body.append(host);
+  const [date, setDate] = createSignal("2030-02-01");
+  const [value, setValue] = createSignal("Date A source");
+  const dispose = render(() => <PlainTextEditor documentKey={date()} value={value()} focusSelection={{ start: 2, end: 2 }}
+    onChange={() => {}} onBlur={() => {}} />, host);
+  try {
+    await Promise.resolve();
+    const oldFrames = frames.splice(0);
+    setDate("2030-02-02"); setValue("Date B source");
+    await Promise.resolve();
+    const textarea = host.querySelector("textarea")!;
+    textarea.focus(); textarea.setSelectionRange(6, 6);
+    for (const callback of oldFrames) callback(0);
+    expect(textarea.value).toBe("Date B source");
+    expect(textarea.selectionStart).toBe(6);
+  } finally { dispose(); raf.mockRestore(); host.remove(); }
+});
+
+it("does not steal focus back from another control when a retry arrives", async () => {
+  const frames: FrameRequestCallback[] = [];
+  const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => { frames.push(callback); return frames.length; });
+  const host = document.createElement("div"); document.body.append(host);
+  const dispose = render(() => <PlainTextEditor documentKey="2030-02-01" value="source" focusSelection={{ start: 2, end: 2 }}
+    onChange={() => {}} onBlur={() => {}} />, host);
+  const button = document.createElement("button"); host.append(button);
+  try {
+    await Promise.resolve();
+    button.focus();
+    for (const callback of frames.splice(0)) callback(0);
+    expect(document.activeElement).toBe(button);
+  } finally { dispose(); raf.mockRestore(); host.remove(); }
+});

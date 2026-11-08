@@ -250,3 +250,19 @@ Normal Escape/caret cases are browser-independent tests; run them in the selecte
 The isolated preview may use `BROWSER_TEST_BASE_URL` when another local preview is already running.
 The one-shot Milkdown selection controller has component coverage, and prefix completion and date-group ordering
 have focused domain tests. Existing tag-browsing regressions retain repeated-target and cached-refresh coverage.
+
+## Raw-editor deferred focus
+
+`src/components/PlainTextEditor.test.tsx` controls animation-frame delivery to verify that a pending requested caret
+cannot interrupt newer input, steal focus from another control, or replay date A's selection after date B replaces
+the editor source. Initial value binding and ordinary requested-selection restoration remain covered.
+
+The native caret-strikethrough case in `tests/browser/editing/inline-format-menu.spec.ts` types immediately after a
+formatting action, without sleeps or retries. For a focused race check, repeat that unchanged workflow:
+
+```sh
+npx playwright test tests/browser/editing/inline-format-menu.spec.ts --grep 'phone text: caret strikethrough' --repeat-each=20
+```
+
+Browser focus/selection callbacks are outside the bounded sync model; the component scheduler tests provide the
+deterministic regression, while the Chrome workflow exercises real typing and caret behavior.

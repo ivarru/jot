@@ -1,4 +1,4 @@
-import { createEffect, createRenderEffect, For, on, onCleanup } from "solid-js";
+import { createEffect, createRenderEffect, For, on, onCleanup, onMount } from "solid-js";
 import { applyTextAreaStructuralTab, shouldHandleTextAreaStructuralTab } from "./textAreaIndent";
 import { resizeTextAreaToContents } from "./textAreaSizing";
 import { markdownLinkAtOffset } from "~/domain/dailyNoteLinks";
@@ -26,8 +26,36 @@ interface PlainTextEditorProps {
 
 export function PlainTextEditor(props: PlainTextEditorProps) {
   let textarea: HTMLTextAreaElement | undefined;
+  let focusRevision = 0;
+  let disposed = false;
+  const cancelPendingFocus = () => { focusRevision++; };
+  const restoreFocus = (element: HTMLTextAreaElement) => {
+    const date = props.documentKey;
+    const resetKey = props.resetKey;
+    const source = props.value;
+    const revision = ++focusRevision;
+    focusTextArea(element, source, focusPlacement(props.focusAtEnd, props.focusSelection), () =>
+      !disposed && revision === focusRevision && props.documentKey === date && props.resetKey === resetKey
+        && props.value === source && props.focusEnabled !== false, props.onFocusApplied);
+  };
 
-  onCleanup(() => props.onElement?.(null));
+  onMount(() => {
+    const document = textarea!.ownerDocument;
+    const cancelAfterOtherFocus = (event: FocusEvent) => {
+      if (event.target !== textarea) cancelPendingFocus();
+    };
+    for (const type of ["keydown", "beforeinput", "input", "pointerdown"]) {
+      document.addEventListener(type, cancelPendingFocus, true);
+    }
+    document.addEventListener("focusin", cancelAfterOtherFocus, true);
+    onCleanup(() => {
+      for (const type of ["keydown", "beforeinput", "input", "pointerdown"]) {
+        document.removeEventListener(type, cancelPendingFocus, true);
+      }
+      document.removeEventListener("focusin", cancelAfterOtherFocus, true);
+    });
+  });
+  onCleanup(() => { disposed = true; cancelPendingFocus(); props.onElement?.(null); });
 
   createRenderEffect(
     on(
@@ -36,7 +64,7 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
         if (props.focusEnabled === false) return;
         if (textarea === undefined) return;
         if (clearedOnlyFocusSelection(focus, previousFocus)) return;
-        focusTextArea(textarea, focusPlacement(props.focusAtEnd, props.focusSelection), props.onFocusApplied);
+        restoreFocus(textarea);
       },
       { defer: false }
     )
@@ -69,7 +97,7 @@ export function PlainTextEditor(props: PlainTextEditorProps) {
             textarea = element;
             props.onElement?.(element);
             if (props.focusEnabled !== false) {
-              focusTextArea(element, focusPlacement(props.focusAtEnd, props.focusSelection), props.onFocusApplied);
+              restoreFocus(element);
             }
           }}
           class="plain-text-editor"
@@ -215,25 +243,27 @@ function isPlainRedoShortcut(event: KeyboardEvent): boolean {
   );
 }
 
-function focusTextArea(element: HTMLTextAreaElement, placement: FocusPlacement, onFocusApplied?: () => void): void {
-  element.focus();
-  placeTextAreaSelection(element, placement);
-  onFocusApplied?.();
-
-  queueMicrotask(() => {
+function focusTextArea(element: HTMLTextAreaElement, source: string, placement: FocusPlacement,
+  canContinue: () => boolean, onFocusApplied?: () => void): void {
+  let appliedSelection: MarkdownSelection | null = null;
+  // Refs/render effects can run before the textarea's value binding. Only
+  // acknowledge focus after the captured source is actually present in the DOM.
+  const apply = () => {
+    if (!canContinue() || !element.isConnected || element.value !== source) return;
+    if (appliedSelection !== null && (element.selectionStart !== appliedSelection.start
+      || element.selectionEnd !== appliedSelection.end)) return;
     element.focus();
     placeTextAreaSelection(element, placement);
-  });
-
-  window.setTimeout(() => {
-    element.focus();
-    placeTextAreaSelection(element, placement);
-  }, 0);
-
-  requestAnimationFrame(() => {
-    element.focus();
-    placeTextAreaSelection(element, placement);
-  });
+    const firstApplication = appliedSelection === null;
+    appliedSelection = { start: element.selectionStart, end: element.selectionEnd };
+    if (firstApplication) onFocusApplied?.();
+  };
+  apply();
+  // Retain mobile focus retries, but never replay a caret over newer input,
+  // selection, source content, or a different date/editor lifetime.
+  queueMicrotask(apply);
+  window.setTimeout(apply, 0);
+  requestAnimationFrame(apply);
 }
 
 function placeTextAreaSelection(element: HTMLTextAreaElement, placement: FocusPlacement): void {
