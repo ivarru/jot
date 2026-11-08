@@ -42,3 +42,6 @@ Stage 3 (0.39.3): SolidStart 2.2.2/Nitro 3 RC; reproduced and fixed Seroval SSR 
 
 Stage 4 (0.39.4): Node 26.13.0 LTS/types 26.6.6, checksum-verified official runtime. Clean install, 879 tests,
 types/build, 17 Chrome cases, Pages/seven artifact checks, and actual dev startup passed under Node 26.
+
+Stage 5 (0.39.5): jsdom 31.0.0; all 879 tests, types/build, Pages build, and seven artifact checks passed under
+Node 26 without compatibility flags or source changes. fake-indexeddb evaluation remains pending.

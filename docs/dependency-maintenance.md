@@ -229,3 +229,14 @@ published SHA-256. A clean `npm ci`, all 879 tests, typecheck, production and
 Pages builds, 17 focused Chrome startup/formatting checks, all seven artifact
 checks, and actual development-server startup passed under Node 26.13.0
 (with its bundled npm 11.20.0). No machine-global runtime was replaced.
+
+## November refresh: jsdom (0.39.5)
+
+Update the test DOM from 30.1.3 to 31.0.0 independently of the runtime and
+framework upgrades. Its engine requirement is met by the pinned Node 26 LTS.
+No test compatibility settings or application changes were necessary.
+
+Verification under Node 26: `npm run verify` passed 879 tests, typecheck, and
+build. The Pages build and all seven artifact checks passed, including actual
+base-path rendering through the test DOM. Production browser dependencies did
+not change in this stage; earlier full Chrome coverage remains applicable.
