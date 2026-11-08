@@ -240,3 +240,20 @@ Verification under Node 26: `npm run verify` passed 879 tests, typecheck, and
 build. The Pages build and all seven artifact checks passed, including actual
 base-path rendering through the test DOM. Production browser dependencies did
 not change in this stage; earlier full Chrome coverage remains applicable.
+
+## November refresh: retained IndexedDB fake and final checks
+
+Retain the exact fake-indexeddb 6.2.5 pin. Testing 6.2.7 under Node 26.13.0,
+Vitest 5.1.0, and jsdom 31 reproduced the known uncaught
+`should have been able to remove transaction` in `FDBTransaction.js:268` while
+running `src/storage/indexedDb.test.ts`. All six assertions passed, but Vitest
+correctly failed the run on the uncaught transaction-queue exception. Do not
+suppress it or change application transaction semantics to accommodate the fake.
+
+Restore the candidate manifest/lock changes to the verified 0.39.5 tree and
+perform another clean `npm ci`. The same six focused cases passed without
+unhandled errors, and final `npm run verify` passed all 879 tests, typecheck,
+and build. `npm ls --all` found no invalid dependency relationships; npm audit
+reports zero vulnerabilities. `npm outdated` lists only the intentional
+fake-indexeddb pin. No local development or preview servers remain running.
+This decision changes documentation only, so no additional app version is needed.
