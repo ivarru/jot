@@ -171,3 +171,16 @@ its text-replacement setup, matching the existing flake recorded in
 [issue 0017](../issues/0017-daily-note-drive-search.md). Its isolated rerun
 passed. All other Chrome tests, including startup health, passed in the full
 run. No local development or test servers remain running.
+
+## November refresh: security and routine packages (0.39.1)
+
+Update Solid to 1.9.18, Meta to 0.29.8, Router to 1.0.1, KaTeX to 0.19.1,
+Vite to 8.3.6, Playwright to 1.65.0, and Vitest to 5.1.0. Refresh Seroval
+and its plugins to 1.6.12, addressing
+[GHSA-f86p-h4j2-7qgj](https://github.com/advisories/GHSA-f86p-h4j2-7qgj).
+Keep the math override deduplicated and the editor/framework pins unchanged
+for separate verification stages. npm audit now reports zero vulnerabilities.
+
+Verification: `npm run verify` passed all 879 tests, typecheck, and production
+build. All 40 focused Chrome checks passed for preview health, math, search,
+and compact inline formatting. No application code changes were needed.
