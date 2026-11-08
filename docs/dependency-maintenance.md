@@ -214,3 +214,18 @@ Verification: 879 tests, types, and production build passed. All 210 Chrome
 regressions passed. The Pages build and all seven artifact/security checks
 passed at `/jot/`. The actual Vite development server passed the Chrome
 app/editor startup check with no JavaScript or console errors. Servers stopped.
+
+## November refresh: pinned Node runtime (0.39.4)
+
+Move `.node-version` to Node 26.13.0 LTS and Node types to 26.6.6. Deployment
+already reads this file, so CI follows the new pin without workflow changes.
+The existing engine range still permits Node 24.16+, which passed the preceding
+stages; this changes the default development/deployment runtime rather than
+introducing a new runtime API requirement. See the
+[official LTS release](https://nodejs.org/en/blog/release/v26.13.0).
+
+Verification used the official macOS ARM64 archive checked against its
+published SHA-256. A clean `npm ci`, all 879 tests, typecheck, production and
+Pages builds, 17 focused Chrome startup/formatting checks, all seven artifact
+checks, and actual development-server startup passed under Node 26.13.0
+(with its bundled npm 11.20.0). No machine-global runtime was replaced.
