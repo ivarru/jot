@@ -18,7 +18,7 @@ versions. See [Sync and Connection Statuses](docs/sync-and-connection-statuses.m
 ## Features
 
 - Date-based navigation with ISO dates, weekday display, and a jump-to-today indicator.
-- Search synced Daily Notes from the menu or date picker using Google Drive, with optional date bounds (start included, end excluded),
+- Search synced Daily Notes from the menu, date picker, or Cmd+Shift+F (Mac) / Ctrl+Shift+F (other platforms) using Google Drive, with optional date bounds (start included, end excluded),
   filtering by note date or local last-modified date,
   and expandable read-only previews positioned at the first matching text. Click a result row to toggle its preview;
   click the preview or its open-note button to open the Daily Note.

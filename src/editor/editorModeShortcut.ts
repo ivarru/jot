@@ -11,6 +11,7 @@ interface EditorModeShortcutEvent {
 }
 
 export const EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS = "Control+Shift+M Meta+Shift+M";
+export const NOTE_SEARCH_ARIA_SHORTCUTS = "Control+Shift+F Meta+Shift+F";
 export const LINK_EDIT_ARIA_SHORTCUTS = "Control+K Meta+K";
 export const TAG_INSERT_ARIA_SHORTCUTS = "Control+Alt+K Meta+Alt+K";
 export const PREVIOUS_DAY_ARIA_SHORTCUTS = "Control+Alt+P Meta+Alt+P";
@@ -18,6 +19,7 @@ export const NEXT_DAY_ARIA_SHORTCUTS = "Control+Alt+N Meta+Alt+N";
 
 export interface EditorShortcutLabels {
   readonly editorModeToggle: string;
+  readonly noteSearch: string;
   readonly linkEdit: string;
   readonly tagInsert: string;
   readonly previousDay: string;
@@ -31,6 +33,7 @@ export function shortcutLabelsForPlatform(platform: string): EditorShortcutLabel
   return isApple
     ? {
       editorModeToggle: "Cmd+Shift+M",
+      noteSearch: "Cmd+Shift+F",
       linkEdit: "Cmd+K",
       tagInsert: "Cmd+Option+K",
       previousDay: "Cmd+Option+P",
@@ -40,6 +43,7 @@ export function shortcutLabelsForPlatform(platform: string): EditorShortcutLabel
     }
     : {
       editorModeToggle: "Ctrl+Shift+M",
+      noteSearch: "Ctrl+Shift+F",
       linkEdit: "Ctrl+K",
       tagInsert: "Ctrl+Alt+K",
       previousDay: "Ctrl+Alt+P",
@@ -94,4 +98,9 @@ export function dailyNoteNavigationDelta(event: EditorModeShortcutEvent): -1 | 1
   if (event.code === "KeyP") return -1;
   if (event.code === "KeyN") return 1;
   return null;
+}
+
+export function isNoteSearchShortcut(event: EditorModeShortcutEvent): boolean {
+  return event.key.toLowerCase() === "f" && event.shiftKey && !event.altKey
+    && (event.metaKey || event.ctrlKey) && event.isComposing !== true;
 }

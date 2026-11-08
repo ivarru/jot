@@ -3,6 +3,7 @@ import {
   shortcutLabelsForPlatform,
   isEditorModeToggleShortcut,
   isLinkEditShortcut,
+  isNoteSearchShortcut,
   isTagInsertShortcut,
   nextEditorMode
 } from "./editorModeShortcut";
@@ -87,6 +88,7 @@ describe("editor mode shortcut", () => {
   it("shows only shortcuts for the current platform", () => {
     expect(shortcutLabelsForPlatform("MacIntel")).toEqual({
       editorModeToggle: "Cmd+Shift+M",
+      noteSearch: "Cmd+Shift+F",
       linkEdit: "Cmd+K",
       tagInsert: "Cmd+Option+K",
       previousDay: "Cmd+Option+P",
@@ -96,6 +98,7 @@ describe("editor mode shortcut", () => {
     });
     expect(shortcutLabelsForPlatform("Win32")).toEqual({
       editorModeToggle: "Ctrl+Shift+M",
+      noteSearch: "Ctrl+Shift+F",
       linkEdit: "Ctrl+K",
       tagInsert: "Ctrl+Alt+K",
       previousDay: "Ctrl+Alt+P",
@@ -119,3 +122,13 @@ function keyboardEvent(
     ...overrides
   };
 }
+
+it("recognizes note search and ignores nearby shortcuts and composition", () => {
+  expect(isNoteSearchShortcut(keyboardEvent({ key: "F", metaKey: true, shiftKey: true }))).toBe(true);
+  expect(isNoteSearchShortcut(keyboardEvent({ key: "f", ctrlKey: true, shiftKey: true }))).toBe(true);
+  for (const input of [{ key: "f", ctrlKey: true }, { key: "f", shiftKey: true },
+    { key: "f", ctrlKey: true, shiftKey: true, altKey: true },
+    { key: "f", ctrlKey: true, shiftKey: true, isComposing: true }]) {
+    expect(isNoteSearchShortcut(keyboardEvent(input))).toBe(false);
+  }
+});

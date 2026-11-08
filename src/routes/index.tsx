@@ -89,12 +89,14 @@ import {
 import {
   EDITOR_MODE_TOGGLE_ARIA_SHORTCUTS,
   LINK_EDIT_ARIA_SHORTCUTS,
+  NOTE_SEARCH_ARIA_SHORTCUTS,
   NEXT_DAY_ARIA_SHORTCUTS,
   PREVIOUS_DAY_ARIA_SHORTCUTS,
   TAG_INSERT_ARIA_SHORTCUTS,
   dailyNoteNavigationDelta,
   isEditorModeToggleShortcut,
   isLinkEditShortcut,
+  isNoteSearchShortcut,
   isTagInsertShortcut,
   nextEditorMode,
   shortcutLabelsForPlatform,
@@ -1672,6 +1674,19 @@ export default function Home() {
 
   createEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isNoteSearchShortcut(event)) {
+        if (event.defaultPrevented || event.repeat || !authenticated() || selectedDate() === null) return;
+        if (document.querySelector("dialog[open], [role='dialog']") !== null) return;
+
+        event.preventDefault();
+        searchReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+        setTopMenuOpen(false);
+        datePicker.close();
+        existingNoteDates.cancel();
+        setSearchOpen(true);
+        return;
+      }
+
       if (isTagInsertShortcut(event)) {
         if (!authenticated() || selectedDate() === null) return;
         if (!eventOriginatesInEditor(event)) return;
@@ -3768,11 +3783,14 @@ export default function Home() {
                 </button>
                 <Show when={topMenuOpen()}>
                   <div class="top-menu-popover" role="menu" aria-label="Application menu">
-                    <button type="button" role="menuitem" onClick={() => {
-                      setTopMenuOpen(false);
-                      searchReturnFocus = settingsReturnFocus;
-                      setSearchOpen(true);
-                    }}>Search daily notes</button>
+                    <button type="button" role="menuitem"
+                      aria-keyshortcuts={NOTE_SEARCH_ARIA_SHORTCUTS}
+                      data-tooltip={`Search daily notes (${shortcutLabels.noteSearch})`}
+                      onClick={() => {
+                        setTopMenuOpen(false);
+                        searchReturnFocus = settingsReturnFocus;
+                        setSearchOpen(true);
+                      }}>Search daily notes</button>
                     <button
                       type="button"
                       role="menuitem"

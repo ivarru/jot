@@ -354,3 +354,24 @@ test("the open note falls back to Drive when its current text lacks the search t
   await dialog.getByRole("button", { name: "Close search", exact: true }).click();
   await expectRawMarkdown(page, /^Local text without the remote keyword/);
 });
+
+for (const modifier of ["Control", "Meta"]) {
+  test(`${modifier}+Shift+F searches from the editor and restores focus`, async ({ page }) => {
+    await openDevelopmentStorage(page, "/#/date/2030-02-04", "disabled");
+    await setRawMarkdown(page, "shortcutneedle preserved content");
+    const editor = page.getByLabel("Markdown text editor");
+    await editor.focus();
+    await page.keyboard.press(`${modifier}+Shift+F`);
+    const dialog = page.getByRole("dialog", { name: "Search daily notes" });
+    await expect(dialog.getByLabel("Search words")).toBeFocused();
+    await dialog.getByLabel("Search words").fill("shortcutneedle");
+    await page.keyboard.press(`${modifier}+Shift+F`);
+    await expect(dialog.getByLabel("Search words")).toHaveValue("shortcutneedle");
+    await dialog.getByRole("button", { name: "Search", exact: true }).click();
+    await expect(dialog.locator(".search-result-date")).toContainText("2030-02-04");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(editor).toBeFocused();
+    await expectRawMarkdown(page, "shortcutneedle preserved content");
+  });
+}
