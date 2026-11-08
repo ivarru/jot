@@ -42,3 +42,24 @@ it("ignores old query/range responses and responses after closing", async () => 
     expect(host.querySelector('ul')).toBeNull();
   } finally { dispose(); host.remove(); }
 });
+
+it("discards a pending tagged snapshot when tag conditions change", async () => {
+  let resolve!: (value: string) => void;
+  const loadPreview = vi.fn(() => new Promise<string>((done) => { resolve = done; }));
+  const host = document.createElement("div"); document.body.append(host);
+  const dispose = render(() => <DailyNoteSearchDialog selectedDate="2030-02-04" today="2030-02-04"
+    search={async () => [{ date: "2030-02-02", fileId: "a", modifiedTime: null, sizeBytes: null }]}
+    loadPreview={loadPreview} onSelect={() => {}} onClose={() => {}} />, host);
+  try {
+    const input = host.querySelector<HTMLInputElement>('input[list]')!;
+    input.value = "work"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Add tag")!.click();
+    host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+    expect(loadPreview).toHaveBeenCalledOnce();
+    host.querySelector<HTMLButtonElement>('button[aria-label="Remove tag work"]')!.click();
+    resolve("Text [#work](jot:tag/work)");
+    await Promise.resolve(); await Promise.resolve();
+    expect(host.querySelector("ul")).toBeNull();
+  } finally { dispose(); host.remove(); }
+});

@@ -171,3 +171,23 @@ refuses to guess when matching contexts are ambiguous or an indexed duplicate ma
 still opens, with an explicit notice when the selected instance cannot be resolved. Refresh/rebuild the index or
 locate the tag in that note. The plain index format cannot distinguish an undetectable reorder of identical
 instances whose count and excerpt sequence remain identical; their current document order defines their ordinals.
+
+## Tags in note search
+
+Search supports removable tag conditions with suggestions from the Tag Catalog. Add each tag with **Add tag** or
+Enter. All selected tags must apply to one matching paragraph or list item; search words must also match within
+that passage. Tags declared immediately after a heading in a `Tags:` paragraph apply throughout that section and
+its subsections, ending at the next heading of the same or higher level. Direct paragraph/list-item tags do not
+apply to siblings or nested list items. Heading levels determine scope, not heading numbering.
+
+Search words may be empty when at least one tag is selected. Existing date bounds still apply. Search first lists
+Drive candidates, then reads their exact Markdown snapshots to check structural associations. Tag-only searches can
+therefore read many notes. Generated Tag Index excerpts are not used as authoritative filters. Results remain grouped
+by Daily Note, with tagged previews showing the first qualifying passage. Like ordinary search, this covers synced
+content; tag filtering does not search unsynced drafts. Changing conditions or closing discards pending results.
+
+Table cells are independent matching units: a tag in one cell does not qualify text in another cell, including cells
+in the same row. Section declarations inside a blockquote apply within that quote and inherit outer section tags;
+their scope does not escape the quote. Markdown hard breaks separate words when matching phrases.
+Reference-style tags use document-wide definitions, including definitions nested inside lists or blockquotes;
+when an identifier has multiple definitions, the first in source order wins.

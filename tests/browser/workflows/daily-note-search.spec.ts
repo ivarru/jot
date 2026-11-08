@@ -375,3 +375,28 @@ for (const modifier of ["Control", "Meta"]) {
     await expectRawMarkdown(page, "shortcutneedle preserved content");
   });
 }
+
+test("tag conditions require a qualifying passage and allow tag-only searches", async ({ page }) => {
+  await openDevelopmentStorage(page, "/#/date/2030-02-04", "disabled");
+  await seedDailyNoteState(page, { remote: { date: "2030-02-02", markdown: "# Work\n\nTags: [#work](jot:tag/work)\n\n## Plans\n\nTags: [#planning](jot:tag/planning)\n\nBudget approved.\n\n## Other\n\nPrivate budget.", revisionId: "tag-search", updatedAt: "2030-02-02T00:00:00Z" } });
+  await page.keyboard.press("Control+Shift+F");
+  const dialog = page.getByRole("dialog", { name: "Search daily notes" });
+  for (const tag of ["work", "planning"]) {
+    await dialog.getByLabel("Tags", { exact: true }).fill(tag);
+    await dialog.getByRole("button", { name: "Add tag", exact: true }).click();
+  }
+  await dialog.getByLabel("Search words").fill("budget");
+  await dialog.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(dialog.locator(".search-result-date")).toContainText("2030-02-02");
+  await dialog.getByRole("button", { name: "2030-02-02", exact: true }).click();
+  await expect(dialog.getByRole("region", { name: "Read-only note preview" })).toContainText("Budget approved");
+  await expect(dialog.getByRole("region", { name: "Read-only note preview" })).not.toContainText("Private budget");
+  await dialog.getByLabel("Search words").fill("private");
+  await dialog.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(dialog.getByRole("status")).toContainText("No matching");
+  await dialog.getByLabel("Search words").fill("");
+  await dialog.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(dialog.locator(".search-result-date")).toContainText("2030-02-02");
+  await dialog.getByRole("button", { name: "Close search" }).click();
+  await expect(page.getByLabel("Selected date", { exact: true })).toHaveValue("2030-02-04");
+});

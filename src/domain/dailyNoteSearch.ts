@@ -2,6 +2,7 @@ import { parseIsoDate, toIsoDate, type IsoDate } from "./dates";
 
 export interface DailyNoteSearch {
   readonly query: string;
+  readonly tags?: readonly string[];
   readonly startDate?: IsoDate;
   readonly endDate?: IsoDate;
   readonly dateBasis?: "note" | "modified";
@@ -16,7 +17,7 @@ export interface DailyNoteSearchResult {
 }
 
 export function validateDailyNoteSearch(input: DailyNoteSearch): void {
-  if (!input.query.replaceAll('"', "").trim()) throw new Error("Enter words to search for.");
+  if (!input.tags?.length && !input.query.replaceAll('"', "").trim()) throw new Error("Enter words to search for.");
   if ((input.query.match(/"/g)?.length ?? 0) % 2) throw new Error("Close the quotation marks around your phrase.");
   if ((input.startDate && !parseIsoDate(input.startDate)) || (input.endDate && !parseIsoDate(input.endDate))) {
     throw new Error("Enter valid dates.");

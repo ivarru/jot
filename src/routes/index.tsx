@@ -3784,6 +3784,7 @@ export default function Home() {
                 <Show when={topMenuOpen()}>
                   <div class="top-menu-popover" role="menu" aria-label="Application menu">
                     <button type="button" role="menuitem"
+                      aria-label="Search daily notes"
                       aria-keyshortcuts={NOTE_SEARCH_ARIA_SHORTCUTS}
                       data-tooltip={`Search daily notes (${shortcutLabels.noteSearch})`}
                       onClick={() => {
@@ -4206,7 +4207,7 @@ export default function Home() {
           <DailyNoteUploadSurfaces workflow={dailyNoteUpload} />
 
           <Show when={searchOpen()}>
-            <DailyNoteSearchDialog selectedDate={selectedDate()!} today={today()}
+            <DailyNoteSearchDialog tags={tagCatalog.tags()} refreshTags={tagCatalog.refresh} selectedDate={selectedDate()!} today={today()}
               search={(input) => {
                 if (!runtime.remote.searchDailyNotes) return Promise.reject(new Error("Search is unavailable for this connection."));
                 return runtime.remote.searchDailyNotes(input);

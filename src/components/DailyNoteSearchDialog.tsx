@@ -4,7 +4,12 @@ import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { parseIsoDate, type IsoDate } from "~/domain/dates";
 import { validateDailyNoteSearch, type DailyNoteSearch, type DailyNoteSearchResult } from "~/domain/dailyNoteSearch";
 
+import { matchingTaggedPassage } from "~/domain/taggedNoteSearch";
+import { normalizeJotTagName } from "~/domain/jotTags";
+
 interface Props {
+  readonly tags?: readonly string[];
+  readonly refreshTags?: () => unknown;
   readonly selectedDate: IsoDate;
   readonly today: IsoDate;
   readonly search: (input: DailyNoteSearch) => Promise<DailyNoteSearchResult[]>;
@@ -26,6 +31,15 @@ export function DailyNoteSearchDialog(props: Props) {
     dialog.style.width = `${Math.max(Math.min(340, maxWidth), Math.min(width, maxWidth))}px`;
     dialog.style.height = `${Math.max(Math.min(240, maxHeight), Math.min(height, maxHeight))}px`;
   };
+  const [selectedTags, setSelectedTags] = createSignal<string[]>([]);
+  const [tagInput, setTagInput] = createSignal("");
+  const previews = new Map<string, string>();
+  const addTag = () => {
+    const name = normalizeJotTagName(tagInput().replace(/^#/, ""));
+    if (!name) return;
+    setSelectedTags((tags) => [...new Set([...tags, name])]);
+    setTagInput(""); invalidate();
+  };
   const [query, setQuery] = createSignal("");
   const [start, setStart] = createSignal("");
   const [end, setEnd] = createSignal("");
@@ -36,6 +50,7 @@ export function DailyNoteSearchDialog(props: Props) {
   const [error, setError] = createSignal<string | null>(null);
   const invalidate = () => {
     request++;
+    previews.clear();
     setLoading(false);
     setSearched(false);
     setDates([]);
@@ -46,7 +61,7 @@ export function DailyNoteSearchDialog(props: Props) {
     dialog.close?.();
     props.onClose();
   };
-  onMount(() => { dialog.showModal?.(); queryInput.focus(); });
+  onMount(() => { dialog.showModal?.(); queryInput.focus(); props.refreshTags?.(); });
   onCleanup(() => { request++; });
   const submit = async (event: SubmitEvent) => {
     event.preventDefault();
@@ -57,12 +72,22 @@ export function DailyNoteSearchDialog(props: Props) {
       const startDate = start() ? parseIsoDate(start()) : undefined;
       const endDate = end() ? parseIsoDate(end()) : undefined;
       if (startDate === null || endDate === null) throw new Error("Enter valid dates.");
-      const input = { query: query(), dateBasis: dateBasis(), ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) };
+      const input = { query: query(), tags: [...selectedTags()], dateBasis: dateBasis(), ...(startDate ? { startDate } : {}), ...(endDate ? { endDate } : {}) };
       validateDailyNoteSearch(input);
       setLoading(true);
       const results = await props.search(input);
       if (id !== request) return;
-      setDates(results);
+      const filtered: DailyNoteSearchResult[] = [];
+      if (input.tags.length) {
+        for (const result of results) {
+          if (id !== request) return;
+          const content = await props.loadPreview(result);
+          if (id !== request) return;
+          const passage = matchingTaggedPassage(content, input.query, input.tags);
+          if (passage !== null) { previews.set(result.fileId, passage); filtered.push(result); }
+        }
+      }
+      setDates(input.tags.length ? filtered : results);
       setSearched(true);
     } catch (cause) {
       if (id !== request) return;
@@ -83,6 +108,15 @@ export function DailyNoteSearchDialog(props: Props) {
       <form onSubmit={(event) => void submit(event)}>
         <label>Search words<input ref={queryInput} type="search" value={query()} aria-describedby="daily-note-search-help"
           onInput={(event) => { setQuery(event.currentTarget.value); invalidate(); }} /></label>
+        <label>Tags<input value={tagInput()} list="search-tag-suggestions"
+          onInput={(event) => setTagInput(event.currentTarget.value)}
+          onKeyDown={(event) => { if (event.key === "Enter" && tagInput().trim()) { event.preventDefault(); addTag(); } }} /></label>
+        <datalist id="search-tag-suggestions"><For each={props.tags ?? []}>{(tag) => <option value={tag} />}</For></datalist>
+        <button type="button" disabled={!normalizeJotTagName(tagInput().replace(/^#/, ""))} onClick={addTag}>Add tag</button>
+        <div class="search-actions" aria-label="Selected tags"><For each={selectedTags()}>{(tag) =>
+          <button type="button" class="tag-chip" aria-label={`Remove tag ${tag}`} onClick={() => { setSelectedTags((tags) => tags.filter((value) => value !== tag)); invalidate(); }}>#{tag} ×</button>
+        }</For></div>
+        <p>All selected tags must apply to the matching paragraph or list item, directly or through its enclosing sections.</p>
         <label class="search-date-basis"><input type="checkbox" checked={dateBasis() === "modified"}
           onChange={(event) => { setDateBasis(event.currentTarget.checked ? "modified" : "note"); invalidate(); }} />
           <span>Filter by last modified date</span>
@@ -92,18 +126,19 @@ export function DailyNoteSearchDialog(props: Props) {
           <label>End date (not included)<input type="date" value={end()} onInput={(event) => { setEnd(event.currentTarget.value); invalidate(); }} /></label>
         </div>
         <div class="search-actions">
-          <button type="submit" class="search-submit" disabled={!query().trim()}>Search</button>
+          <button type="submit" class="search-submit" disabled={!query().trim() && !selectedTags().length}>Search</button>
           <button type="button" onClick={() => { setStart(""); setEnd(""); invalidate(); }}>Clear dates</button>
         </div>
       </form>
       <Show when={error()}>{(message) => <p role="alert">Search failed: {message()} Reconnect if needed, then try again.</p>}</Show>
       <div role="status" aria-live="polite">
-        <Show when={loading()}>Searching…</Show>
+        <Show when={loading()}>Searching… Checking candidate notes when tags are selected.</Show>
         <Show when={searched()}>{dates().length ? `${dates().length} matching daily notes, newest first.` : "No matching daily notes."}</Show>
       </div>
       <Show when={dates().length}>
         <ul aria-label="Matching daily notes"><For each={dates()}>{(result) =>
-          <SearchResultRow result={result} query={query()} selectedDate={props.selectedDate} today={props.today} loadPreview={props.loadPreview} {...(props.getImmediatePreview ? { getImmediatePreview: props.getImmediatePreview } : {})}
+          <SearchResultRow result={result} query={query()} selectedDate={props.selectedDate} today={props.today} loadPreview={async (result) => previews.get(result.fileId) ?? await props.loadPreview(result)}
+            getImmediatePreview={(result, query) => selectedTags().length ? previews.get(result.fileId) ?? null : props.getImmediatePreview?.(result, query) ?? null}
             {...(props.resolveImage ? { resolveImage: props.resolveImage } : {})}
             onOpen={() => { close(); props.onSelect(result.date); }} />
         }</For></ul>

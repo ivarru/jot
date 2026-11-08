@@ -205,6 +205,24 @@ describe("GoogleDriveStorageProvider", () => {
     expect(fetch.requests).toHaveLength(5);
   });
 
+  it("lists authenticated folder-scoped candidates for tag-only searches", async () => {
+    const fetch = createDriveFetch([
+      json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("daily-folder", "Daily Notes", "application/vnd.google-apps.folder", "1")] }),
+      json({ files: [file("a", "2030-02-01.md", "text/markdown", "1")] })
+    ]);
+    const results = await new GoogleDriveStorageProvider(new StaticTokenProvider(), fetch.fetch)
+      .searchDailyNotes({ query: "", tags: ["work"] });
+    expect(results.map((result) => result.date)).toEqual(["2030-02-01"]);
+    const request = fetch.requests.at(-1)!;
+    const q = new URL(request.url).searchParams.get("q")!;
+    expect(q).toContain("'daily-folder' in parents");
+    expect(q).toContain("trashed = false");
+    expect(q).not.toContain("fullText");
+    expect(request.init.method ?? "GET").toBe("GET");
+    expect(new Headers(request.init.headers).get("Authorization")).toBe("Bearer test-token");
+  });
+
   it("searches body terms with authenticated folder-scoped pagination and exclusive end dates", async () => {
     const fetch = createDriveFetch([
       json({ files: [file("jot-folder", "jot", "application/vnd.google-apps.folder", "1")] }),
