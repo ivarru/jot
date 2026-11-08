@@ -196,3 +196,21 @@ No application adaptation was needed.
 Verification: `npm run verify` passed 879 tests, types, and build. The complete
 Chrome suite passed all 210 tests, including native editor input, paste,
 selection, undo, tags, search, storage, auth, and security-policy workflows.
+
+## November refresh: framework and build (0.39.3)
+
+Update SolidStart to 2.2.2 and the exact Nitro pin to 3.0.261103-rc. Preserve
+static output, the root preview, fail-on-error prerendering, and Pages paths.
+
+The first production build failed during prerendering: SolidStart's Seroval
+1.7 imports were externalized to the root Seroval 1.6 copy required by Solid.
+The missing `Stream` export reproduced the incompatibility. Bundle Seroval
+and its plugins in SSR so each importer retains its own dependency resolution;
+do not force Solid onto an unsupported serialization range. Both installed
+Seroval series are patched. The existing build and rendered-artifact checks
+exercise this boundary without adding a configuration-mirroring unit test.
+
+Verification: 879 tests, types, and production build passed. All 210 Chrome
+regressions passed. The Pages build and all seven artifact/security checks
+passed at `/jot/`. The actual Vite development server passed the Chrome
+app/editor startup check with no JavaScript or console errors. Servers stopped.

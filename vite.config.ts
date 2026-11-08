@@ -23,6 +23,11 @@ export default defineConfig({
     __MILKDOWN_VERSION__: JSON.stringify(milkdownKitVersion)
   },
   build: { modulePreload: false },
+  ssr: {
+    // SolidStart 2.2 uses Seroval 1.7 while Solid 1.9 uses 1.6. Bundling
+    // preserves each importer's resolution instead of externalizing both to the root copy.
+    noExternal: ["seroval", "seroval-plugins"]
+  },
   optimizeDeps: {
     // SolidStart's development overlay imports this package and its CommonJS
     // resolve-uri dependency dynamically, outside Vite's initial route scan.
