@@ -4,17 +4,19 @@ import remarkGfm from "remark-gfm";
 import { isCodeFormatActive } from "./codeToggle";
 import type { MarkdownSelection } from "./markdownSelection";
 
-export type InlineMarkFormat = "italic" | "bold";
+export type InlineMarkFormat = "italic" | "bold" | "strike";
 
 export interface InlineFormatState {
   readonly italic: boolean;
   readonly bold: boolean;
   readonly code: boolean;
+  readonly strike: boolean;
 }
 
 export const inactiveInlineFormatState: InlineFormatState = {
   italic: false,
   bold: false,
+  strike: false,
   code: false
 };
 
@@ -38,6 +40,7 @@ export function markdownInlineFormatState(markdown: string, selection: MarkdownS
   return {
     italic: isInlineFormatActive(markdown, "italic", normalized),
     bold: isInlineFormatActive(markdown, "bold", normalized),
+    strike: isInlineFormatActive(markdown, "strike", normalized),
     code: isCodeFormatActive(markdown, normalized)
   };
 }
@@ -53,7 +56,7 @@ export function toggleMarkdownInlineMark(
   kind: InlineMarkFormat
 ): InlineMarkToggleResult {
   const normalized = normalizeSelection(markdown, selection);
-  const marker = kind === "bold" ? "**" : "*";
+  const marker = kind === "bold" ? "**" : kind === "strike" ? "~~" : "*";
 
   if (normalized.start === normalized.end) {
     const emptyRange = emptyInlineFormatRangeContainingCursor(markdown, kind, normalized.start);
@@ -147,8 +150,8 @@ function collectInlineFormatRanges(markdown: string): readonly InlineFormatRange
 
   const visitPhrasing = (nodes: readonly PhrasingContent[]) => {
     for (const node of nodes) {
-      if (node.type === "emphasis" || node.type === "strong") {
-        const range = inlineFormatRangeFromNode(markdown, node, node.type === "strong" ? "bold" : "italic");
+      if (node.type === "emphasis" || node.type === "strong" || node.type === "delete") {
+        const range = inlineFormatRangeFromNode(markdown, node, node.type === "strong" ? "bold" : node.type === "delete" ? "strike" : "italic");
         if (range !== null) ranges.push(range);
         visitPhrasing(node.children);
         continue;

@@ -25,6 +25,9 @@ versions. See [Sync and Connection Statuses](docs/sync-and-connection-statuses.m
   click the preview or its open-note button to open the Daily Note. Add tags to a matching passage directly from an expanded result,
   with a target preview and checks against newer edits.
 - Milkdown WYSIWYG-style Markdown editing plus a plain text editor mode.
+- Bold, italic, strikethrough, and inline-code formatting. On narrow screens, **Aa** groups these actions to save
+  toolbar space; wider screens retain direct buttons. Strikethrough accepts `~text~` or `~~text~~`; formatting actions
+  insert double tildes, and WYSIWYG editing can serialize single tildes as double tildes.
 - Local drafts before Drive sync, configurable sync intervals, and Git-style conflict markers.
 - Daily Note upload for existing `YYYY-MM-DD.md` files, with conflict choices when local or remote content already exists.
 - System light/dark theme.

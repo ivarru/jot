@@ -277,7 +277,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
         readonly applyStructuralTab: (shiftKey: boolean) => boolean;
         readonly closeHistory: () => void;
         readonly getHistoryAvailability: () => { readonly canUndo: boolean; readonly canRedo: boolean };
-        readonly getInlineFormatState: () => { readonly italic: boolean; readonly bold: boolean; readonly code: boolean };
+        readonly getInlineFormatState: () => { readonly italic: boolean; readonly bold: boolean; readonly strike: boolean; readonly code: boolean };
         readonly getBlockFormatState: () => { readonly quote: boolean };
         readonly getListItemFormatState: () => { readonly task: boolean };
         readonly getStructuralTabAvailability: () => { readonly canIndent: boolean; readonly canDedent: boolean };
@@ -302,7 +302,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
         readonly undo: () => boolean;
       } | null) => void;
       readonly onHistoryAvailabilityChange?: (availability: { readonly canUndo: boolean; readonly canRedo: boolean }) => void;
-      readonly onInlineFormatStateChange?: (state: { readonly italic: boolean; readonly bold: boolean; readonly code: boolean }) => void;
+      readonly onInlineFormatStateChange?: (state: { readonly italic: boolean; readonly bold: boolean; readonly strike: boolean; readonly code: boolean }) => void;
       readonly onBlockFormatStateChange?: (state: { readonly quote: boolean }) => void;
       readonly onListItemFormatStateChange?: (state: { readonly task: boolean }) => void;
     }) => {
@@ -315,6 +315,7 @@ vi.mock("~/components/MilkdownEditor", async () => {
       const inlineFormatState = {
         italic: false,
         bold: false,
+        strike: false,
         code: false
       };
       const blockFormatState = {

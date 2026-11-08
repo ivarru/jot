@@ -294,7 +294,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             paragraphSchema,
             strongSchema
           },
-          { gfm, tableCellSchema, tableRowSchema },
+          { gfm, tableCellSchema, tableRowSchema, strikethroughSchema },
           { automd, inlineSyncConfig },
           { clipboard },
           { history, historyProviderPlugin },
@@ -334,6 +334,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
           milkdownInlineFormatState(view, editor?.ctx ?? null, {
             italic: emphasisSchema,
             bold: strongSchema,
+            strike: strikethroughSchema,
             code: inlineCodeSchema
           });
         const blockFormatState = (view: EditorView): BlockFormatState =>
@@ -367,6 +368,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             props.onInlineFormatStateChange?.(milkdownInlineFormatState(view, ctx, {
               italic: emphasisSchema,
               bold: strongSchema,
+              strike: strikethroughSchema,
               code: inlineCodeSchema
             }));
 
@@ -383,6 +385,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
                 props.onInlineFormatStateChange?.(milkdownInlineFormatState(updatedView, ctx, {
                   italic: emphasisSchema,
                   bold: strongSchema,
+                  strike: strikethroughSchema,
                   code: inlineCodeSchema
                 }));
               }
@@ -910,7 +913,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
             toggleInlineMarkAtSelection: (format) => {
               if (disposed || activeSession !== session || editor === null || currentReadOnly) return false;
               const view = editor.ctx.get(editorViewCtx);
-              const markType = format === "bold" ? strongSchema.type(editor.ctx) : emphasisSchema.type(editor.ctx);
+              const markType = format === "bold" ? strongSchema.type(editor.ctx) : format === "strike" ? strikethroughSchema.type(editor.ctx) : emphasisSchema.type(editor.ctx);
               const applied = toggleInlineMarkInView(view, TextSelection, markType, toggleMark);
               if (!applied) return false;
               notifyHistoryAvailability(view);
@@ -1267,6 +1270,7 @@ function milkdownInlineFormatState(
   schemas: {
     readonly italic: MarkSchemaProvider;
     readonly bold: MarkSchemaProvider;
+    readonly strike: MarkSchemaProvider;
     readonly code: MarkSchemaProvider;
   }
 ): InlineFormatState {
@@ -1276,6 +1280,7 @@ function milkdownInlineFormatState(
   return {
     italic: hasMark(schemas.italic),
     bold: hasMark(schemas.bold),
+    strike: hasMark(schemas.strike),
     code: hasMark(schemas.code)
   };
 }

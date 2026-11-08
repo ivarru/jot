@@ -375,6 +375,11 @@ export default function Home() {
     setSettingsOpen(false);
     queueMicrotask(() => settingsReturnFocus?.focus());
   };
+  const [inlineFormatMenu, setInlineFormatMenu] = createSignal<{
+    date: IsoDate; source: string; mode: EditorMode; selection: MarkdownSelection;
+  } | null>(null);
+  let inlineFormatMenuElement: HTMLDivElement | undefined;
+  let inlineFormatMenuButton: HTMLButtonElement | undefined;
   const [topMenuOpen, setTopMenuOpen] = createSignal(false);
   const [aboutOpen, setAboutOpen] = createSignal(false);
   const [editorMode, setEditorMode] = createSignal<EditorMode>("wysiwyg");
@@ -437,6 +442,7 @@ export default function Home() {
   let plainTextEditorElement: HTMLTextAreaElement | null = null;
   let pendingEditorModeSelection: MarkdownSelection | null | undefined;
   let pendingFormattingToolbarSelection: MarkdownSelection | null | undefined;
+  let pendingFormattingToolbarSnapshot: { date: IsoDate | null; source: string; mode: EditorMode } | undefined;
   let pendingStructuralTabSelection: MarkdownSelection | null | undefined;
   let structuralToolbarPointerHandled = false;
   let pendingSectionLinkSourceSelection: MarkdownSelection | null | undefined;
@@ -2042,6 +2048,7 @@ export default function Home() {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const selection = currentEditorSelection();
     pendingFormattingToolbarSelection = selection;
+    pendingFormattingToolbarSnapshot = { date: selectedDate(), source: currentEditorMarkdown(), mode: editorMode() };
     if (restoreSelection && selection !== null && editorMode() !== "wysiwyg") setFocusEditorSelection(selection);
     event.preventDefault();
   };
@@ -2071,7 +2078,11 @@ export default function Home() {
   const takeFormattingToolbarSelection = (): MarkdownSelection | null => {
     if (pendingFormattingToolbarSelection !== undefined) {
       const selection = pendingFormattingToolbarSelection;
+      const snapshot = pendingFormattingToolbarSnapshot;
       pendingFormattingToolbarSelection = undefined;
+      pendingFormattingToolbarSnapshot = undefined;
+      if (snapshot === undefined || snapshot.date !== selectedDate() || snapshot.date !== loadedDate()
+        || snapshot.mode !== editorMode() || snapshot.source !== currentEditorMarkdown()) return null;
       return selection;
     }
 
@@ -2605,6 +2616,62 @@ export default function Home() {
     setLinkModalClipboardStatus("known");
     applyLinkModalClipboardUrl(clipboardSuggestion);
   };
+
+  const closeInlineFormatMenu = () => setInlineFormatMenu(null);
+  const inlineMenuIsCurrent = () => {
+    const session = inlineFormatMenu();
+    return session !== null && session.date === selectedDate() && session.date === loadedDate()
+      && session.mode === editorMode() && session.source === currentEditorMarkdown()
+      && selectedDateCanWrite() && !manualConflictMarkersPresent();
+  };
+  const openInlineFormatMenu = () => {
+    if (inlineFormatMenu() !== null) { closeInlineFormatMenu(); return; }
+    const date = selectedDate();
+    const selection = takeFormattingToolbarSelection();
+    if (date === null || loadedDate() !== date || selection === null || !selectedDateCanWrite() || manualConflictMarkersPresent()) return;
+    setInlineFormatState(currentInlineFormatState());
+    const session = { date, source: currentEditorMarkdown(), mode: editorMode(), selection };
+    setInlineFormatMenu(session);
+    queueMicrotask(() => {
+      if (inlineFormatMenu() !== session || !inlineMenuIsCurrent()) return;
+      const popover = inlineFormatMenuElement?.querySelector<HTMLElement>(".inline-format-popover");
+      if (!popover) return;
+      const bounds = popover.getBoundingClientRect();
+      const shift = bounds.left < 8 ? 8 - bounds.left : Math.min(0, window.innerWidth - 8 - bounds.right);
+      popover.style.marginLeft = `${shift}px`;
+      popover.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+    });
+  };
+  const applyInlineMenuFormat = (format: InlineMarkFormat | "code") => {
+    const session = inlineFormatMenu();
+    if (!inlineMenuIsCurrent() || session === null) { closeInlineFormatMenu(); return; }
+    closeInlineFormatMenu();
+    pendingFormattingToolbarSelection = session.selection;
+    pendingFormattingToolbarSnapshot = session;
+    if (format === "code") toggleCodeFormatAtSelection();
+    else toggleInlineMarkAtSelection(format);
+  };
+  createEffect(() => {
+    if (inlineFormatMenu() === null) return;
+    markdown();
+    if (!inlineMenuIsCurrent()) { closeInlineFormatMenu(); return; }
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !inlineFormatMenuElement?.contains(event.target)) closeInlineFormatMenu();
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (!isEscapeKey(event)) return;
+      event.preventDefault(); event.stopPropagation(); closeInlineFormatMenu();
+      inlineFormatMenuButton?.focus();
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape, true);
+    window.addEventListener("resize", closeInlineFormatMenu);
+    onCleanup(() => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape, true);
+      window.removeEventListener("resize", closeInlineFormatMenu);
+    });
+  });
 
   const toggleCodeFormatAtSelection = () => {
     const selection = takeFormattingToolbarSelection();
@@ -3629,9 +3696,32 @@ export default function Home() {
               >
                 <IndentIcon />
               </button>
+              <div class="inline-format-menu" ref={inlineFormatMenuElement}>
+                <button type="button" class="icon-button" aria-label="Text formatting" aria-expanded={inlineFormatMenu() !== null}
+                  aria-controls="inline-format-options" ref={inlineFormatMenuButton}
+                  disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                  onPointerDown={preserveFormattingToolbarSelection} onClick={openInlineFormatMenu}>Aa</button>
+                <Show when={inlineFormatMenu() !== null}>
+                  <div id="inline-format-options" class="inline-format-popover" role="group" aria-label="Text formatting options">
+                    <For each={[{ kind: "bold", label: "Bold" }, { kind: "italic", label: "Italic" },
+                      { kind: "strike", label: "Strikethrough" }, { kind: "code", label: "Inline code" }] as const}>{(item) =>
+                      <button type="button" aria-pressed={inlineFormatState()[item.kind]}
+                        onPointerDown={(event) => event.preventDefault()}
+                        onClick={() => applyInlineMenuFormat(item.kind)}>{item.label}</button>
+                    }</For>
+                  </div>
+                </Show>
+              </div>
+              <button type="button" class="icon-button format-toggle-button inline-format-direct"
+                classList={{ "is-active": inlineFormatState().strike }} aria-label="Toggle strikethrough format"
+                aria-pressed={inlineFormatState().strike} data-tooltip="Toggle strikethrough format"
+                disabled={!selectedDateCanWrite() || manualConflictMarkersPresent()}
+                onPointerDown={preserveFormattingToolbarSelection} onClick={() => toggleInlineMarkAtSelection("strike")}>
+                <s>S</s>
+              </button>
               <button
                 type="button"
-                class="icon-button format-toggle-button"
+                class="icon-button format-toggle-button inline-format-direct"
                 classList={{ "is-active": inlineFormatState().italic }}
                 aria-label="Toggle italic format"
                 aria-pressed={inlineFormatState().italic}
@@ -3644,7 +3734,7 @@ export default function Home() {
               </button>
               <button
                 type="button"
-                class="icon-button format-toggle-button"
+                class="icon-button format-toggle-button inline-format-direct"
                 classList={{ "is-active": inlineFormatState().bold }}
                 aria-label="Toggle bold format"
                 aria-pressed={inlineFormatState().bold}
@@ -3670,7 +3760,7 @@ export default function Home() {
               </button>
               <button
                 type="button"
-                class="icon-button format-toggle-button"
+                class="icon-button format-toggle-button inline-format-direct"
                 classList={{ "is-active": inlineFormatState().code }}
                 aria-label="Toggle inline code format"
                 aria-pressed={inlineFormatState().code}

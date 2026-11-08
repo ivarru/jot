@@ -2760,6 +2760,8 @@ describe("Home reconnect and conflict handling", () => {
       "Dedent",
       "Toggle task checkbox",
       "Indent",
+      "Text formatting",
+      "Toggle strikethrough format",
       "Toggle italic format",
       "Toggle bold format",
       "Toggle block quote format",

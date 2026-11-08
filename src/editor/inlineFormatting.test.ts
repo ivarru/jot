@@ -64,16 +64,19 @@ describe("inline formatting", () => {
     expect(markdownInlineFormatState(markdown, cursor(markdown, "emphasis"))).toEqual({
       italic: true,
       bold: false,
+      strike: false,
       code: false
     });
     expect(markdownInlineFormatState(markdown, cursor(markdown, "strong"))).toEqual({
       italic: false,
       bold: true,
+      strike: false,
       code: false
     });
     expect(markdownInlineFormatState(markdown, cursor(markdown, "code"))).toEqual({
       italic: false,
       bold: false,
+      strike: false,
       code: true
     });
   });
@@ -84,6 +87,7 @@ describe("inline formatting", () => {
     expect(markdownInlineFormatState(markdown, selection(markdown, "bold"))).toEqual({
       italic: false,
       bold: true,
+      strike: false,
       code: false
     });
     expect(markdownInlineFormatState(markdown, {
@@ -92,6 +96,7 @@ describe("inline formatting", () => {
     })).toEqual({
       italic: false,
       bold: false,
+      strike: false,
       code: false
     });
   });
@@ -115,3 +120,13 @@ function cursor(markdown: string, inside: string): { readonly start: number; rea
     end: offset
   };
 }
+
+it("applies strikethrough with double tildes and recognizes both GFM spellings", () => {
+  expect(toggleMarkdownInlineMark("redacted", { start: 0, end: 8 }, "strike").markdown).toBe("~~redacted~~");
+  for (const source of ["~redacted~", "~~redacted~~"]) {
+    const start = source.indexOf("redacted");
+    const selection = { start, end: start + 8 };
+    expect(markdownInlineFormatState(source, selection).strike).toBe(true);
+    expect(toggleMarkdownInlineMark(source, selection, "strike").markdown).toBe("redacted");
+  }
+});

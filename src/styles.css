@@ -1800,3 +1800,26 @@ select {
   gap: 8px;
   overflow-wrap: anywhere;
 }
+
+.inline-format-menu { display: none; position: relative; }
+.inline-format-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  min-width: 150px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 4px 16px #0003;
+  display: grid;
+  gap: 4px;
+}
+.inline-format-popover button { min-height: 40px; text-align: left; }
+.inline-format-popover button[aria-pressed="true"] { color: var(--accent); font-weight: 700; }
+@media (max-width: 720px) {
+  .inline-format-menu { display: block; }
+  .inline-format-direct { display: none; }
+}

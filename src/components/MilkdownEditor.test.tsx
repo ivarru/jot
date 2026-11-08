@@ -571,7 +571,7 @@ describe("MilkdownEditor", () => {
     document.body.append(host);
     const changes: string[] = [];
     let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
-    let getInlineFormatState!: () => { readonly italic: boolean; readonly bold: boolean; readonly code: boolean };
+    let getInlineFormatState!: () => { readonly italic: boolean; readonly bold: boolean; readonly strike: boolean; readonly code: boolean };
     let toggleInlineMarkAtSelection!: (format: "italic" | "bold") => boolean;
 
     const dispose = render(
@@ -607,11 +607,11 @@ describe("MilkdownEditor", () => {
       await animationFrame();
       await animationFrame();
 
-      expect(getInlineFormatState()).toEqual({ italic: false, bold: false, code: false });
+      expect(getInlineFormatState()).toEqual({ italic: false, bold: false, strike: false, code: false });
       expect(toggleInlineMarkAtSelection("bold")).toBe(true);
-      expect(getInlineFormatState()).toEqual({ italic: false, bold: true, code: false });
+      expect(getInlineFormatState()).toEqual({ italic: false, bold: true, strike: false, code: false });
       expect(toggleInlineMarkAtSelection("italic")).toBe(true);
-      expect(getInlineFormatState()).toEqual({ italic: true, bold: true, code: false });
+      expect(getInlineFormatState()).toEqual({ italic: true, bold: true, strike: false, code: false });
       await delay(300);
 
       expect(changes).toEqual([]);
@@ -624,7 +624,7 @@ describe("MilkdownEditor", () => {
     const host = document.createElement("div");
     document.body.append(host);
     let setSelection!: (selection: { readonly start: number; readonly end: number } | null) => void;
-    let getInlineFormatState!: () => { readonly italic: boolean; readonly bold: boolean; readonly code: boolean };
+    let getInlineFormatState!: () => { readonly italic: boolean; readonly bold: boolean; readonly strike: boolean; readonly code: boolean };
 
     const dispose = render(
       () => {
@@ -656,12 +656,12 @@ describe("MilkdownEditor", () => {
       setSelection({ start: "**a**".length, end: "**a**b".length });
       await animationFrame();
       await animationFrame();
-      expect(getInlineFormatState()).toEqual({ italic: false, bold: false, code: false });
+      expect(getInlineFormatState()).toEqual({ italic: false, bold: false, strike: false, code: false });
 
       setSelection({ start: "**a**b**".length, end: "**a**b**c".length });
       await animationFrame();
       await animationFrame();
-      expect(getInlineFormatState()).toEqual({ italic: false, bold: true, code: false });
+      expect(getInlineFormatState()).toEqual({ italic: false, bold: true, strike: false, code: false });
     } finally {
       dispose();
     }
