@@ -19,7 +19,7 @@ stage independently committed with an app patch bump. Retain deliberate pins if 
 ## Acceptance criteria
 
 - [x] Security and routine dependency updates verified and committed.
-- [ ] Milkdown kit/automd updated together and editor regressions checked.
+- [x] Milkdown kit/automd updated together and editor regressions checked.
 - [ ] Framework/build updates checked for development startup, browser behavior, and Pages artifacts.
 - [ ] Supported Node runtime and matching types evaluated and verified.
 - [ ] jsdom and fake-indexeddb evaluated independently; retained pins explained with evidence.
@@ -34,3 +34,5 @@ Use the full Chrome suite for editor/framework migrations and Pages artifact che
 
 Stage 1 (0.39.1): security/routine packages updated; audit clear. `npm run verify` passed 879 tests, types, and build;
 all 40 focused Chrome startup/math/search/formatting checks passed.
+
+Stage 2 (0.39.2): Milkdown kit/automd 7.23.0; 879 tests, types, build, and all 210 Chrome regressions passed.

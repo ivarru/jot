@@ -184,3 +184,15 @@ for separate verification stages. npm audit now reports zero vulnerabilities.
 Verification: `npm run verify` passed all 879 tests, typecheck, and production
 build. All 40 focused Chrome checks passed for preview health, math, search,
 and compact inline formatting. No application code changes were needed.
+
+## November refresh: Milkdown (0.39.2)
+
+Update kit and the exactly pinned automd plugin together to 7.23.0. Upstream
+fixes include hard-break attribute preservation and long-space parsing; see the
+[kit changelog](https://github.com/milkdown/milkdown/blob/v7.23.0/packages/kit/CHANGELOG.md).
+Retain Jot's existing selection, inline-code affinity, and list-view guards.
+No application adaptation was needed.
+
+Verification: `npm run verify` passed 879 tests, types, and build. The complete
+Chrome suite passed all 210 tests, including native editor input, paste,
+selection, undo, tags, search, storage, auth, and security-policy workflows.
